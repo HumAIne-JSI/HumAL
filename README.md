@@ -12,6 +12,10 @@ HumAIne active learning platform.
     Model_Manager --> Train
     Model_Manager --> Predict
 
+    Train --> Retrain
+    Train --> Incremental
+    Train --> Finetuning
+
     Oracle --> Benchmark
     Oracle --> Human_User
 ```
