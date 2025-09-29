@@ -1,0 +1,228 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 240 10% 98%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 180 45% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 236 72% 79%;
+
+    /* HumAIne Brand Colors */
+    --ml-primary: 180 45% 55%;
+    --ml-secondary: 210 45% 25%;
+    --ml-accent: 180 65% 45%;
+    --ml-success: 142 76% 36%;
+    --ml-warning: 48 96% 53%;
+    --ml-error: 0 84% 60%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(180 45% 55%), hsl(210 45% 25%));
+    --gradient-subtle: linear-gradient(135deg, hsl(180 45% 98%), hsl(180 10% 95%));
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100% / 0.8), hsl(180 10% 95% / 0.4));
+
+    /* Shadows */
+    --shadow-elegant: 0 10px 30px -10px hsl(180 45% 55% / 0.2);
+    --shadow-glow: 0 0 40px hsl(180 45% 55% / 0.15);
+    --shadow-card: 0 4px 16px hsl(210 45% 25% / 0.1);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 180 45% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 45% 25%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 210 25% 20%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 180 65% 45%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 210 25% 20%;
+    --input: 210 25% 20%;
+    --ring: 180 45% 55%;
+
+    /* HumAIne Brand Colors - Dark */
+    --ml-primary: 180 45% 55%;
+    --ml-secondary: 210 45% 25%;
+    --ml-accent: 180 65% 45%;
+    --ml-success: 142 76% 36%;
+    --ml-warning: 48 96% 53%;
+    --ml-error: 0 84% 60%;
+
+    /* Gradients - Dark */
+    --gradient-primary: linear-gradient(135deg, hsl(180 45% 55%), hsl(210 45% 25%));
+    --gradient-subtle: linear-gradient(135deg, hsl(222.2 84% 4.9%), hsl(210 25% 20%));
+    --gradient-card: linear-gradient(135deg, hsl(222.2 84% 4.9% / 0.8), hsl(210 25% 20% / 0.4));
+
+    /* Shadows - Dark */
+    --shadow-elegant: 0 10px 30px -10px hsl(180 45% 55% / 0.3);
+    --shadow-glow: 0 0 40px hsl(180 45% 55% / 0.2);
+    --shadow-card: 0 4px 16px hsl(0 0% 0% / 0.3);
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background: var(--gradient-subtle);
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  /* ML Dashboard Components */
+  .ml-card {
+    @apply bg-card border-border rounded-lg shadow-sm backdrop-blur-sm;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+    transition: var(--transition-smooth);
+  }
+
+  .ml-card:hover {
+    box-shadow: var(--shadow-elegant);
+    transform: translateY(-2px);
+  }
+
+  .ml-button-primary {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors;
+    @apply h-10 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90;
+    background: var(--gradient-primary);
+    box-shadow: var(--shadow-glow);
+    transition: var(--transition-smooth);
+  }
+
+  .ml-button-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-elegant);
+  }
+
+  .ml-nav-gradient {
+    background: var(--gradient-primary);
+  }
+
+  .ml-hero-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .ml-pulse {
+    animation: ml-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes ml-pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .ml-fade-in {
+    animation: ml-fade-in 0.6s ease-out;
+  }
+
+  @keyframes ml-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .ml-scale-in {
+    animation: ml-scale-in 0.3s ease-out;
+  }
+
+  @keyframes ml-scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
