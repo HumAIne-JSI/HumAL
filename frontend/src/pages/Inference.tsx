@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Zap, Send, Brain, HelpCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { apiService } from "@/services/api";
 
 const Inference = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [prediction, setPrediction] = useState<any>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [explanationTopWords, setExplanationTopWords] = useState<[string, number][] | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
   const [formData, setFormData] = useState({
     service: "",
     subcategory: "",
@@ -21,69 +23,117 @@ const Inference = () => {
     description: ""
   });
   const { toast } = useToast();
+  
+  // Track the current prediction ID to prevent stale LIME explanations
+  const currentPredictionIdRef = useRef<number>(0);
 
-  // Mock available models (latest first)
-  const availableModels = [
-    {
-      id: "al_inference_1729789012",
-      name: "Ticket Classification Model v3.2",
-      accuracy: 94.8,
-      status: "active",
-      createdAt: "2024-10-24T14:30:12Z"
-    },
-    {
-      id: "al_inference_1729702612",
-      name: "Ticket Classification Model v3.1",
-      accuracy: 92.1,
-      status: "active",
-      createdAt: "2024-10-23T14:30:12Z"
-    },
-    {
-      id: "al_inference_1729616212",
-      name: "Ticket Classification Model v3.0",
-      accuracy: 89.7,
-      status: "archived",
-      createdAt: "2024-10-22T14:30:12Z"
-    }
-  ];
+  // Available models from API
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  
+  // Available categories and subcategories from API
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableSubcategories, setAvailableSubcategories] = useState<string[]>([]);
 
-  // Auto-select the latest model on component mount
+  // Fetch available models from API
   useEffect(() => {
-    if (availableModels.length > 0) {
-      setSelectedModel(availableModels[0].id);
-    }
+    const fetchModels = async () => {
+      try {
+        const instancesResponse = await apiService.getInstances();
+        
+        if (instancesResponse.success && instancesResponse.data) {
+          const instances = instancesResponse.data.instances;
+          
+          // Fetch info for each instance to get accuracy
+          const modelPromises = Object.keys(instances).map(async (instanceId) => {
+            const instance = instances[instanceId];
+            
+            // Only process dispatch models (same as dispatch labeling page)
+            if (instance.al_type !== 'dispatch') return null;
+            
+            // Fetch instance info to get f1_scores
+            const infoResponse = await apiService.getInstanceInfo(parseInt(instanceId));
+            
+            let accuracy = null;
+            if (infoResponse.success && infoResponse.data?.f1_scores) {
+              const f1Scores = infoResponse.data.f1_scores;
+              if (f1Scores.length > 0) {
+                accuracy = Math.round(f1Scores[f1Scores.length - 1] * 100 * 10) / 10;
+              }
+            }
+            
+            // Capitalize model name
+            const capitalizedModelName = instance.model_name
+              .split(' ')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(' ');
+            
+            return {
+              id: instanceId,
+              name: `${capitalizedModelName} v${instanceId}`,
+              accuracy,
+              status: "active"
+            };
+          });
+          
+          const models = (await Promise.all(modelPromises)).filter(m => m !== null);
+          models.sort((a, b) => parseInt(b.id) - parseInt(a.id)); // Sort newest first
+          
+          setAvailableModels(models);
+          
+          // Set default to first model
+          if (models.length > 0 && !selectedModel) {
+            setSelectedModel(models[0].id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load models:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load available models",
+          variant: "destructive",
+        });
+      }
+    };
+
+    const fetchCategories = async () => {
+      try {
+        // Use instance ID 0 with train data path before instance is created
+        const trainDataPath = "data/al_demo_train_data.csv";
+        const categoriesResponse = await apiService.getCategories(0, trainDataPath);
+        if (categoriesResponse.success && categoriesResponse.data) {
+          setAvailableCategories(categoriesResponse.data.categories);
+        }
+      } catch (error) {
+        console.error("Failed to load categories:", error);
+      }
+    };
+
+    const fetchSubcategories = async () => {
+      try {
+        // Use instance ID 0 with train data path before instance is created
+        const trainDataPath = "data/al_demo_train_data.csv";
+        const subcategoriesResponse = await apiService.getSubcategories(0, trainDataPath);
+        if (subcategoriesResponse.success && subcategoriesResponse.data) {
+          setAvailableSubcategories(subcategoriesResponse.data.subcategories);
+        }
+      } catch (error) {
+        console.error("Failed to load subcategories:", error);
+      }
+    };
+
+    fetchModels();
+    fetchCategories();
+    fetchSubcategories();
   }, []);
 
-  const services = [
-    { value: "it-support", label: "IT Support" },
-    { value: "hr", label: "Human Resources" },
-    { value: "finance", label: "Finance" },
-    { value: "facilities", label: "Facilities" }
-  ];
-
-  const subcategories = {
-    "it-support": [
-      { value: "software", label: "Software Issues" },
-      { value: "hardware", label: "Hardware Issues" },
-      { value: "access", label: "Access Management" },
-      { value: "email", label: "Email & Communication" }
-    ],
-    "hr": [
-      { value: "benefits", label: "Benefits & Compensation" },
-      { value: "policies", label: "HR Policies" },
-      { value: "training", label: "Training & Development" }
-    ],
-    "finance": [
-      { value: "expenses", label: "Expense Reports" },
-      { value: "invoicing", label: "Invoicing" },
-      { value: "budget", label: "Budget Requests" }
-    ],
-    "facilities": [
-      { value: "maintenance", label: "Maintenance Requests" },
-      { value: "security", label: "Security Access" },
-      { value: "supplies", label: "Office Supplies" }
-    ]
-  };
+  useEffect(() => {
+    // If models are loaded and no model is selected yet, pick the first one.
+    // We depend on availableModels so this runs *after* the fetch finishes.
+    if (availableModels.length > 0 && !selectedModel) {
+      setSelectedModel(availableModels[0].id);
+      console.log("Auto-selected model:", availableModels[0].id);
+    }
+  }, [availableModels, selectedModel]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,33 +147,70 @@ const Inference = () => {
       return;
     }
     
+    // Increment prediction ID to invalidate any pending LIME requests
+    currentPredictionIdRef.current += 1;
+    const thisPredictionId = currentPredictionIdRef.current;
+    
     setIsLoading(true);
+    setExplanationTopWords(null);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const selectedModelInfo = availableModels.find(m => m.id === selectedModel);
-      
-      // Mock prediction result based on selected model
-      const mockPrediction = {
-        group: "IT Support - Access Management",
-        confidence: 0.94,
-        explanation: `The ticket contains keywords related to software access (Jira, license, project access) and follows typical access request patterns. ${selectedModelInfo?.name} is highly confident based on similar training examples.`,
-        reasoning: [
-          { factor: "Keywords", score: 0.98, details: "Jira, license, access, project" },
-          { factor: "Pattern Match", score: 0.91, details: "Follows standard access request format" },
-          { factor: "Service Category", score: 0.93, details: "Matches IT Support service patterns" }
-        ],
-        model: selectedModelInfo
+      // Build inference payload
+      const inferenceData = {
+        service_subcategory_name: formData.subcategory,
+        service_name: formData.service,
+        title_anon: formData.title,
+        description_anon: formData.description,
+        team_name: undefined,
+        last_team_id_name: undefined,
+        public_log_anon: undefined
       };
-      
-      setPrediction(mockPrediction);
-      
+
+      // Call real inference endpoint
+      const inferRes = await apiService.infer(parseInt(selectedModel), inferenceData);
+      if (!inferRes.success || !inferRes.data) {
+        if (inferRes.error?.detail?.includes("not trained yet")) {
+          toast({ title: "Model not trained", description: "Please train the model first.", variant: "destructive" });
+          return;
+        }
+        throw new Error(inferRes.error?.detail || "Failed to get prediction from model");
+      }
+
+      const selectedModelInfo = availableModels.find(m => m.id === selectedModel);
+      // Backend returns array of predictions; extract first element
+      const predictedGroup = Array.isArray(inferRes.data) ? inferRes.data[0] : inferRes.data.prediction;
+
+      // Set immediate prediction (no confidence shown)
+      setPrediction({
+        group: String(predictedGroup),
+        explanation: `Prediction generated by ${selectedModelInfo?.name}.`,
+        model: selectedModelInfo
+      });
+
       toast({
         title: "Prediction Complete",
-        description: `Ticket classified as: ${mockPrediction.group}`,
+        description: `Ticket classified as: ${String(predictedGroup)}`,
       });
+
+      // Fire-and-forget LIME explanation; show reasoning once it arrives
+      (async () => {
+        try {
+          const explainRes = await apiService.explainLime(parseInt(selectedModel), {
+            ticket_data: inferenceData,
+            model_id: 0
+          });
+          
+          // Only update if this is still the current prediction
+          if (thisPredictionId === currentPredictionIdRef.current && explainRes.success && explainRes.data && explainRes.data.length > 0) {
+            const item = explainRes.data[0];
+            if (item && Array.isArray(item.top_words)) {
+              setExplanationTopWords(item.top_words);
+            }
+          }
+        } catch (err) {
+          console.error("Explain LIME failed", err);
+        }
+      })();
     } catch (error) {
       toast({
         title: "Error",
@@ -139,12 +226,6 @@ const Inference = () => {
     if (confidence >= 0.9) return "text-ml-success";
     if (confidence >= 0.7) return "text-ml-warning";
     return "text-ml-error";
-  };
-
-  const getConfidenceBadge = (confidence: number) => {
-    if (confidence >= 0.9) return "default";
-    if (confidence >= 0.7) return "secondary";
-    return "destructive";
   };
 
   return (
@@ -176,37 +257,49 @@ const Inference = () => {
               {/* Model Selection */}
               <div className="space-y-2">
                 <Label htmlFor="model">Select Inference Model</Label>
-                <Select value={selectedModel} onValueChange={setSelectedModel}>
+
+                <Select
+                  // key causes remount when availableModels[0].id changes (prevents stale UI)
+                  key={availableModels.length > 0 ? `models-${availableModels[0].id}` : "no-models"}
+                  value={selectedModel ?? undefined}              // use undefined for "no value"
+                  onValueChange={(val) => setSelectedModel(val)}
+                  disabled={availableModels.length === 0}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="-- Select a Model --" />
+                    <SelectValue
+                      placeholder={availableModels.length === 0 ? "No models available" : "-- Select a Model --"}
+                    />
                   </SelectTrigger>
+
                   <SelectContent>
                     {availableModels.map((model) => (
                       <SelectItem key={model.id} value={model.id}>
                         <div className="flex items-center justify-between w-full min-w-0">
                           <div className="flex items-center space-x-2">
                             <span>{model.name}</span>
-                            <Badge 
-                              variant={model.status === 'active' ? 'default' : 'secondary'}
-                              className="text-xs"
-                            >
+                            <Badge variant={model.status === 'active' ? 'default' : 'secondary'} className="text-xs">
                               {model.status}
                             </Badge>
                           </div>
-                          <span className="text-sm text-muted-foreground ml-2">
-                            {model.accuracy}% acc
-                          </span>
+                          {model.accuracy !== null && (
+                            <span className="text-sm text-muted-foreground ml-2">
+                              {model.accuracy}% acc
+                            </span>
+                          )}
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+
                 {selectedModel && (
                   <p className="text-sm text-muted-foreground">
                     Using: {availableModels.find(m => m.id === selectedModel)?.name}
-                    <span className="text-ml-success ml-2">
-                      ({availableModels.find(m => m.id === selectedModel)?.accuracy}% accuracy)
-                    </span>
+                    {availableModels.find(m => m.id === selectedModel)?.accuracy !== null && (
+                      <span className="text-ml-success ml-2">
+                        ({availableModels.find(m => m.id === selectedModel)?.accuracy}% accuracy)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -218,14 +311,15 @@ const Inference = () => {
                   <Select 
                     value={formData.service} 
                     onValueChange={(value) => setFormData({...formData, service: value, subcategory: ""})}
+                    disabled={availableCategories.length === 0}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a service" />
+                      <SelectValue placeholder={availableCategories.length === 0 ? "No categories available" : "Select a service"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {services.map((service) => (
-                        <SelectItem key={service.value} value={service.value}>
-                          {service.label}
+                      {availableCategories.map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -237,15 +331,15 @@ const Inference = () => {
                   <Select 
                     value={formData.subcategory} 
                     onValueChange={(value) => setFormData({...formData, subcategory: value})}
-                    disabled={!formData.service}
+                    disabled={!formData.service || availableSubcategories.length === 0}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a subcategory" />
+                      <SelectValue placeholder={availableSubcategories.length === 0 ? "No subcategories available" : "Select a subcategory"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {formData.service && subcategories[formData.service as keyof typeof subcategories]?.map((sub) => (
-                        <SelectItem key={sub.value} value={sub.value}>
-                          {sub.label}
+                      {availableSubcategories.map((subcategory) => (
+                        <SelectItem key={subcategory} value={subcategory}>
+                          {subcategory}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -316,60 +410,58 @@ const Inference = () => {
             <CardContent className="space-y-6">
               {/* Main Prediction */}
               <div className="text-center p-6 bg-gradient-to-r from-ml-primary/10 to-ml-secondary/10 rounded-lg">
-                <h3 className="text-2xl font-bold mb-2">{prediction.group}</h3>
-                <div className="flex items-center justify-center space-x-2">
-                  <span className="text-muted-foreground">Confidence:</span>
-                  <Badge variant={getConfidenceBadge(prediction.confidence)} className="text-lg px-3 py-1">
-                    {(prediction.confidence * 100).toFixed(1)}%
-                  </Badge>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <HelpCircle className="w-4 h-4" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-80">
-                      <div className="space-y-2">
-                        <h4 className="font-semibold">Model Explanation</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {prediction.explanation}
-                        </p>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    <div className="ml-pulse w-8 h-8 mx-auto bg-primary rounded-full" />
+                    <p className="text-muted-foreground">Analyzing ticket content...</p>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="text-2xl font-bold mb-2">{prediction.group}</h3>
+                    <p className="text-muted-foreground mb-3">Predicted classification</p>
+                  </>
+                )}
               </div>
 
-              {/* Reasoning Breakdown */}
-              <div className="space-y-4">
-                <h4 className="font-semibold">Reasoning Breakdown</h4>
-                <div className="space-y-3">
-                  {prediction.reasoning.map((item: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                      <div>
-                        <div className="font-medium">{item.factor}</div>
-                        <div className="text-sm text-muted-foreground">{item.details}</div>
-                      </div>
-                      <div className={`font-bold ${getConfidenceColor(item.score)}`}>
-                        {(item.score * 100).toFixed(1)}%
+              {!isLoading && (
+                <>
+                  {/* Model Info */}
+                  <div className="text-center text-sm text-muted-foreground mb-4">
+                    Prediction by: <span className="font-semibold">{prediction.model?.name}</span>
+                    {prediction.model?.accuracy !== null && (
+                      <Badge variant="outline" className="ml-2">
+                        {prediction.model?.accuracy}% accuracy
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Reasoning appears after explanation arrives */}
+                  {explanationTopWords && (
+                    <div className="p-4 bg-muted/30 rounded-lg">
+                      <h4 className="font-semibold mb-2">Reasoning</h4>
+                      <p className="text-sm text-muted-foreground mb-2">{prediction.explanation}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {explanationTopWords.slice(0, 10).map(([word, weight], idx) => (
+                          <span 
+                            key={`${word}-${idx}`} 
+                            className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
+                              weight > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                            }`}
+                          >
+                            <span className="mr-1">{word}</span>
+                            <Badge 
+                              variant="secondary" 
+                              className={weight > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}
+                            >
+                              {weight.toFixed(3)}
+                            </Badge>
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap gap-3 justify-center pt-4">
-                <Button className="ml-button-primary">
-                  Accept Classification
-                </Button>
-                <Button variant="outline">
-                  Provide Feedback
-                </Button>
-                <Button variant="outline">
-                  View Similar Cases
-                </Button>
-              </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         )}
@@ -390,13 +482,17 @@ const Inference = () => {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={() => setFormData({
-                    ...formData,
-                    title: "Jira License Request",
-                    description: "I need a Jira license to access the project Agile Transformation and track my development tasks",
-                    service: "it-support",
-                    subcategory: "access"
-                  })}
+                  onClick={() => {
+                    const firstCategory = availableCategories[0] || "";
+                    const firstSubcategory = availableSubcategories[0] || "";
+                    setFormData({
+                      ...formData,
+                      title: "Jira License Request",
+                      description: "I need a Jira license to access the project Agile Transformation and track my development tasks",
+                      service: firstCategory,
+                      subcategory: firstSubcategory
+                    });
+                  }}
                 >
                   Use This Example
                 </Button>
@@ -410,13 +506,17 @@ const Inference = () => {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={() => setFormData({
-                    ...formData,
-                    title: "Laptop Screen Issue",
-                    description: "My laptop screen is flickering and sometimes goes black. It's affecting my productivity.",
-                    service: "it-support",
-                    subcategory: "hardware"
-                  })}
+                  onClick={() => {
+                    const firstCategory = availableCategories[0] || "";
+                    const firstSubcategory = availableSubcategories[0] || "";
+                    setFormData({
+                      ...formData,
+                      title: "Laptop Screen Issue",
+                      description: "My laptop screen is flickering and sometimes goes black. It's affecting my productivity.",
+                      service: firstCategory,
+                      subcategory: firstSubcategory
+                    });
+                  }}
                 >
                   Use This Example
                 </Button>

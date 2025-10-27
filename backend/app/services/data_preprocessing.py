@@ -86,7 +86,7 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
     return X, y_true, le, oh, index_dict
 
 # Data preprocessing for the inference endpoint
-def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder):
+def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_model: SentenceTransformer = None):
     """
     This function preprocesses the data for the inference endpoint.
     It takes the dataframe with pydantic Data model fields and returns a dataframe with embeddings
@@ -103,7 +103,9 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder):
     df['Title+Description'] = df['Title_anon'] + df['Description_anon']
     
     # Embeddings for the Title+Description
-    sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+    if sentence_model is None:
+        sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        
     embeddings = sentence_model.encode(df['Title+Description'], show_progress_bar=False)
     # Convert to a dataframe
     X = pd.DataFrame(embeddings)

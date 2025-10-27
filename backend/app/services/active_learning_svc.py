@@ -27,8 +27,10 @@ class ActiveLearningService:
         # Initialize active learning instance
         self.storage.al_instances_dict[instance_id] = {
             'model': model_dict[new_instance.model_name],
+            'model_name': new_instance.model_name,
             'qs': new_instance.qs_strategy,
-            'classes': classes
+            'classes': classes,
+            'al_type': new_instance.al_type
         }
         
         # Preprocess the data
@@ -56,7 +58,9 @@ class ActiveLearningService:
             'le': le,
             'oh': oh,
             'index_dict_train': index_dict_train,
-            'index_dict_train_inv': index_dict_train_inv
+            'index_dict_train_inv': index_dict_train_inv,
+            'train_data_path': new_instance.train_data_path,
+            'test_data_path': new_instance.test_data_path
         }
         
         return instance_id

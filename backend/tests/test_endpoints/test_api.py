@@ -1,11 +1,17 @@
 import requests
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
+# Get the correct path to the data directory (relative to this test file)
+# This script is in backend/tests/test_endpoints/, data is in backend/data/
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # Go up to backend/
+DATA_DIR = BASE_DIR / "data"
 
 # get all of the classes in the dataset
-df = pd.read_csv('data/al_demo_train_data.csv')
+df = pd.read_csv(DATA_DIR / 'al_demo_train_data.csv')
 df.set_index('Ref', inplace=True)
-y = pd.read_csv('data/al_demo_train_labels_dispatch.csv')
+y = pd.read_csv(DATA_DIR / 'al_demo_train_labels_dispatch.csv')
 y.set_index('Ref', inplace=True)
 # Replace NaN values with None in the y dataframe (json cannot handle np.nan)
 y = y.replace({np.nan: None})
@@ -123,7 +129,7 @@ print("\n")
 #---------------------------------
 # Resolution part
 #---------------------------------
-
+"""
 # create the classes
 data_path_train = requests.post("http://127.0.0.1:8000/activelearning/resolution_label_creation?data_path=data/al_demo_train_data.csv&output_data_path=data/al_demo_train_data_res_classes.csv").json()['data_path']
 data_path_test = requests.post("http://127.0.0.1:8000/activelearning/resolution_label_creation?data_path=data/al_demo_test_data.csv&output_data_path=data/al_demo_test_data_res_classes.csv").json()['data_path']
@@ -249,3 +255,72 @@ for i in range(5):
 response = requests.get(f"http://127.0.0.1:8000/activelearning/{instance_id}/info")
 print(f"Model performance info: {response.json()}")
 print("\n")
+"""
+
+#---------------------------------
+# Data part
+#---------------------------------
+
+# get teams
+response = requests.get(f"http://127.0.0.1:8000/data/{instance_id}/teams")
+print(f"Teams: {response.json()}")
+print("\n")
+# get categories
+response = requests.get(f"http://127.0.0.1:8000/data/{instance_id}/categories")
+print(f"Categories: {response.json()}")
+print("\n")
+
+# get subcategories
+response = requests.get(f"http://127.0.0.1:8000/data/{instance_id}/subcategories")
+print(f"Subcategories: {response.json()}")
+print("\n")
+
+# get tickets by indices
+test_indices = query_indices[:3] if len(query_indices) >= 3 else query_indices
+response = requests.post(f"http://127.0.0.1:8000/data/{instance_id}/tickets", json=test_indices)
+print(f"Tickets: {response.json()}")
+print("\n")
+
+#---------------------------------
+# Config part
+#---------------------------------
+
+# get available models
+response = requests.get("http://127.0.0.1:8000/config/models")
+print(f"Available models: {response.json()}")
+print("\n")
+
+# get available query strategies
+response = requests.get("http://127.0.0.1:8000/config/query-strategies")
+print(f"Available query strategies: {response.json()}")
+print("\n")
+
+#---------------------------------
+# XAI part - LIME explanations
+#---------------------------------
+
+# Test LIME explanation with query_idx (using indices from training data)
+print("Testing LIME explanation with query_idx...")
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/explain_lime",
+    params={
+        "query_idx": query_indices[0],  # Use first labeled instance
+        "model_id": model_id
+    }
+)
+print(f"LIME explanation (query_idx): {response.json()}")
+print("\n")
+
+# Test LIME explanation with ticket_data (new inference data)
+print("Testing LIME explanation with ticket_data...")
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/explain_lime",
+    params={
+        "model_id": model_id
+    },
+    json=test_data
+)
+print(f"LIME explanation (ticket_data): {response.json()}")
+print("\n")
+
+

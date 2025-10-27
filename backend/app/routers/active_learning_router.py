@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.dependencies import get_al_service
 from app.data_models.active_learning_dm import NewInstance, LabelRequest
 
-router = APIRouter(prefix="/activelearning")
+router = APIRouter(prefix="/activelearning", tags=["active_learning"])
 al_service = get_al_service()
 
 
@@ -44,9 +44,9 @@ def save_model(al_instance_id: int):
 
 @router.get("/instances")
 def get_instances():
-    return {"instances": list(al_service.storage.al_instances_dict.keys())}
+    return {"instances": al_service.storage.al_instances_dict}
 
-@router.delete("/activelearning/{al_instance_id}")
+@router.delete("/{al_instance_id}")
 def delete_instance(al_instance_id: int):
     if al_instance_id not in al_service.storage.al_instances_dict:
         raise HTTPException(status_code=404, detail="Instance not found")

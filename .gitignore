@@ -166,6 +166,9 @@ cython_debug/
 data/
 models/
 al_api_venv/
+backend/app/services/resolution_task.py 
+# commented because it contais the API key.
+# Uncomment it when you fix the issue.
 
 # FRONTEND
 # Logs

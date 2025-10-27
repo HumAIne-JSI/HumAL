@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Users, Check, X, ArrowRight, Search, Target, CheckCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Users, Check, X, ArrowRight, Search, Target, CheckCircle, XCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,83 +7,107 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { apiService } from "@/services/api";
 
 const DispatchLabeling = () => {
   const [currentTicket, setCurrentTicket] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [prediction, setPrediction] = useState<any>(null);
+  const [explanation, setExplanation] = useState<[string, number][] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [confirmation, setConfirmation] = useState<any>(null);
   const { toast } = useToast();
+  
+  // Track the current prediction ID to prevent stale LIME explanations
+  const currentPredictionIdRef = useRef<number>(0);
 
-  // Mock available models (newest first)
-  const availableModels = [
-    { 
-      id: "al_1737123456789", 
-      name: "Dispatch Model v3.2", 
-      created: "2024-01-15T10:30:00Z",
-      accuracy: 94.5,
-      status: "active"
-    },
-    { 
-      id: "al_1737123456788", 
-      name: "Dispatch Model v3.1", 
-      created: "2024-01-10T14:20:00Z",
-      accuracy: 91.2,
-      status: "active"
-    },
-    { 
-      id: "al_1737123456787", 
-      name: "Dispatch Model v3.0", 
-      created: "2024-01-05T09:15:00Z",
-      accuracy: 89.8,
-      status: "deprecated"
-    }
-  ];
+  // Available models from API
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  
+  // Available teams from API
+  const [availableTeams, setAvailableTeams] = useState<string[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<string>("");
+  
+  // Track if model needs manual assignment (when inference fails with "not trained yet")
+  const [needsManualAssignment, setNeedsManualAssignment] = useState<boolean>(false);
+  
+  // Track selected team for reassignment
+  const [selectedReassignTeam, setSelectedReassignTeam] = useState<string>("");
 
-  // Set default model to the latest (first in array)
+  // Fetch available models from API
   useEffect(() => {
-    if (availableModels.length > 0 && !selectedModel) {
-      setSelectedModel(availableModels[0].id);
-    }
+    const fetchModels = async () => {
+      try {
+        const instancesResponse = await apiService.getInstances();
+        
+        if (instancesResponse.success && instancesResponse.data) {
+          const instances = instancesResponse.data.instances;
+          
+          // Fetch info for each instance to get accuracy
+          const modelPromises = Object.keys(instances).map(async (instanceId) => {
+            const instance = instances[instanceId];
+            
+            // Only process dispatch models
+            if (instance.al_type !== 'dispatch') return null;
+            
+            // Fetch instance info to get f1_scores
+            const infoResponse = await apiService.getInstanceInfo(parseInt(instanceId));
+            
+            let accuracy = null;
+            if (infoResponse.success && infoResponse.data?.f1_scores) {
+              const f1Scores = infoResponse.data.f1_scores;
+              if (f1Scores.length > 0) {
+                accuracy = Math.round(f1Scores[f1Scores.length - 1] * 100 * 10) / 10;
+              }
+            }
+            
+            // Capitalize model name
+            const capitalizedModelName = instance.model_name
+              .split(' ')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(' ');
+            
+            return {
+              id: instanceId,
+              name: `${capitalizedModelName} v${instanceId}`,
+              accuracy,
+              status: "active"
+            };
+          });
+          
+          const models = (await Promise.all(modelPromises)).filter(m => m !== null);
+          models.sort((a, b) => parseInt(b.id) - parseInt(a.id)); // Sort newest first
+          
+          setAvailableModels(models);
+          
+          // Set default to first model
+          if (models.length > 0 && !selectedModel) {
+            setSelectedModel(models[0].id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load models:", error);
+      }
+    };
+
+    const fetchTeams = async () => {
+      try {
+        // Use instance ID 0 with train data path before instance is created
+        const trainDataPath = "data/al_demo_train_data.csv";
+        const teamsResponse = await apiService.getTeams(0, trainDataPath);
+        if (teamsResponse.success && teamsResponse.data) {
+          setAvailableTeams(teamsResponse.data.teams);
+        }
+      } catch (error) {
+        console.error("Failed to load teams:", error);
+      }
+    };
+
+    fetchModels();
+    fetchTeams();
   }, []);
 
-  const sampleTicketsFromModel = [
-    {
-      id: "ticket1",
-      title: "I need a Jira license to access the project Agile Transformation and track my development tasks",
-      description: "Hello, I would like to request a Jira license in order to access the Agile Transformation project. I need to track my assigned development tasks, update their status, and collaborate effectively with my team.",
-      service: "IT Support",
-      subcategory: "Access Management",
-      priority: "Medium",
-      uncertainty: 0.89
-    },
-    {
-      id: "ticket2", 
-      title: "Laptop screen flickering and going black intermittently",
-      description: "My laptop screen has been flickering for the past two days and sometimes goes completely black. I have to restart to get it working again. This is affecting my productivity.",
-      service: "IT Support",
-      subcategory: "Hardware Issues",
-      priority: "High",
-      uncertainty: 0.76
-    },
-    {
-      id: "ticket3",
-      title: "Request for additional office supplies - printer paper and toner",
-      description: "Our department is running low on printer paper and we need a new toner cartridge for the HP LaserJet in the main office. Please arrange for delivery.",
-      service: "Facilities",
-      subcategory: "Office Supplies",
-      priority: "Low",
-      uncertainty: 0.93
-    }
-  ];
 
-  const teams = [
-    { id: "it-support", name: "IT Support Team", description: "Hardware, software, and access issues" },
-    { id: "facilities", name: "Facilities Team", description: "Office supplies, maintenance, security" },
-    { id: "hr", name: "HR Team", description: "Benefits, policies, training" },
-    { id: "finance", name: "Finance Team", description: "Expenses, invoicing, budget" }
-  ];
 
   const handleGetNextTicket = async () => {
     if (!selectedModel) {
@@ -97,30 +121,58 @@ const DispatchLabeling = () => {
     
     setIsLoading(true);
     try {
-      const currentModel = availableModels.find(m => m.id === selectedModel);
-      // Simulate API call to get ticket from model (highest uncertainty first)
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Call /activelearning/<id>/next endpoint with batch size 1
+      const nextResponse = await apiService.getNextInstances(parseInt(selectedModel), 1);
       
-      // Select highest uncertainty ticket from available ones
-      const ticketFromModel = sampleTicketsFromModel.reduce((prev, current) => 
-        (prev.uncertainty > current.uncertainty) ? prev : current
-      );
+      if (!nextResponse.success || !nextResponse.data) {
+        throw new Error(nextResponse.error?.detail || "Failed to get next ticket");
+      }
       
-      setCurrentTicket(ticketFromModel);
+      const queryIdx = nextResponse.data.query_idx;
+      if (!queryIdx || queryIdx.length === 0) {
+        toast({
+          title: "No More Tickets",
+          description: "No more tickets available for labeling",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Call /data/tickets endpoint with the returned index
+      const ticketsResponse = await apiService.getTickets(parseInt(selectedModel), [queryIdx[0].toString()]);
+      
+      if (!ticketsResponse.success || !ticketsResponse.data || ticketsResponse.data.tickets.length === 0) {
+        throw new Error("Failed to retrieve ticket data");
+      }
+      
+      const ticketData = ticketsResponse.data.tickets[0];
+      
+      // Transform ticket data to match expected format
+      const ticket = {
+        id: ticketData.Ref,
+        title: ticketData.Title_anon || "No title available",
+        description: ticketData.Description_anon || "No description available",
+        service: ticketData['Service->Name'] || "Unknown Service",
+        subcategory: ticketData['Service subcategory->Name'] || "Unknown Subcategory"
+      };
+      
+      setCurrentTicket(ticket);
       setPrediction(null);
       setConfirmation(null);
+      setSelectedReassignTeam("");
+      setExplanation(null);
       
       // Auto-generate team recommendation for the new ticket
-      handleGetRecommendation(ticketFromModel);
+      handleGetRecommendation(ticket);
       
       toast({
         title: "New Ticket Retrieved",
-        description: `Model provided ticket with ${(ticketFromModel.uncertainty * 100).toFixed(1)}% uncertainty`,
+        description: `Model provided ticket ${ticket.id} for labeling`,
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to get ticket from model",
+        description: error instanceof Error ? error.message : "Failed to get ticket from model",
         variant: "destructive",
       });
     } finally {
@@ -131,34 +183,189 @@ const DispatchLabeling = () => {
   const handleGetRecommendation = async (ticketData: any) => {
     if (!ticketData || !selectedModel) return;
     
+    // Increment prediction ID to invalidate any pending LIME requests
+    currentPredictionIdRef.current += 1;
+    const thisPredictionId = currentPredictionIdRef.current;
+    
     setIsLoading(true);
     setPrediction(null);
     setConfirmation(null);
+    setExplanation(null);
     
     try {
-      // Simulate API call with model-specific logic
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Prepare inference data from ticket
+      const inferenceData = {
+        service_subcategory_name: ticketData.subcategory,
+        service_name: ticketData.service,
+        title_anon: ticketData.title,
+        description_anon: ticketData.description,
+        // Add other fields if available in ticketData
+        team_name: undefined,
+        last_team_id_name: undefined,
+        public_log_anon: undefined
+      };
+      
+      // Call /activelearning/<id>/infer endpoint
+      const inferenceResponse = await apiService.infer(parseInt(selectedModel), inferenceData);
+      
+      if (!inferenceResponse.success || !inferenceResponse.data) {
+        // Check if the error is because the model isn't trained yet
+        if (inferenceResponse.error?.detail?.includes("not trained yet")) {
+          // Set flag to show manual assignment interface
+          setNeedsManualAssignment(true);
+          return;
+        }
+        throw new Error(inferenceResponse.error?.detail || "Failed to get team recommendation");
+      }
       
       const currentModel = availableModels.find(m => m.id === selectedModel);
-      let recommendedTeam = teams[0]; // Default
+      // Backend returns array of predictions; extract first element
+      const predictedTeam = Array.isArray(inferenceResponse.data) ? inferenceResponse.data[0] : inferenceResponse.data.prediction;
       
-      if (ticketData.service === "IT Support") {
-        recommendedTeam = teams.find(t => t.id === "it-support")!;
-      } else if (ticketData.service === "Facilities") {
-        recommendedTeam = teams.find(t => t.id === "facilities")!;
+      // Debug logging
+      console.log("Inference response:", inferenceResponse.data);
+      console.log("Predicted team:", predictedTeam, "Type:", typeof predictedTeam);
+      console.log("Available teams:", availableTeams);
+      
+      // Ensure availableTeams is not empty
+      if (!availableTeams || availableTeams.length === 0) {
+        throw new Error("No teams available for matching prediction");
+      }
+      
+      // Find the team that matches the prediction
+      let recommendedTeam = availableTeams.find(t => 
+        t && typeof t === 'string' && 
+        predictedTeam && typeof predictedTeam === 'string' &&
+        t.toLowerCase().includes(predictedTeam.toLowerCase())
+      );
+      
+      // If no exact match, use the first team as fallback
+      if (!recommendedTeam) {
+        recommendedTeam = availableTeams[0];
+      }
+      
+      // Ensure recommendedTeam is valid
+      if (!recommendedTeam) {
+        throw new Error("Could not determine recommended team");
       }
       
       setPrediction({
-        team: recommendedTeam,
-        confidence: currentModel ? currentModel.accuracy / 100 : 0.92,
+        team: { name: recommendedTeam, id: recommendedTeam },
         model: currentModel,
-        reasoning: `Model ${currentModel?.name} analyzed ticket content: keywords '${ticketData.service}', '${ticketData.subcategory}' strongly indicate ${recommendedTeam.name} assignment. Based on ${currentModel?.accuracy}% accuracy from training data.`
+        reasoning: `Model ${currentModel?.name} analyzed ticket content and predicted "${predictedTeam}". Based on ${currentModel?.accuracy}% accuracy from training data.`
       });
+      // Fire-and-forget LIME explanation; do not block showing prediction
+      (async () => {
+        try {
+          const explainResponse = await apiService.explainLime(parseInt(selectedModel), {
+            ticket_data: inferenceData,
+            model_id: 0,
+          });
+          
+          // Only update if this is still the current prediction
+          if (thisPredictionId === currentPredictionIdRef.current && explainResponse.success && explainResponse.data && explainResponse.data.length > 0) {
+            const item = explainResponse.data[0];
+            if (item && Array.isArray(item.top_words)) {
+              setExplanation(item.top_words);
+            }
+          }
+        } catch (err) {
+          console.error("Explain LIME failed", err);
+        }
+      })();
+      
+      // Reset manual assignment flag since we got a successful prediction
+      setNeedsManualAssignment(false);
+      
+    } catch (error) {
+      // Only show error toast if it's not a "model not trained" error
+      if (!error.message?.includes("not trained yet")) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to get team recommendation",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateModelAccuracy = async (modelId: string) => {
+    try {
+      const infoResponse = await apiService.getInstanceInfo(parseInt(modelId));
+      
+      if (infoResponse.success && infoResponse.data?.f1_scores) {
+        const f1Scores = infoResponse.data.f1_scores;
+        if (f1Scores.length > 0) {
+          const accuracy = Math.round(f1Scores[f1Scores.length - 1] * 100 * 10) / 10;
+          
+          // Update the accuracy in availableModels
+          setAvailableModels(prevModels => 
+            prevModels.map(model => 
+              model.id === modelId 
+                ? { ...model, accuracy }
+                : model
+            )
+          );
+          
+          return accuracy;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch updated accuracy:", error);
+    }
+    return null;
+  };
+
+  const handleManualTeamAssignment = async () => {
+    if (!selectedTeam || !currentTicket || !selectedModel) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a team before confirming",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Call /activelearning/<id>/label endpoint
+      const labelResponse = await apiService.labelInstance(parseInt(selectedModel), {
+        query_idx: [currentTicket.id],
+        labels: [selectedTeam]
+      });
+
+      if (!labelResponse.success) {
+        throw new Error(labelResponse.error?.detail || "Failed to label ticket");
+      }
+
+      // Show success confirmation
+      const confirmationData = {
+        type: "manual",
+        message: "Team assigned successfully",
+        team: selectedTeam,
+        action: `The ticket has been assigned to ${selectedTeam}. This will help train the model for future predictions.`
+      };
+
+      setConfirmation(confirmationData);
+      
+      toast({
+        title: "Success!",
+        description: `Ticket assigned to ${selectedTeam}`,
+      });
+
+      // Reset selection and manual assignment flag
+      setSelectedTeam("");
+      setNeedsManualAssignment(false);
+      
+      // Fetch updated accuracy after labeling
+      await updateModelAccuracy(selectedModel);
       
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to get team recommendation",
+        description: error instanceof Error ? error.message : "Failed to assign team",
         variant: "destructive",
       });
     } finally {
@@ -166,47 +373,64 @@ const DispatchLabeling = () => {
     }
   };
 
-  const handleLabelAction = (action: string, teamId?: string) => {
+  const handleLabelAction = async (action: string, teamId?: string) => {
+    if (!currentTicket || !selectedModel) return;
+    
+    setIsLoading(true);
     let confirmationData;
+    let labelToSend = prediction.team.name; // Default to predicted team
     
-    if (action === "correct") {
-      confirmationData = {
-        type: "correct",
-        message: "Assignment confirmed as correct",
-        team: prediction.team.name,
-        action: "The model's recommendation has been validated and the ticket will be dispatched to the correct team."
-      };
-    } else if (action === "reassign") {
-      const newTeam = teams.find(t => t.id === teamId);
-      confirmationData = {
-        type: "reassign",
-        message: "Ticket reassigned successfully",
-        team: newTeam?.name || "Unknown Team",
-        originalTeam: prediction.team.name,
-        action: `The ticket has been reassigned from ${prediction.team.name} to ${newTeam?.name}. This feedback will help improve the model's future predictions.`
-      };
-    } else {
-      confirmationData = {
-        type: "reject",
-        message: "Assignment rejected",
-        team: prediction.team.name,
-        action: "This assignment has been rejected. The ticket will be reviewed manually and this feedback will improve the model."
-      };
+    try {
+      if (action === "correct") {
+        confirmationData = {
+          type: "correct",
+          message: "Assignment confirmed as correct",
+          team: prediction.team.name,
+          action: "The model's recommendation has been validated and the ticket will be dispatched to the correct team."
+        };
+      } else if (action === "reassign") {
+        const newTeam = availableTeams.find(t => t === teamId);
+        labelToSend = newTeam || prediction.team.name;
+        confirmationData = {
+          type: "reassign",
+          message: "Ticket reassigned successfully",
+          team: newTeam || "Unknown Team",
+          originalTeam: prediction.team.name,
+          action: `The ticket has been reassigned from ${prediction.team.name} to ${newTeam}. This feedback will help improve the model's future predictions.`
+        };
+      } else {
+        throw new Error("Invalid action");
+      }
+      
+      // Call /activelearning/<id>/label endpoint
+      const labelResponse = await apiService.labelInstance(parseInt(selectedModel), {
+        query_idx: [currentTicket.id],
+        labels: [labelToSend]
+      });
+
+      if (!labelResponse.success) {
+        throw new Error(labelResponse.error?.detail || "Failed to label ticket");
+      }
+      
+      setConfirmation(confirmationData);
+      
+      toast({
+        title: confirmationData.message,
+        description: confirmationData.action,
+      });
+      
+      // Fetch updated accuracy after labeling
+      await updateModelAccuracy(selectedModel);
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to process label action",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-    
-    setConfirmation(confirmationData);
-    
-    toast({
-      title: confirmationData.message,
-      description: confirmationData.action,
-    });
-    
-    // Auto-reset after 5 seconds
-    setTimeout(() => {
-      setCurrentTicket(null);
-      setPrediction(null);
-      setConfirmation(null);
-    }, 5000);
   };
 
   return (
@@ -237,9 +461,9 @@ const DispatchLabeling = () => {
             {/* Model Selection */}
             <div className="space-y-2">
               <Label htmlFor="model-select">Active Learning Model</Label>
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
+              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={availableModels.length === 0}>
                 <SelectTrigger>
-                  <SelectValue placeholder="-- Select a Model --" />
+                  <SelectValue placeholder={availableModels.length === 0 ? "No models available" : "-- Select a Model --"} />
                 </SelectTrigger>
                 <SelectContent>
                   {availableModels.map((model) => (
@@ -254,9 +478,11 @@ const DispatchLabeling = () => {
                             {model.status}
                           </Badge>
                         </div>
-                        <span className="text-sm text-muted-foreground ml-2">
-                          {model.accuracy}% acc
-                        </span>
+                        {model.accuracy !== null && (
+                          <span className="text-sm text-muted-foreground ml-2">
+                            {model.accuracy}% acc
+                          </span>
+                        )}
                       </div>
                     </SelectItem>
                   ))}
@@ -265,9 +491,11 @@ const DispatchLabeling = () => {
               {selectedModel && (
                 <p className="text-sm text-muted-foreground">
                   Using: {availableModels.find(m => m.id === selectedModel)?.name} 
-                  <span className="text-ml-success ml-2">
-                    ({availableModels.find(m => m.id === selectedModel)?.accuracy}% accuracy)
-                  </span>
+                  {availableModels.find(m => m.id === selectedModel)?.accuracy !== null && (
+                    <span className="text-ml-success ml-2">
+                      ({availableModels.find(m => m.id === selectedModel)?.accuracy}% accuracy)
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -289,15 +517,6 @@ const DispatchLabeling = () => {
                       <div className="flex space-x-2">
                         <Badge variant="secondary">{currentTicket.service}</Badge>
                         <Badge variant="outline">{currentTicket.subcategory}</Badge>
-                        <Badge 
-                          variant={currentTicket.priority === 'High' ? 'destructive' : 
-                                  currentTicket.priority === 'Medium' ? 'default' : 'secondary'}
-                        >
-                          {currentTicket.priority}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {(currentTicket.uncertainty * 100).toFixed(1)}% uncertainty
-                        </Badge>
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -309,7 +528,7 @@ const DispatchLabeling = () => {
                         <Textarea
                           value={currentTicket.description}
                           readOnly
-                          className="mt-1 min-h-[80px] resize-none"
+                          className="mt-1 min-h-[120px] resize-none"
                         />
                       </div>
                     </div>
@@ -344,17 +563,20 @@ const DispatchLabeling = () => {
         {confirmation && (
           <Card className={`ml-card mb-8 ml-scale-in ${
             confirmation.type === 'correct' ? 'border-ml-success' : 
-            confirmation.type === 'reassign' ? 'border-ml-warning' : 'border-ml-error'
+            confirmation.type === 'reassign' ? 'border-ml-warning' : 
+            confirmation.type === 'manual' ? 'border-ml-primary' : 'border-ml-error'
           }`}>
             <CardContent className="pt-6">
               <div className="text-center">
                 <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
                   confirmation.type === 'correct' ? 'bg-ml-success/10' : 
-                  confirmation.type === 'reassign' ? 'bg-ml-warning/10' : 'bg-ml-error/10'
+                  confirmation.type === 'reassign' ? 'bg-ml-warning/10' : 
+                  confirmation.type === 'manual' ? 'bg-ml-primary/10' : 'bg-ml-error/10'
                 }`}>
                   <CheckCircle className={`w-8 h-8 ${
                     confirmation.type === 'correct' ? 'text-ml-success' : 
-                    confirmation.type === 'reassign' ? 'text-ml-warning' : 'text-ml-error'
+                    confirmation.type === 'reassign' ? 'text-ml-warning' : 
+                    confirmation.type === 'manual' ? 'text-ml-primary' : 'text-ml-error'
                   }`} />
                 </div>
                 <h3 className="text-xl font-semibold mb-2">{confirmation.message}</h3>
@@ -365,13 +587,64 @@ const DispatchLabeling = () => {
                     <span className="font-semibold text-ml-warning">{confirmation.team}</span>
                   </p>
                 )}
-                {confirmation.type === 'correct' && (
+                {(confirmation.type === 'correct' || confirmation.type === 'manual') && (
                   <p className="text-lg mb-2 font-semibold text-ml-success">{confirmation.team}</p>
                 )}
                 <p className="text-muted-foreground">{confirmation.action}</p>
-                <p className="text-sm text-muted-foreground mt-3">
-                  This page will reset automatically in a few seconds...
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Manual Labeling Interface - shown when model not trained yet */}
+        {currentTicket && !prediction && !confirmation && needsManualAssignment && (
+          <Card className="ml-card mb-8 ml-scale-in">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Target className="w-6 h-6 text-ml-warning" />
+                <span>Manual Team Assignment</span>
+              </CardTitle>
+              <CardDescription>
+                Model not trained yet. Please assign the team manually to start training.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="text-center p-6 bg-gradient-to-r from-ml-primary/10 to-ml-secondary/10 rounded-lg">
+                <h3 className="text-xl font-semibold mb-2">Assign Team</h3>
+                <p className="text-muted-foreground mb-4">
+                  Select the appropriate team for this ticket to start training the model.
                 </p>
+                <div className="space-y-4">
+                  <Select value={selectedTeam} onValueChange={setSelectedTeam}>
+                    <SelectTrigger className="w-64 mx-auto">
+                      <SelectValue placeholder="Select team..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableTeams.map((team) => (
+                        <SelectItem key={team} value={team}>
+                          {team}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button 
+                    onClick={handleManualTeamAssignment}
+                    disabled={!selectedTeam || isLoading}
+                    className="ml-button-primary"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="ml-pulse w-4 h-4 mr-2 bg-white rounded-full" />
+                        Assigning...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Confirm Assignment
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -400,10 +673,7 @@ const DispatchLabeling = () => {
                 ) : (
                   <>
                     <h3 className="text-2xl font-bold mb-2">{prediction.team.name}</h3>
-                    <p className="text-muted-foreground mb-3">{prediction.team.description}</p>
-                    <Badge variant="default" className="text-lg px-3 py-1">
-                      {(prediction.confidence * 100).toFixed(1)}% Confidence
-                    </Badge>
+                    <p className="text-muted-foreground mb-3">Recommended team assignment</p>
                   </>
                 )}
               </div>
@@ -413,46 +683,82 @@ const DispatchLabeling = () => {
                   {/* Model Info */}
                   <div className="text-center text-sm text-muted-foreground mb-4">
                     Prediction by: <span className="font-semibold">{prediction.model?.name}</span>
-                    <Badge variant="outline" className="ml-2">
-                      {prediction.model?.accuracy}% accuracy
-                    </Badge>
+                    {prediction.model?.accuracy !== null && (
+                      <Badge variant="outline" className="ml-2">
+                        {prediction.model?.accuracy}% accuracy
+                      </Badge>
+                    )}
                   </div>
                   
-                  {/* Reasoning */}
-                  <div className="p-4 bg-muted/30 rounded-lg">
-                    <h4 className="font-semibold mb-2">Reasoning</h4>
-                    <p className="text-sm text-muted-foreground">{prediction.reasoning}</p>
-                  </div>
+                  {/* Reasoning appears after explanation arrives */}
+                  {explanation && (
+                    <div className="p-4 bg-muted/30 rounded-lg">
+                      <h4 className="font-semibold mb-2">Reasoning</h4>
+                      <p className="text-sm text-muted-foreground mb-2">{prediction.reasoning}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {explanation.slice(0, 10).map(([word, weight], idx) => (
+                          <span 
+                            key={`${word}-${idx}`} 
+                            className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
+                              weight > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                            }`}
+                          >
+                            <span className="mr-1">{word}</span>
+                            <Badge 
+                              variant="secondary" 
+                              className={weight > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}
+                            >
+                              {weight.toFixed(3)}
+                            </Badge>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-3 justify-center pt-4">
-                    <Button 
-                      onClick={() => handleLabelAction("correct")}
-                      className="ml-button-primary"
-                    >
-                      <Check className="w-4 h-4 mr-2" />
-                      Correct Assignment
-                    </Button>
+                    <div className="flex gap-2 items-center">
+                      <Select value={selectedReassignTeam} onValueChange={setSelectedReassignTeam}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder="Reassign to..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableTeams.filter(t => t !== prediction.team.name).map((team) => (
+                            <SelectItem key={team} value={team}>
+                              {team}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      
+                      {selectedReassignTeam && (
+                        <Button 
+                          onClick={() => setSelectedReassignTeam("")}
+                          variant="ghost"
+                          size="icon"
+                          title="Clear selection"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                     
-                    <Select onValueChange={(teamId) => handleLabelAction("reassign", teamId)}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Reassign to..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {teams.filter(t => t.id !== prediction.team.id).map((team) => (
-                          <SelectItem key={team.id} value={team.id}>
-                            {team.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
                     <Button 
-                      onClick={() => handleLabelAction("reject")}
-                      variant="destructive"
+                      onClick={() => selectedReassignTeam ? handleLabelAction("reassign", selectedReassignTeam) : handleLabelAction("correct")}
+                      className={selectedReassignTeam ? "bg-ml-warning hover:bg-ml-warning/90 text-white" : "ml-button-primary"}
                     >
-                      <X className="w-4 h-4 mr-2" />
-                      Reject
+                      {selectedReassignTeam ? (
+                        <>
+                          <ArrowRight className="w-4 h-4 mr-2" />
+                          Reassign to {selectedReassignTeam}
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4 mr-2" />
+                          Correct Assignment
+                        </>
+                      )}
                     </Button>
                   </div>
                 </>
@@ -469,10 +775,10 @@ const DispatchLabeling = () => {
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
-              {teams.map((team) => (
-                <div key={team.id} className="p-4 bg-muted/30 rounded-lg">
-                  <h4 className="font-semibold mb-1">{team.name}</h4>
-                  <p className="text-sm text-muted-foreground">{team.description}</p>
+              {availableTeams.map((team) => (
+                <div key={team} className="p-4 bg-muted/30 rounded-lg">
+                  <h4 className="font-semibold mb-1">{team}</h4>
+                  <p className="text-sm text-muted-foreground">Available team for ticket assignment</p>
                 </div>
               ))}
             </div>
