@@ -118,3 +118,9 @@ export interface ExplainLimeItem {
 }
 
 export type ExplainLimeResponse = ExplainLimeItem[];
+
+export interface NearestTicketResponse {
+  nearest_ticket_ref: string | string[];
+  nearest_ticket_label: string | string[];
+  similarity_score: number | number[];
+}

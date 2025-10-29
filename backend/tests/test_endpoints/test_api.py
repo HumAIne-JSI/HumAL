@@ -323,4 +323,72 @@ response = requests.post(
 print(f"LIME explanation (ticket_data): {response.json()}")
 print("\n")
 
+#---------------------------------
+# XAI part - Nearest Ticket
+#---------------------------------
+
+# Test 1: Nearest ticket with query_idx (using indices from training data)
+print("Testing nearest ticket with query_idx...")
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/nearest_ticket",
+    params={
+        "query_idx": query_indices[:2],  # Test with first 2 labeled instances
+        "model_id": model_id
+    }
+)
+print(f"Nearest ticket (query_idx): {response.json()}")
+print(f"Response status: {response.status_code}")
+print("\n")
+
+# Test 2: Nearest ticket with ticket_data (new inference data)
+print("Testing nearest ticket with ticket_data...")
+nearest_ticket_data = {
+    "title_anon": df['Title_anon'].iloc[10],
+    "description_anon": df['Description_anon'].iloc[10],
+    "service_name": df['Service->Name'].iloc[10],
+    "service_subcategory_name": df['Service subcategory->Name'].iloc[10]
+}
+
+# Convert numpy nan to None
+for key, value in nearest_ticket_data.items():
+    if pd.isna(value):
+        nearest_ticket_data[key] = None
+
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/nearest_ticket",
+    params={
+        "model_id": model_id
+    },
+    json=nearest_ticket_data
+)
+print(f"Nearest ticket (ticket_data): {response.json()}")
+print(f"Response status: {response.status_code}")
+print("\n")
+
+# Test 3: Error case - providing both query_idx and ticket_data
+print("Testing error case - both query_idx and ticket_data...")
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/nearest_ticket",
+    params={
+        "query_idx": query_indices[0],
+        "model_id": model_id
+    },
+    json=nearest_ticket_data
+)
+print(f"Error response (both inputs): {response.json()}")
+print(f"Response status: {response.status_code}")
+print("\n")
+
+# Test 4: Error case - providing neither query_idx nor ticket_data
+print("Testing error case - neither query_idx nor ticket_data...")
+response = requests.post(
+    f"http://127.0.0.1:8000/xai/{instance_id}/nearest_ticket",
+    params={
+        "model_id": model_id
+    }
+)
+print(f"Error response (no inputs): {response.json()}")
+print(f"Response status: {response.status_code}")
+print("\n")
+
 

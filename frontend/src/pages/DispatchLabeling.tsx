@@ -14,6 +14,7 @@ const DispatchLabeling = () => {
   const [selectedModel, setSelectedModel] = useState("");
   const [prediction, setPrediction] = useState<any>(null);
   const [explanation, setExplanation] = useState<[string, number][] | null>(null);
+  const [nearestTicket, setNearestTicket] = useState<{ ref: string; label: string; similarity: number; title?: string; description?: string; service?: string; subcategory?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [confirmation, setConfirmation] = useState<any>(null);
   const { toast } = useToast();
@@ -161,6 +162,7 @@ const DispatchLabeling = () => {
       setConfirmation(null);
       setSelectedReassignTeam("");
       setExplanation(null);
+      setNearestTicket(null);
       
       // Auto-generate team recommendation for the new ticket
       handleGetRecommendation(ticket);
@@ -191,6 +193,7 @@ const DispatchLabeling = () => {
     setPrediction(null);
     setConfirmation(null);
     setExplanation(null);
+    setNearestTicket(null);
     
     try {
       // Prepare inference data from ticket
@@ -271,6 +274,63 @@ const DispatchLabeling = () => {
           }
         } catch (err) {
           console.error("Explain LIME failed", err);
+        }
+      })();
+      
+      // Fire-and-forget nearest ticket lookup; do not block showing prediction
+      (async () => {
+        try {
+          const nearestResponse = await apiService.findNearestTicket(parseInt(selectedModel), {
+            query_idx: [ticketData.id],
+            model_id: 0,
+          });
+          
+          // Only update if this is still the current prediction
+          if (thisPredictionId === currentPredictionIdRef.current && nearestResponse.success && nearestResponse.data) {
+            const item = nearestResponse.data;
+            // Handle both single object and array responses
+            const ref = Array.isArray(item.nearest_ticket_ref) ? item.nearest_ticket_ref[0] : item.nearest_ticket_ref;
+            const label = Array.isArray(item.nearest_ticket_label) ? item.nearest_ticket_label[0] : item.nearest_ticket_label;
+            const similarity = Array.isArray(item.similarity_score) ? item.similarity_score[0] : item.similarity_score;
+            
+            if (ref && label !== undefined && similarity !== undefined) {
+              // Fetch the full ticket details for the nearest ticket
+              try {
+                const nearestTicketResponse = await apiService.getTickets(parseInt(selectedModel), [ref.toString()]);
+                
+                if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
+                  const nearestTicketData = nearestTicketResponse.data.tickets[0];
+                  
+                  setNearestTicket({
+                    ref: ref,
+                    label: label,
+                    similarity: similarity,
+                    title: nearestTicketData.Title_anon || "No title available",
+                    description: nearestTicketData.Description_anon || "No description available",
+                    service: nearestTicketData['Service->Name'] || "Unknown Service",
+                    subcategory: nearestTicketData['Service subcategory->Name'] || "Unknown Subcategory"
+                  });
+                } else {
+                  // Fallback if ticket details cannot be fetched
+                  setNearestTicket({
+                    ref: ref,
+                    label: label,
+                    similarity: similarity
+                  });
+                }
+              } catch (ticketErr) {
+                console.error("Failed to fetch nearest ticket details", ticketErr);
+                // Fallback if ticket details cannot be fetched
+                setNearestTicket({
+                  ref: ref,
+                  label: label,
+                  similarity: similarity
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Find nearest ticket failed", err);
         }
       })();
       
@@ -691,28 +751,84 @@ const DispatchLabeling = () => {
                   </div>
                   
                   {/* Reasoning appears after explanation arrives */}
-                  {explanation && (
-                    <div className="p-4 bg-muted/30 rounded-lg">
-                      <h4 className="font-semibold mb-2">Reasoning</h4>
-                      <p className="text-sm text-muted-foreground mb-2">{prediction.reasoning}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {explanation.slice(0, 10).map(([word, weight], idx) => (
-                          <span 
-                            key={`${word}-${idx}`} 
-                            className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
-                              weight > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                            }`}
-                          >
-                            <span className="mr-1">{word}</span>
-                            <Badge 
-                              variant="secondary" 
-                              className={weight > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}
-                            >
-                              {weight.toFixed(3)}
-                            </Badge>
-                          </span>
-                        ))}
-                      </div>
+                  {(explanation || nearestTicket) && (
+                    <div className="space-y-4">
+                      {explanation && (
+                        <div className="p-4 bg-muted/30 rounded-lg">
+                          <h4 className="font-semibold mb-2">LIME Explanation</h4>
+                          <p className="text-sm text-muted-foreground mb-2">{prediction.reasoning}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {explanation.slice(0, 10).map(([word, weight], idx) => (
+                              <span 
+                                key={`${word}-${idx}`} 
+                                className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
+                                  weight > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                                }`}
+                              >
+                                <span className="mr-1">{word}</span>
+                                <Badge 
+                                  variant="secondary" 
+                                  className={weight > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}
+                                >
+                                  {weight.toFixed(3)}
+                                </Badge>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {nearestTicket && (
+                        <div className="p-4 bg-muted/30 rounded-lg">
+                          <h4 className="font-semibold mb-2">Similar Ticket</h4>
+                          <p className="text-sm text-muted-foreground mb-3">
+                            Found a previously labeled ticket that is {(nearestTicket.similarity * 100).toFixed(1)}% similar to this one.
+                          </p>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">Ticket Reference:</span>
+                              <Badge variant="outline">{nearestTicket.ref}</Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">Assigned Team:</span>
+                              <Badge variant="secondary">{nearestTicket.label}</Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">Similarity Score:</span>
+                              <Badge 
+                                variant="outline"
+                                className={nearestTicket.similarity > 0.8 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-blue-50 border-blue-200 text-blue-700'}
+                              >
+                                {(nearestTicket.similarity * 100).toFixed(1)}%
+                              </Badge>
+                            </div>
+                            {nearestTicket.title && (
+                              <>
+                                <div className="pt-2 border-t">
+                                  <div className="flex items-start space-x-2 mb-2">
+                                    <Badge variant="secondary">{nearestTicket.service}</Badge>
+                                    <Badge variant="outline">{nearestTicket.subcategory}</Badge>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <span className="text-xs font-medium text-muted-foreground">Title:</span>
+                                      <p className="text-sm mt-1">{nearestTicket.title}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-medium text-muted-foreground">Description:</span>
+                                      <Textarea
+                                        value={nearestTicket.description}
+                                        readOnly
+                                        className="mt-1 min-h-[80px] resize-none text-sm"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -6,6 +6,7 @@ import joblib
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from skactiveml.utils import MISSING_LABEL
 from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
 
@@ -59,47 +60,92 @@ class XaiService:
     def find_nearest_by_ticket(self, al_instance_id: int, ticket: Data, model_id: int = 0):
         """
         This function finds the nearest already labeled ticket to the given ticket.
+
+        Returns:
+            - nearest_ticket_ref: str
+            - nearest_ticket_label: str
+            - similarity_score: float
         """
-        target_embedding = 
+        target_embedding = inference(
+            df=pd.DataFrame([ticket.model_dump()]), 
+            le=self.storage.dataset_dict[al_instance_id]['le'], 
+            oh=self.storage.dataset_dict[al_instance_id]['oh'], 
+            sentence_model=self.sentence_model).values
+
+        # Extract the train data that is already labeled
+        X_train = self.storage.dataset_dict[al_instance_id]['X_train']
+        y_train = self.storage.dataset_dict[al_instance_id]['y_train']
+        labeled_mask = y_train.notna() # Check if the label is not missing
+        X_labeled = X_train[labeled_mask]
+
+        # Extract the indices of the labeled tickets
+        X_labeled_indices = np.where(labeled_mask)[0]
             
+        # Get the most similar ticket
         similarities = cosine_similarity(target_embedding, X_labeled.values)
-    
-        nearest_neighbor_idx_in_labeled = np.argmax(similarities[0])
-    
-        # --- Retrieve neighbor info ---
-        neighbor_internal_idx = labeled_indices_internal[nearest_neighbor_idx_in_labeled]
-        neighbor_original_ref_id = index_dict_train[neighbor_internal_idx]
-    
-        # Retrieve neighbor's true label (float)
-        y_labeled_encoded_array = y_labeled_encoded.to_numpy()
-        neighbor_true_label_encoded_float = y_labeled_encoded_array[nearest_neighbor_idx_in_labeled]
-    
-        # --- FIX: Convert float label to integer ---
-        # Add check for NaN or other non-finite values if MISSING_LABEL could be NaN
-        if np.isfinite(neighbor_true_label_encoded_float):
-            neighbor_true_label_encoded_int = int(neighbor_true_label_encoded_float) # Cast to int
-        else:
-            # Handle case where the nearest neighbor somehow has MISSING_LABEL
-            # This shouldn't happen if we indexed y_labeled_encoded correctly, but safety check
-            print(f"Warning: Nearest neighbor {neighbor_original_ref_id} has non-finite label value: {neighbor_true_label_encoded_float}")
-            neighbor_true_label_encoded_int = -1 # Or some indicator value
-    
-        # Check if the integer index is valid for the LabelEncoder classes
-        if 0 <= neighbor_true_label_encoded_int < len(le.classes_):
-            # Convert the integer encoded label back to text
-            neighbor_true_label_text = le.inverse_transform([neighbor_true_label_encoded_int])[0]
-        else:
-            neighbor_true_label_text = "[Invalid Label Index]"
-        # --- END FIX ---
-    
-        similar_example_info = {
-            "neighbor_id": neighbor_original_ref_id,
-            "true_label": neighbor_true_label_text,
-            "similarity_score": float(similarities[0, nearest_neighbor_idx_in_labeled]),
-            "error": None
+        nearest_ticket_idx = np.argmax(similarities[0])
+
+        # Convert the index to the X_train index
+        nearest_ticket_idx_X_train = X_labeled_indices[nearest_ticket_idx]
+
+        # Convert the index to the original reference id (Ref)
+        index_dict_train = self.storage.dataset_dict[al_instance_id]['index_dict_train']
+        nearest_ticket_ref = index_dict_train[nearest_ticket_idx_X_train]
+
+        # Retrieve nearest ticket's true label
+        le = self.storage.dataset_dict[al_instance_id]['le']
+        nearest_ticket_label = le.inverse_transform([int(y_train[nearest_ticket_idx_X_train])])[0]
+
+        return {
+            "nearest_ticket_ref": nearest_ticket_ref,
+            "nearest_ticket_label": nearest_ticket_label,
+            "similarity_score": float(similarities[0, nearest_ticket_idx])
         }
-    
-        return similar_example_info
+
+    def find_nearest_by_query_idx(self, al_instance_id: int, indices: list[int], model_id: int = 0):
+        """
+        This function finds the nearest already labeled tickets to the tickets given by the indices.
+
+        Returns:
+            - nearest_ticket_refs: list[str]
+            - nearest_ticket_labels: list[str]
+            - similarity_score: list[float]
+        """
+        # Convert the Ref numbers to the indices of the X_train
+        index_dict_train_inv = self.storage.dataset_dict[al_instance_id]['index_dict_train_inv']
+        indices = [index_dict_train_inv[ref] for ref in indices]
+        target_embeddings = self.storage.dataset_dict[al_instance_id]['X_train'].iloc[indices].values
+
+        # Extract the train data that is already labeled
+        X_train = self.storage.dataset_dict[al_instance_id]['X_train']
+        y_train = self.storage.dataset_dict[al_instance_id]['y_train']
+        labeled_mask = y_train.notna() # Check if the label is not missing
+        X_labeled = X_train[labeled_mask]
+
+        # Extract the indices of the labeled tickets
+        X_labeled_indices = np.where(labeled_mask)[0]
+            
+        # Get the most similar tickets
+        similarities = cosine_similarity(target_embeddings, X_labeled.values)
+        nearest_ticket_idxs = np.argmax(similarities, axis=1)
+
+        # Convert the indices to the X_train indices
+        nearest_ticket_idxs_X_train = X_labeled_indices[nearest_ticket_idxs]
+
+        # Convert the indices to the original reference ids (Ref)
+        index_dict_train = self.storage.dataset_dict[al_instance_id]['index_dict_train']
+        nearest_ticket_refs = [index_dict_train[idx] for idx in nearest_ticket_idxs_X_train]
+
+        # Retrieve nearest tickets' true labels
+        le = self.storage.dataset_dict[al_instance_id]['le']
+        nearest_ticket_labels = le.inverse_transform([int(y_train[idx]) for idx in nearest_ticket_idxs_X_train]).tolist()
+        similarity_scores = [similarities[i, nearest_ticket_idxs[i]] for i in range(len(nearest_ticket_idxs))]
+
+        return {
+            "nearest_ticket_ref": nearest_ticket_refs,
+            "nearest_ticket_label": nearest_ticket_labels,
+            "similarity_score": similarity_scores
+        }
 
 
     def _predict_probabilities(self, al_instance_id, texts, ticket, model_id: int = 0):

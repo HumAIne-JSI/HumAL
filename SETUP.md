@@ -16,12 +16,35 @@ HumAL/
 ## Prerequisites
 
 - **Python 3.8+** (for backend)
+- **uv** (for Python package management - [install guide](https://github.com/astral-sh/uv))
 - **Node.js 18+** (for frontend)
 - **npm** or **yarn** (for frontend package management)
+
+### Installing uv
+
+**Windows:**
+```bash
+# Using the standalone installer (recommended)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or using pip
+pip install uv
+```
+
+**Unix/Linux/macOS:**
+```bash
+# Using the standalone installer (recommended)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or using pip
+pip install uv
+```
 
 ## Quick Start
 
 ### Option 1: Using Startup Scripts (Recommended)
+
+**First-time setup:** Before using the startup scripts, you must complete the manual setup steps below (at least once) to create the virtual environment and install dependencies.
 
 **Windows:**
 ```bash
@@ -49,7 +72,7 @@ chmod +x start-dev.sh
 2. Create and activate virtual environment:
    ```bash
    # Create virtual environment
-   python -m venv al_api_venv
+   uv venv al_api_venv
    
    # Activate (Windows)
    al_api_venv\Scripts\activate
@@ -60,7 +83,7 @@ chmod +x start-dev.sh
 
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   uv pip install -r requirements.txt
    ```
 
 4. Start the backend server:
@@ -157,6 +180,11 @@ al_api_venv\Scripts\activate
 
 # Unix/Linux/macOS
 source al_api_venv/bin/activate
+```
+
+If packages are missing, reinstall with:
+```bash
+uv pip install -r requirements.txt
 ```
 
 ### Network Errors

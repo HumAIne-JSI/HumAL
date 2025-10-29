@@ -15,7 +15,8 @@ import type {
   TeamsResponse,
   CategoriesResponse,
   SubcategoriesResponse,
-  ExplainLimeResponse
+  ExplainLimeResponse,
+  NearestTicketResponse
 } from '@/types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -35,6 +36,7 @@ export const API_ENDPOINTS = {
   INFER: (id: number) => `/activelearning/${id}/infer`,
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
+  NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
   
   // Label Creation
   CREATE_RESOLUTION_LABELS: '/activelearning/resolution_label_creation',
@@ -147,6 +149,25 @@ export const apiService = {
     return apiCall<ExplainLimeResponse>(endpoint, {
       method: 'POST',
       body: JSON.stringify(payload.ticket_data ? payload.ticket_data : payload.query_idx),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+  },
+
+  findNearestTicket: (id: number, payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number }) => {
+    const params = new URLSearchParams();
+    if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
+    
+    // If using query_idx, add it as query parameters
+    if (payload.query_idx) {
+      payload.query_idx.forEach(idx => params.append('query_idx', idx));
+    }
+    
+    const endpoint = `${API_ENDPOINTS.NEAREST_TICKET(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+    return apiCall<NearestTicketResponse>(endpoint, {
+      method: 'POST',
+      body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
       headers: {
         'Content-Type': 'application/json'
       }
