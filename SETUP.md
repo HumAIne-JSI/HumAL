@@ -64,12 +64,7 @@ chmod +x start-dev.sh
 
 #### Backend Setup
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Create and activate virtual environment:
+1. Create and activate virtual environment:
    ```bash
    # Create virtual environment
    uv venv al_api_venv
@@ -81,9 +76,13 @@ chmod +x start-dev.sh
    source al_api_venv/bin/activate
    ```
 
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    uv pip install -r requirements.txt
+   ```
+3. Navigate to the backend directory:
+   ```bash
+   cd backend
    ```
 
 4. Start the backend server:
