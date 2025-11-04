@@ -90,8 +90,13 @@ The installer will:
 
 ```bash
 # Create directories (if they don't exist)
-mkdir backend\data backend\models  # Windows
-mkdir -p backend/data backend/models  # Unix/Linux/macOS
+
+# Windows
+mkdir backend\data 
+mkddir backend\models
+
+# Unix/Linux/macOS
+mkdir -p backend/data backend/models
 ```
 
 Place the following in `backend/data/`:
@@ -104,10 +109,19 @@ Place pre-trained models in `backend/models/`:
 
 ### 5. Configure Environment
 
-Create a `.env` file in the project root:
-```
-OPENAI_API_KEY=your-openai-api-key-here
-```
+ ```bash
+ # Copy .env.example to .env (if .env.example exists)
+ # Unix/Linux/macOS
+ cp .env.example .env
+ 
+ # Windows PowerShell
+ copy .env.example .env
+ ```
+ 
+ Edit `.env` and add your OpenAI API key:
+ ```
+ OPENAI_API_KEY=your-openai-api-key-here
+ ```
 
 ### 6. Run the Application
 
