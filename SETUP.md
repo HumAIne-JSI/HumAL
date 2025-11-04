@@ -1,26 +1,32 @@
 # HumAL Development Setup
 
-This guide will help you set up the HumAL (Human-in-the-loop Active Learning) application for development.
+This guide will help you set up the HumAL application for development.
 
 ## Project Structure
 
 ```
 HumAL/
-├── backend/          # FastAPI backend
-├── frontend/         # React + Vite frontend
-├── start-dev.bat     # Windows startup script
-├── start-dev.sh      # Unix/Linux startup script
-└── SETUP.md         # This file
+├── backend/              # FastAPI application
+├── frontend/             # React + Vite frontend
+├── start-dev.bat         # Windows startup script
+├── start-dev.sh          # Unix/Linux startup script
+├── requirements.txt      # Backend dependencies
+├── install.py           # Automated dependency installer
+├── .env                 # Environment configuration (create from .env.example)
+└── SETUP.md             # This file
 ```
 
 ## Prerequisites
 
 - **Python 3.8+** (for backend)
-- **uv** (for Python package management - [install guide](https://github.com/astral-sh/uv))
+- **uv** or **pip** (for Python package management)
 - **Node.js 18+** (for frontend)
 - **npm** or **yarn** (for frontend package management)
+- **CUDA Toolkit** (optional, for GPU acceleration - will be auto-detected)
 
-### Installing uv
+### Installing uv (Optional but Recommended)
+
+The automated installer (`install.py`) can use either `uv` or `pip`. Using `uv` is recommended for faster package installation.
 
 **Windows:**
 ```bash
@@ -42,9 +48,51 @@ pip install uv
 
 ## Quick Start
 
-### Option 1: Using Startup Scripts (Recommended)
+### Option 1: Automated Installation (Recommended)
 
-**First-time setup:** Before using the startup scripts, you must complete the manual setup steps below (at least once) to create the virtual environment and install dependencies.
+The automated installer detects your system configuration (CUDA version, package manager) and installs all backend dependencies with the appropriate PyTorch version.
+
+1. Ensure you're in the project root (contains `install.py` and `requirements.txt`).
+
+2. Create and activate virtual environment:
+   ```bash
+   # Create virtual environment with uv (recommended)
+   uv venv al_api_venv
+   
+   # Or with Python's built-in venv
+   python -m venv al_api_venv
+   
+   # Activate (Windows)
+   al_api_venv\Scripts\activate
+   
+   # Activate (Unix/Linux/macOS)
+   source al_api_venv/bin/activate
+   ```
+
+3. Run the automated installer (from project root):
+   ```bash
+   # Basic installation (auto-detects CUDA and package manager)
+   python install.py
+   
+   # Force CPU-only installation
+   python install.py --cpu-only
+   
+   # Force use of pip instead of uv
+   python install.py --use-pip
+   
+   # Only reinstall PyTorch (useful for switching between CPU/CUDA)
+   python install.py --reinstall-torch
+   ```
+
+The installer will:
+- ✓ Auto-detect CUDA and install PyTorch with GPU support (if available)
+- ✓ Install all dependencies from requirements.txt
+- ✓ Install all frontend dependencies
+- ✓ Verify the installation and display GPU/CPU status
+
+### Option 2: Using Startup Scripts
+
+**First-time setup:** You must run the automated installer (Option 1) at least once before using the startup scripts.
 
 **Windows:**
 ```bash
@@ -60,14 +108,11 @@ chmod +x start-dev.sh
 ./start-dev.sh
 ```
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
 
 #### Backend Setup
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+1. Ensure you're in the project root (contains `install.py` and `requirements.txt`).
 
 2. Create and activate virtual environment:
    ```bash
@@ -83,11 +128,16 @@ chmod +x start-dev.sh
 
 3. Install dependencies:
    ```bash
+   # With uv (recommended)
    uv pip install -r requirements.txt
+   
+   # Or with pip
+   pip install -r requirements.txt
    ```
 
 4. Start the backend server:
    ```bash
+   cd backend
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
@@ -166,6 +216,34 @@ The backend uses:
 
 ## Troubleshooting
 
+### PyTorch/CUDA Issues
+
+**No GPU detected after installation:**
+```bash
+# Verify your CUDA installation
+nvidia-smi
+
+# Reinstall PyTorch with CUDA support
+# Ensure you are in the project root
+al_api_venv\Scripts\activate  # Windows
+# or: source al_api_venv/bin/activate  # Unix/Linux/macOS
+python install.py --reinstall-torch
+```
+
+**Force CPU-only installation:**
+```bash
+python install.py --cpu-only
+```
+
+**Switch between CPU and GPU versions:**
+```bash
+# To GPU version (if CUDA is available)
+python install.py --reinstall-torch
+
+# To CPU version
+python install.py --reinstall-torch --cpu-only
+```
+
 ### Port Conflicts
 If you encounter port conflicts:
 - Backend: Change port in `backend/app/main.py` (line 14)
@@ -184,7 +262,12 @@ source al_api_venv/bin/activate
 
 If packages are missing, reinstall with:
 ```bash
+# Using the automated installer (recommended)
+python install.py
+
+# Or manually with uv/pip
 uv pip install -r requirements.txt
+# or: pip install -r requirements.txt
 ```
 
 ### Network Errors
@@ -208,7 +291,5 @@ The frontend includes these predefined pages:
 - **Home** (`/`) - Landing page
 - **Training** (`/training`) - Model training interface
 - **Dispatch Labeling** (`/dispatch-labeling`) - Label dispatch data
-- **Resolution Labeling** (`/resolution-labeling`) - Label resolution data
+- **Ticket Resolution** (`/resolution-labeling`) - Generate automated responses
 - **Inference** (`/inference`) - Run model inference
-
-Tell the developer which specific page you'd like to connect to the backend API first!

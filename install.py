@@ -6,6 +6,9 @@ import subprocess
 import sys
 import re
 import platform
+import os
+import shutil
+from pathlib import Path
 
 def print_header(text):
     """Print formatted header"""
@@ -168,6 +171,58 @@ def verify_installation():
     except ImportError:
         print("❌ PyTorch not found - installation may have failed")
         return False
+
+def install_frontend_dependencies():
+    """Install frontend npm packages in the frontend directory"""
+    print_header("Frontend Dependencies")
+
+    frontend_dir = Path("frontend")
+    package_json = frontend_dir / "package.json"
+    lockfile = frontend_dir / "package-lock.json"
+    node_modules = frontend_dir / "node_modules"
+
+    if not package_json.exists():
+        print("ℹ️  No frontend package.json found (frontend directory missing?) - skipping")
+        return True
+
+    # Check npm availability - use shutil.which for better PATH resolution
+    npm_path = shutil.which("npm")
+    if not npm_path:
+        print("❌ npm not found. Please install Node.js and ensure npm is on PATH.")
+        return False
+    
+    print(f"✓ npm detected at: {npm_path}")
+
+    # Check npm version
+    try:
+        # Use shell=True on Windows for better PATH resolution
+        use_shell = platform.system() == "Windows"
+        result = subprocess.run(["npm", "--version"], capture_output=True, text=True, timeout=10, shell=use_shell)
+        if result.returncode != 0:
+            print("❌ npm is not available on PATH. Please install Node.js and npm.")
+            return False
+        else:
+            print(f"✓ npm version: {result.stdout.strip()}")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("❌ npm not found. Please install Node.js and ensure npm is on PATH.")
+        return False
+
+    # Choose command: prefer reproducible install with npm ci on first install
+    if lockfile.exists() and not node_modules.exists():
+        cmd = ["npm", "ci"]
+    else:
+        cmd = ["npm", "install"]
+
+    print(f"📦 Installing frontend dependencies using: {' '.join(cmd)}")
+    try:
+        # Use shell=True on Windows for better PATH resolution
+        use_shell = platform.system() == "Windows"
+        subprocess.run(cmd, check=True, cwd=str(frontend_dir), shell=use_shell)
+        print("✓ Frontend dependencies installed successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install frontend dependencies: {e}")
+        return False
     except Exception as e:
         print(f"⚠️  Error during verification: {e}")
         return False
@@ -208,6 +263,10 @@ def main():
         if not install_pytorch(force_cpu=args.cpu_only, package_manager=package_manager):
             success = False
     
+    # Install frontend dependencies (npm)
+    if not install_frontend_dependencies():
+        success = False
+
     # Verify installation
     if not args.skip_torch:
         if not verify_installation():
