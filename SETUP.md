@@ -49,7 +49,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 pip install uv
 ```
 
-## Quick Start
+## Installation & Setup
+
+Choose one of the following installation methods. This is a one-time setup process.
 
 ### Option 1: Automated Installation (Recommended)
 
@@ -87,11 +89,11 @@ The automated installer detects your system configuration (CUDA version, package
    python install.py --reinstall-torch
    ```
 
-The installer will:
-- ✓ Auto-detect CUDA and install PyTorch with GPU support (if available)
-- ✓ Install all dependencies from requirements.txt
-- ✓ Install all frontend dependencies
-- ✓ Verify the installation and display GPU/CPU status
+   The installer will:
+   - ✓ Auto-detect CUDA and install PyTorch with GPU support (if available)
+   - ✓ Install all dependencies from requirements.txt
+   - ✓ Install all frontend dependencies
+   - ✓ Verify the installation and display GPU/CPU status
 
 4. Prepare data and models (required before using the app):
    ```bash
@@ -110,29 +112,27 @@ The installer will:
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
 
-### Option 2: Using Startup Scripts
+5. Configure environment variables:
+   ```bash
+   # Copy .env.example to .env (if .env.example exists)
+   # Unix/Linux/macOS
+   cp .env.example .env
+   
+   # Windows PowerShell
+   copy .env.example .env
+   
+   # Windows CMD
+   copy .env.example .env
+   ```
+   
+   Edit `.env` and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=your-openai-api-key-here
+   ```
+   
+   **Note:** If `.env.example` doesn't exist, create a `.env` file in the project root with the `OPENAI_API_KEY` variable.
 
-**First-time setup:** You must run the automated installer (Option 1) at least once before using the startup scripts.
-
-Before starting, ensure `backend/data/` and `backend/models/` exist and are populated as described above.
-
-**Windows:**
-```bash
-# Double-click start-dev.bat or run:
-start-dev.bat
-```
-
-**Unix/Linux/macOS:**
-```bash
-# Make executable (first time only)
-chmod +x start-dev.sh
-# Run
-./start-dev.sh
-```
-
-### Option 3: Manual Setup
-
-#### Backend Setup
+### Option 2: Manual Installation
 
 1. Ensure you're in the project root (contains `install.py` and `requirements.txt`).
 
@@ -148,7 +148,7 @@ chmod +x start-dev.sh
    source al_api_venv/bin/activate
    ```
 
-3. Install dependencies:
+3. Install backend dependencies:
    ```bash
    # With uv (recommended)
    uv pip install -r requirements.txt
@@ -156,7 +156,24 @@ chmod +x start-dev.sh
    # Or with pip
    pip install -r requirements.txt
    ```
-4. Prepare data and models (required before using the app):
+
+4. Install PyTorch (choose appropriate version):
+   ```bash
+   # CPU-only version
+   pip install torch
+   
+   # CUDA version (check PyTorch website for your CUDA version)
+   pip install torch --index-url https://download.pytorch.org/whl/cu118
+   ```
+
+5. Install frontend dependencies:
+   ```bash
+   cd frontend
+   npm install
+   cd ..
+   ```
+
+6. Prepare data and models (required before using the app):
    ```bash
    # Unix/Linux/macOS
    mkdir -p backend/data backend/models
@@ -173,29 +190,85 @@ chmod +x start-dev.sh
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
 
-5. Navigate to the backend directory:
+7. Configure environment variables:
+   ```bash
+   # Copy .env.example to .env (if .env.example exists)
+   # Unix/Linux/macOS
+   cp .env.example .env
+   
+   # Windows PowerShell
+   copy .env.example .env
+   
+   # Windows CMD
+   copy .env.example .env
+   ```
+   
+   Edit `.env` and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=your-openai-api-key-here
+   ```
+   
+   **Note:** If `.env.example` doesn't exist, create a `.env` file in the project root with the `OPENAI_API_KEY` variable.
+
+## Running the Application
+
+After completing installation, choose one of the following methods to run the application.
+
+### Option 1: Using Startup Scripts (Recommended)
+
+**Prerequisites:** Complete installation (Option 1 or Option 2) at least once before using startup scripts.
+
+Before starting, ensure:
+- `backend/data/` and `backend/models/` exist and are populated
+- `.env` file exists in the project root with `OPENAI_API_KEY` configured
+
+**Windows:**
+```bash
+# Double-click start-dev.bat or run:
+.\start-dev.bat
+```
+
+**Unix/Linux/macOS:**
+```bash
+# Make executable (first time only)
+chmod +x start-dev.sh
+# Run
+./start-dev.sh
+```
+
+### Option 2: Manual Startup
+
+**Prerequisites:** Complete installation (Option 1 or Option 2) at least once.
+
+#### Backend
+
+1. Activate virtual environment:
+   ```bash
+   # Windows
+   al_api_venv\Scripts\activate
+   
+   # Unix/Linux/macOS
+   source al_api_venv/bin/activate
+   ```
+
+2. Navigate to the backend directory:
    ```bash
    cd backend
    ```
 
-6. Start the backend server:
+3. Start the backend server:
    ```bash
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-#### Frontend Setup
+#### Frontend
 
-1. Navigate to the frontend directory:
+1. Open a new terminal and navigate to the frontend directory:
    ```bash
    cd frontend
    ```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the frontend development server:
+2. Start the frontend development server:
    ```bash
    npm run dev
    ```
