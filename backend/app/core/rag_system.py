@@ -108,7 +108,7 @@ class RAGSystem:
         if kb_path and kb_mtime:
             safe_model = self.sentence_model_name.replace('/', '_')
             cache_key = f"{os.path.basename(kb_path)}_{safe_model}_{int(kb_mtime)}"
-            cache_file = os.path.join(cache_dir, f"{cache_key}.npz")
+            cache_file = os.path.join(EMBEDDING_CACHE_DIR, f"{cache_key}.npz")
 
         # Try loading cache
         if cache_file and not cache_disabled and os.path.exists(cache_file):

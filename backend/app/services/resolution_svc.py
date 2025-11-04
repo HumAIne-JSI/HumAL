@@ -350,7 +350,7 @@ class ResolutionService:
         self.ticket_classifier = None
         self.ticket_tokenizer = None
         self.ticket_label_encoder = None
-        self._load_ticket_classifier(ticket_classifier_path)
+        self._get_ticket_classifier(ticket_classifier_path)
 
         # Team classifier (lazy loaded)
         self.team_classifier = None
@@ -409,7 +409,7 @@ class ResolutionService:
             
             # ALWAYS use label encoder first - this is the most accurate approach
             try:
-                with open('./perfect_team_classifier/label_encoder.pkl', 'rb') as f:
+                with open(self.team_classifier_path + '/label_encoder.pkl', 'rb') as f:
                     team_label_encoder = pickle.load(f)
                 predicted_team = team_label_encoder.inverse_transform([predicted_class_idx])[0]
                 print(f"🎯 Predicted team: {predicted_team} (confidence: {confidence:.3f}) [Using CSV label encoder]")
@@ -451,7 +451,7 @@ class ResolutionService:
 
 
     
-    def _load_ticket_classifier(self, ticket_classifier_path: str):
+    def _get_ticket_classifier(self, ticket_classifier_path: str):
         """Load the ticket classification model"""
         try:
             # Load ticket classification model
