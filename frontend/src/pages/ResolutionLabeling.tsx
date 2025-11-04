@@ -9,22 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiService } from "@/services/api";
-
-interface SimilarTicket {
-  ref: string;
-  team: string;
-  similarity: number;
-  title: string;
-  description: string;
-  service: string;
-  subcategory: string;
-}
+import type { SimilarReply } from "@/types/api";
 
 interface ResolutionPrediction {
   classification: string;
   team: string;
+  teamConfidence: number;
   response: string;
-  similar_tickets: SimilarTicket[];
+  similar_tickets: SimilarReply[];
 }
 
 const ResolutionLabeling = () => {
@@ -83,72 +75,40 @@ const ResolutionLabeling = () => {
     setIsEditingResponse(false);
     
     try {
-      // Simulate API call with loading state
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock response data
-      const mockPrediction: ResolutionPrediction = {
-        classification: "license_request",
-        team: "IT Access Management",
-        response: `Dear user,
+      // Call the resolution API
+      const response = await apiService.processResolution({
+        ticket_title: formData.title,
+        ticket_description: formData.description,
+        service_category: formData.service,
+        service_subcategory: formData.subcategory,
+      });
 
-your ${formData.title.toLowerCase().includes('jira') ? 'Jira' : 'software'} license has been successfully assigned.
-You can verify your assigned licenses at the following portal: [license portal link].
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.detail || "Failed to generate resolution");
+      }
 
-Please note:
+      const data = response.data;
 
-The license grants access to the application.
-
-To work on a specific project or space, additional permissions may be required.
-
-These project/space-level permissions are managed directly by the respective project administrators.
-
-If you encounter any issues with access or functionality, please reopen the ticket or contact your project manager/project administrator.
-
-Best regards,
-Service Desk`,
-        similar_tickets: [
-          {
-            ref: "INC0012345",
-            team: "IT Access Management",
-            similarity: 0.92,
-            title: "Jira license request for project access",
-            description: "I need a Jira license to access the project Agile Transformation and track my development tasks",
-            service: "IT Services",
-            subcategory: "Access Request"
-          },
-          {
-            ref: "INC0012346",
-            team: "IT Access Management",
-            similarity: 0.87,
-            title: "Request for collaboration tool access",
-            description: "Requesting a Jira license to collaborate with my team on the Customer Onboarding project",
-            service: "IT Services",
-            subcategory: "License Management"
-          },
-          {
-            ref: "INC0012347",
-            team: "IT Access Management",
-            similarity: 0.81,
-            title: "Project management tool license needed",
-            description: "Need Jira access for Digital Banking initiative project management",
-            service: "IT Services",
-            subcategory: "Access Request"
-          }
-        ]
+      // Map API response to local state
+      const resolutionPrediction: ResolutionPrediction = {
+        classification: data.classification,
+        team: data.predicted_team,
+        teamConfidence: data.team_confidence,
+        response: data.response,
+        similar_tickets: data.similar_replies,
       };
 
-      setPrediction(mockPrediction);
-      setEditedResponse(mockPrediction.response);
+      setPrediction(resolutionPrediction);
+      setEditedResponse(resolutionPrediction.response);
 
       toast({
         title: "Resolution Generated",
-        description: `Ticket resolved and assigned to ${mockPrediction.team}`,
+        description: `Ticket resolved and assigned to ${resolutionPrediction.team}`,
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to generate resolution",
+        description: error instanceof Error ? error.message : "Failed to generate resolution",
         variant: "destructive",
       });
     } finally {
@@ -156,23 +116,52 @@ Service Desk`,
     }
   };
 
-  const handleConfirmResolution = () => {
-    toast({
-      title: "Resolution Confirmed",
-      description: "The resolution has been saved successfully.",
-    });
-    
-    // Reset form and state
-    setFormData({
-      service: "",
-      subcategory: "",
-      title: "",
-      description: ""
-    });
-    setPrediction(null);
-    setIsEditingResponse(false);
-    setEditedResponse("");
-    setExpandedTickets(new Set());
+  const handleConfirmResolution = async () => {
+    if (!prediction) return;
+
+    try {
+      setIsLoading(true);
+
+      // Call feedback endpoint with the edited (or original) response
+      const response = await apiService.sendResolutionFeedback({
+        ticket_title: formData.title,
+        ticket_description: formData.description,
+        edited_response: editedResponse,
+        predicted_team: prediction.team,
+        predicted_classification: prediction.classification,
+        service_name: formData.service,
+        service_subcategory: formData.subcategory,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.detail || "Failed to save feedback");
+      }
+
+      toast({
+        title: "Resolution Confirmed",
+        description: response.data.message || "The resolution has been saved successfully.",
+      });
+      
+      // Reset form and state
+      setFormData({
+        service: "",
+        subcategory: "",
+        title: "",
+        description: ""
+      });
+      setPrediction(null);
+      setIsEditingResponse(false);
+      setEditedResponse("");
+      setExpandedTickets(new Set());
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save resolution",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const toggleTicketExpansion = (index: number) => {
@@ -321,6 +310,20 @@ Service Desk`,
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Assigned Team</p>
                     <h3 className="text-xl font-bold">{prediction.team}</h3>
+                    <div className="mt-2">
+                      <Badge 
+                        variant="outline" 
+                        className={
+                          prediction.teamConfidence >= 0.9 
+                            ? "bg-green-50 border-green-200 text-green-700" 
+                            : prediction.teamConfidence >= 0.7 
+                            ? "bg-yellow-50 border-yellow-200 text-yellow-700" 
+                            : "bg-red-50 border-red-200 text-red-700"
+                        }
+                      >
+                        {(prediction.teamConfidence * 100).toFixed(1)}% confidence
+                      </Badge>
+                    </div>
                   </div>
                   <Badge variant="secondary" className="text-sm">
                     {prediction.classification}
@@ -366,60 +369,78 @@ Service Desk`,
                   </p>
                   
                   <div className="space-y-3">
-                    {prediction.similar_tickets.map((ticket, index) => (
-                      <div 
-                        key={index}
-                        className="border rounded-lg overflow-hidden transition-all"
-                      >
-                        {/* Ticket Header - Always Visible */}
+                    {prediction.similar_tickets.map((ticket, index) => {
+                      const similarity = ticket.enhanced_score || ticket.similarity || 0;
+                      const title = ticket.Title_anon || "No title available";
+                      const description = ticket.Description_anon || "No description available";
+                      const firstReply = ticket.first_reply || "No reply available";
+                      const service = ticket['Service->Name'] || "Unknown Service";
+                      const subcategory = ticket['Service subcategory->Name'] || "Unknown Subcategory";
+                      const ref = ticket.Ref || `Ticket ${index + 1}`;
+                      
+                      return (
                         <div 
-                          className="p-4 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
-                          onClick={() => toggleTicketExpansion(index)}
+                          key={index}
+                          className="border rounded-lg overflow-hidden transition-all"
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-3 flex-1">
-                              <Badge variant="outline">{ticket.ref}</Badge>
-                              <span className="text-sm font-medium">{ticket.team}</span>
-                              <Badge 
-                                variant="secondary"
-                                className={ticket.similarity > 0.85 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}
-                              >
-                                {(ticket.similarity * 100).toFixed(1)}% similar
-                              </Badge>
+                          {/* Ticket Header - Always Visible */}
+                          <div 
+                            className="p-4 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() => toggleTicketExpansion(index)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3 flex-1">
+                                <Badge variant="outline">{ref}</Badge>
+                                <Badge 
+                                  variant="secondary"
+                                  className={similarity > 0.85 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}
+                                >
+                                  {(similarity * 100).toFixed(1)}% similar
+                                </Badge>
+                              </div>
+                              {expandedTickets.has(index) ? (
+                                <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                              ) : (
+                                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                              )}
                             </div>
-                            {expandedTickets.has(index) ? (
-                              <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                            ) : (
-                              <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                            )}
                           </div>
-                        </div>
 
-                        {/* Ticket Details - Expandable */}
-                        {expandedTickets.has(index) && (
-                          <div className="p-4 border-t bg-background space-y-3 ml-scale-in">
-                            <div className="flex items-center space-x-2 mb-3">
-                              <Badge variant="secondary">{ticket.service}</Badge>
-                              <Badge variant="outline">{ticket.subcategory}</Badge>
+                          {/* Ticket Details - Expandable */}
+                          {expandedTickets.has(index) && (
+                            <div className="p-4 border-t bg-background space-y-3 ml-scale-in">
+                              <div className="flex items-center space-x-2 mb-3">
+                                <Badge variant="secondary">{service}</Badge>
+                                <Badge variant="outline">{subcategory}</Badge>
+                              </div>
+                              
+                              <div>
+                                <span className="text-xs font-medium text-muted-foreground">Title:</span>
+                                <p className="text-sm mt-1">{title}</p>
+                              </div>
+                              
+                              <div>
+                                <span className="text-xs font-medium text-muted-foreground">Description:</span>
+                                <Textarea
+                                  value={description}
+                                  readOnly
+                                  className="mt-1 min-h-[80px] resize-none text-sm"
+                                />
+                              </div>
+                              
+                              <div>
+                                <span className="text-xs font-medium text-muted-foreground">First Reply:</span>
+                                <Textarea
+                                  value={firstReply}
+                                  readOnly
+                                  className="mt-1 min-h-[120px] resize-none text-sm"
+                                />
+                              </div>
                             </div>
-                            
-                            <div>
-                              <span className="text-xs font-medium text-muted-foreground">Title:</span>
-                              <p className="text-sm mt-1">{ticket.title}</p>
-                            </div>
-                            
-                            <div>
-                              <span className="text-xs font-medium text-muted-foreground">Description:</span>
-                              <Textarea
-                                value={ticket.description}
-                                readOnly
-                                className="mt-1 min-h-[80px] resize-none text-sm"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

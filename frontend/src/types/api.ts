@@ -124,3 +124,50 @@ export interface NearestTicketResponse {
   nearest_ticket_label: string | string[];
   similarity_score: number | number[];
 }
+
+// Resolution Types
+export interface ResolutionProcessRequest {
+  ticket_title?: string;
+  ticket_description?: string;
+  service_category?: string;
+  service_subcategory?: string;
+}
+
+export interface SimilarReply {
+  Title_anon?: string;
+  Description_anon?: string;
+  first_reply?: string;
+  enhanced_score?: number;
+  similarity?: number;
+  'Service->Name'?: string;
+  'Service subcategory->Name'?: string;
+  [key: string]: any;
+}
+
+export interface ResolutionProcessResponse {
+  classification: string;
+  predicted_team: string;
+  team_confidence: number;
+  response: string;
+  similar_replies: SimilarReply[];
+  retrieval_k: number;
+}
+
+export interface ResolutionFeedbackRequest {
+  ticket_title: string;
+  ticket_description: string;
+  edited_response: string;
+  predicted_team?: string;
+  predicted_classification?: string;
+  service_name?: string;
+  service_subcategory?: string;
+}
+
+export interface ResolutionFeedbackResponse {
+  success: boolean;
+  message: string;
+  ticket_ref?: string;
+  new_kb_size?: number;
+  embedding_added_incrementally: boolean;
+  embedding_invalidated: boolean;
+}

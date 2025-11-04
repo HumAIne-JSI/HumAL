@@ -16,7 +16,11 @@ import type {
   CategoriesResponse,
   SubcategoriesResponse,
   ExplainLimeResponse,
-  NearestTicketResponse
+  NearestTicketResponse,
+  ResolutionProcessRequest,
+  ResolutionProcessResponse,
+  ResolutionFeedbackRequest,
+  ResolutionFeedbackResponse
 } from '@/types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -50,6 +54,10 @@ export const API_ENDPOINTS = {
   GET_TEAMS: (id: number) => `/data/${id}/teams`,
   GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
   GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
+  
+  // Resolution
+  RESOLUTION_PROCESS: '/resolution/process',
+  RESOLUTION_FEEDBACK: '/resolution/feedback',
 };
 
 // Enhanced error handling
@@ -219,4 +227,17 @@ export const apiService = {
       : API_ENDPOINTS.GET_SUBCATEGORIES(instanceId);
     return apiCall<SubcategoriesResponse>(url);
   },
+
+  // Resolution
+  processResolution: (data: ResolutionProcessRequest) => 
+    apiCall<ResolutionProcessResponse>(API_ENDPOINTS.RESOLUTION_PROCESS, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  sendResolutionFeedback: (data: ResolutionFeedbackRequest) => 
+    apiCall<ResolutionFeedbackResponse>(API_ENDPOINTS.RESOLUTION_FEEDBACK, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };

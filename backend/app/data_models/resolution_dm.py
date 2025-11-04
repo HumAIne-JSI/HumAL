@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
+from app.config.resolution_config import DEFAULT_TOP_K
 
 class ResolutionRequest(BaseModel):
     """Request model for ticket resolution"""
@@ -7,7 +8,7 @@ class ResolutionRequest(BaseModel):
     ticket_description: Optional[str] = Field(None, description="Description of the ticket")
     service_category: Optional[str] = Field(None, description="Service category if available")
     service_subcategory: Optional[str] = Field(None, description="Service subcategory if available")
-    top_k: int = Field(5, ge=1, le=20, description="Number of similar tickets to retrieve")
+    top_k: int = Field(DEFAULT_TOP_K, ge=1, le=20, description="Number of similar tickets to retrieve")
     force_rebuild: bool = Field(False, description="Force rebuild of embeddings cache")
     
     @model_validator(mode='after')
