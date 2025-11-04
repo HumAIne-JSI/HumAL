@@ -6,6 +6,8 @@ from app.services.inference_svc import InferenceService
 from app.services.config_svc import ConfigService
 from app.services.data_service import DataService
 from app.services.xai_svc import XaiService
+from app.services.resolution_svc import ResolutionService
+import os
 
 # Create instances
 storage = ActiveLearningStorage()
@@ -33,3 +35,26 @@ def get_data_service():
 
 def get_xai_service():
     return xai_service
+    
+# Lazy-loaded resolution service (heavy models)
+_resolution_service_instance = None
+
+def get_resolution_service() -> ResolutionService:
+    """Get or create resolution service instance (lazy-loaded due to heavy ML models)"""
+    global _resolution_service_instance
+    if _resolution_service_instance is None:
+        _resolution_service_instance = ResolutionService(
+            knowledge_base_path=os.getenv(
+                "KNOWLEDGE_BASE_PATH",
+                "backend/data/tickets_large_first_reply_label.csv"
+            ),
+            ticket_classifier_path=os.getenv(
+                "TICKET_CLASSIFIER_PATH",
+                "./ticket_classifier_model"
+            ),
+            team_classifier_path=os.getenv(
+                "TEAM_CLASSIFIER_PATH",
+                "./perfect_team_classifier"
+            )
+        )
+    return _resolution_service_instance
