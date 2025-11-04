@@ -6,7 +6,10 @@ This guide will help you set up the HumAL application for development.
 
 ```
 HumAL/
-├── backend/              # FastAPI application
+├── backend/              
+|   ├── app/              # FastAPI application
+│   ├── data/             # CSV datasets (place your data here)
+│   └── models/           # Saved models (joblib .pkl)
 ├── frontend/             # React + Vite frontend
 ├── start-dev.bat         # Windows startup script
 ├── start-dev.sh          # Unix/Linux startup script
@@ -90,9 +93,28 @@ The installer will:
 - ✓ Install all frontend dependencies
 - ✓ Verify the installation and display GPU/CPU status
 
+4. Prepare data and models (required before using the app):
+   ```bash
+   # Unix/Linux/macOS
+   mkdir -p backend/data backend/models
+
+   # Windows PowerShell
+   mkdir backend\data
+   mkdir backend\models
+   ```
+
+   - Place CSV data files in `backend/data/`.
+     - Resolution KB: `User_Request_last_team_ANON.csv`.
+     - Active Learning datasets: `al_demo_test_data_res_classes.csv`, `al_demo_test_data.csv`, `al_demo_train_data_res_classes.csv`, `al_demo_train_data.csv`,  `al_demo_train_labels_dispatch.csv`, `al_demo_train_labels_res_classes.csv`, `al_demo_train_labels_resolution.csv`
+   - Place pre-trained team classification and ticket type classification models in `backend/models/`.
+      - `perfect_team_classifier/` folder
+      - `ticket_classifier_model/` folder
+
 ### Option 2: Using Startup Scripts
 
 **First-time setup:** You must run the automated installer (Option 1) at least once before using the startup scripts.
+
+Before starting, ensure `backend/data/` and `backend/models/` exist and are populated as described above.
 
 **Windows:**
 ```bash
@@ -126,7 +148,7 @@ chmod +x start-dev.sh
    source al_api_venv/bin/activate
    ```
 
-2. Install dependencies:
+3. Install dependencies:
    ```bash
    # With uv (recommended)
    uv pip install -r requirements.txt
@@ -134,14 +156,30 @@ chmod +x start-dev.sh
    # Or with pip
    pip install -r requirements.txt
    ```
-3. Navigate to the backend directory:
+4. Prepare data and models (required before using the app):
+   ```bash
+   # Unix/Linux/macOS
+   mkdir -p backend/data backend/models
+
+   # Windows PowerShell
+   mkdir backend\data
+   mkdir backend\models
+   ```
+
+   - Place CSV data files in `backend/data/`.
+     - Resolution KB: `User_Request_last_team_ANON.csv`.
+     - Active Learning datasets: `al_demo_test_data_res_classes.csv`, `al_demo_test_data.csv`, `al_demo_train_data_res_classes.csv`, `al_demo_train_data.csv`,  `al_demo_train_labels_dispatch.csv`, `al_demo_train_labels_res_classes.csv`, `al_demo_train_labels_resolution.csv`
+   - Place pre-trained team classification and ticket type classification models in `backend/models/`.
+      - `perfect_team_classifier/` folder
+      - `ticket_classifier_model/` folder
+
+5. Navigate to the backend directory:
    ```bash
    cd backend
    ```
 
-4. Start the backend server:
+6. Start the backend server:
    ```bash
-   cd backend
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
@@ -279,15 +317,6 @@ Ensure both services are running and check:
 1. Backend is accessible at http://localhost:8000
 2. Frontend proxy configuration in `vite.config.ts`
 3. CORS configuration in `backend/app/main.py`
-
-## Next Steps
-
-The infrastructure is now ready! You can now:
-
-1. **Connect pages to API endpoints** - Use the `apiService` from `frontend/src/services/api.ts`
-2. **Add data visualization** - The project includes Recharts for charts
-3. **Implement real-time features** - Add WebSocket support if needed
-4. **Add authentication** - Extend the API with auth endpoints
 
 ## Available Pages
 
