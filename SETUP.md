@@ -126,13 +126,17 @@ chmod +x start-dev.sh
    source al_api_venv/bin/activate
    ```
 
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    # With uv (recommended)
    uv pip install -r requirements.txt
    
    # Or with pip
    pip install -r requirements.txt
+   ```
+3. Navigate to the backend directory:
+   ```bash
+   cd backend
    ```
 
 4. Start the backend server:
