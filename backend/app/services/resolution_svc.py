@@ -825,7 +825,7 @@ class ResolutionService:
         """
         Enhanced response generation with improved retrieval
         """
-        ticket_text = ticket_title + " " + ticket_description
+        ticket_text = (ticket_title or "") + " " + (ticket_description or "")
         word_class, template = self.classify_ticket(ticket_text)
 
         # Map word_class to category labels for filtering
@@ -877,7 +877,7 @@ class ResolutionService:
         os.environ["DISABLE_EMBEDDING_CACHE"] = "1"
         try:
             # Force rebuild by passing force_rebuild=True
-            rag, df = self._get_or_build_rag(self.knowledge_base_path, force_rebuild=True)
+            rag, df = self._get_or_build_rag(force_rebuild=True)
             records = len(df)
             emb_dim = int(rag.embeddings.shape[1]) if rag.embeddings is not None else None
 

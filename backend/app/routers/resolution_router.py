@@ -1,6 +1,6 @@
 """Router for ticket resolution endpoints"""
 from fastapi import APIRouter, HTTPException
-from app.services.resolution_svc import get_resolution_service
+from app.core.dependencies import get_resolution_service
 from app.data_models.resolution_dm import (
     ResolutionRequest, 
     ResolutionResponse,

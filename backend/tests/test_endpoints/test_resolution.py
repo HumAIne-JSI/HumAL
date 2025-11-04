@@ -32,7 +32,7 @@ if response.status_code == 200:
     print(f"  Classification: {result.get('classification')}")
     print(f"  Predicted Team: {result.get('predicted_team')}")
     print(f"  Team Confidence: {result.get('team_confidence')}")
-    print(f"  Response Preview: {result.get('response')[:100]}...")
+    print(f"  Response: {result.get('response')}")
     print(f"  Similar Tickets Found: {len(result.get('similar_replies', []))}")
 else:
     print(f"✗ Error {response.status_code}: {response.text}")

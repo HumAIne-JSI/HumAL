@@ -164,6 +164,7 @@ cython_debug/
 
 # BACKEND
 data/
+backend/embeddings_cache/
 models/
 al_api_venv/
 backend/app/services/resolution_task.py
