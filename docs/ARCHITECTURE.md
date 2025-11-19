@@ -93,7 +93,7 @@ frontend/
 │   │   ├── Home.tsx
 │   │   ├── Training.tsx
 │   │   ├── DispatchLabeling.tsx
-│   │   ├── ResolutionLabeling.tsx
+│   │   ├── TicketResolution.tsx
 │   │   └── Inference.tsx
 │   ├── components/          # Reusable UI components
 │   │   ├── ui/              # shadcn-ui components
@@ -263,7 +263,7 @@ class ResolutionResponse(BaseModel):
 - **Home**: Landing page with feature overview
 - **Training**: AL instance creation and configuration
 - **DispatchLabeling**: Interactive labeling interface
-- **ResolutionLabeling**: Resolution generation and feedback
+- **TicketResolution**: Resolution generation and feedback
 - **Inference**: Model prediction interface
 
 #### API Service (`services/api.ts`)

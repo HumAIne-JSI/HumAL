@@ -10,7 +10,7 @@ const Navigation = () => {
     { path: "/", label: "Home", icon: Brain },
     { path: "/training", label: "Model Training", icon: BookOpen },
     { path: "/dispatch-labeling", label: "Dispatch Labeling", icon: BookOpen },
-    { path: "/resolution-labeling", label: "Resolution Interface", icon: BookOpen },
+    { path: "/ticket-resolution", label: "Ticket Resolution", icon: BookOpen },
     { path: "/inference", label: "Inference", icon: Zap },
   ];
 

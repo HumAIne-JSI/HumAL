@@ -123,7 +123,7 @@ Repeat steps 2-6 until:
 
 ---
 
-### 4. Ticket Resolution Page (`/resolution-labeling`)
+### 4. Ticket Resolution Page (`/ticket-resolution`)
 
 **Purpose**: Generate automated first-reply responses for IT support tickets using an LLM.
 

@@ -19,7 +19,7 @@ interface ResolutionPrediction {
   similar_tickets: SimilarReply[];
 }
 
-const ResolutionLabeling = () => {
+const TicketResolution = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [prediction, setPrediction] = useState<ResolutionPrediction | null>(null);
   const [isEditingResponse, setIsEditingResponse] = useState(false);
@@ -520,4 +520,4 @@ const ResolutionLabeling = () => {
   );
 };
 
-export default ResolutionLabeling;
+export default TicketResolution;

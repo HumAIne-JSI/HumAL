@@ -397,5 +397,5 @@ The frontend includes these predefined pages:
 - **Home** (`/`) - Landing page
 - **Training** (`/training`) - Model training interface
 - **Dispatch Labeling** (`/dispatch-labeling`) - Label dispatch data
-- **Ticket Resolution** (`/resolution-labeling`) - Generate automated responses
+- **Ticket Resolution** (`/ticket-resolution`) - Generate automated responses
 - **Inference** (`/inference`) - Run model inference

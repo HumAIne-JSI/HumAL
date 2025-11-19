@@ -8,7 +8,7 @@ import Footer from "./components/Footer";
 import Home from "./pages/Home";
 import Training from "./pages/Training";
 import DispatchLabeling from "./pages/DispatchLabeling";
-import ResolutionLabeling from "./pages/ResolutionLabeling";
+import TicketResolution from "./pages/TicketResolution";
 import Inference from "./pages/Inference";
 import NotFound from "./pages/NotFound";
 
@@ -27,7 +27,7 @@ const App = () => (
               <Route path="/" element={<Home />} />
               <Route path="/training" element={<Training />} />
               <Route path="/dispatch-labeling" element={<DispatchLabeling />} />
-              <Route path="/resolution-labeling" element={<ResolutionLabeling />} />
+              <Route path="/ticket-resolution" element={<TicketResolution />} />
               <Route path="/inference" element={<Inference />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
