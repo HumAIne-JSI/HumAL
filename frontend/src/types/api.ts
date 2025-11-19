@@ -5,7 +5,6 @@ export interface NewInstanceRequest {
   class_list: (number | string | null)[];
   train_data_path: string;
   test_data_path: string;
-  al_type: "dispatch" | "resolution";
 }
 
 export interface LabelRequest {
@@ -41,7 +40,6 @@ export interface InstanceInfo {
   model?: string;
   model_name?: string;
   qs?: string;
-  al_type?: string;
   classes?: (string | number)[];
   f1_scores?: number[];
   training_accuracy?: number;

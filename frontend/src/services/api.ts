@@ -42,9 +42,6 @@ export const API_ENDPOINTS = {
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
   
-  // Label Creation
-  CREATE_RESOLUTION_LABELS: '/activelearning/resolution_label_creation',
-  
   // Config
   GET_MODELS: '/config/models',
   GET_QUERY_STRATEGIES: '/config/query-strategies',
@@ -182,13 +179,6 @@ export const apiService = {
     });
   },
 
-  // Label Creation
-  createResolutionLabels: (data: any) => 
-    apiCall<{ message: string }>(API_ENDPOINTS.CREATE_RESOLUTION_LABELS, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  
   // Config
   getModels: () => 
     apiCall<ConfigModelsResponse>(API_ENDPOINTS.GET_MODELS),

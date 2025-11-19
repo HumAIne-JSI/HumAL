@@ -4,7 +4,7 @@ import numpy as np
 import joblib
 import os
 from app.data_models.active_learning_dm import NewInstance, LabelRequest
-from app.services.data_preprocessing import dispatch_team, resolution
+from app.services.data_preprocessing import dispatch_team
 from app.config.config import model_dict, qs_dict
 import pandas as pd
 from sklearn.metrics import f1_score
@@ -29,17 +29,12 @@ class ActiveLearningService:
             'model': model_dict[new_instance.model_name],
             'model_name': new_instance.model_name,
             'qs': new_instance.qs_strategy,
-            'classes': classes,
-            'al_type': new_instance.al_type
+            'classes': classes
         }
         
         # Preprocess the data
-        if new_instance.al_type == "dispatch":
-            X_train, y_train, le, oh, index_dict_train = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
-            X_test, y_test, _, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
-        else:
-            X_train, y_train, le, oh, index_dict_train = resolution(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
-            X_test, y_test, _, _, _ = resolution(new_instance.test_data_path, test_set=True, le=le, oh=oh)
+        X_train, y_train, le, oh, index_dict_train = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
+        X_test, y_test, _, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
         
         # Get the index of np.nan in the LabelEncoder's classes
         empty = le.transform([np.nan])[0]

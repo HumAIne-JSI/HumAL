@@ -32,8 +32,7 @@ Create a new active learning instance with specified configuration.
   "qs_strategy": "string",
   "class_list": ["team_a", "team_b", "team_c"],
   "train_data_path": "string",
-  "test_data_path": "string",
-  "al_type": "dispatch"
+  "test_data_path": "string"
 }
 ```
 
@@ -43,7 +42,6 @@ Create a new active learning instance with specified configuration.
 - `class_list` (array): List of possible class labels (teams)
 - `train_data_path` (string): Path to training data CSV
 - `test_data_path` (string): Path to test data CSV
-- `al_type` (string): Type of active learning - either "dispatch" or "resolution"
 
 **Response:**
 ```json
@@ -193,14 +191,12 @@ Get information about all active learning instances.
     "1": {
       "model_name": "logistic regression",
       "qs": "uncertainty sampling least confidence",
-      "classes": [0, 1, 2, 3],
-      "al_type": "dispatch"
+      "classes": [0, 1, 2, 3]
     },
     "2": {
       "model_name": "random forest",
       "qs": "CLUE",
-      "classes": [0, 1, 2],
-      "al_type": "resolution"
+      "classes": [0, 1, 2]
     }
   }
 }
@@ -623,8 +619,7 @@ curl -X POST http://localhost:8000/activelearning/new \
     "qs_strategy": "uncertainty sampling least confidence",
     "class_list": ["team_a", "team_b", "team_c"],
     "train_data_path": "data/al_demo_train_data.csv",
-    "test_data_path": "data/al_demo_test_data.csv",
-    "al_type": "dispatch"
+    "test_data_path": "data/al_demo_test_data.csv"
   }'
 
 # 2) Get next unlabeled instance(s)

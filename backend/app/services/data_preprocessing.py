@@ -1,13 +1,10 @@
 import pandas as pd
 import numpy as np
-import re
 import warnings
 warnings.filterwarnings("ignore")
 from sentence_transformers import SentenceTransformer
 from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import normalize
 from sklearn.preprocessing import OneHotEncoder
-from app.utils.text_preprocessing_helpers import extract_first_reply,  remove_name_number_at_beggining, clean, extract_initial_sequence, categorize_text
 
 # Data preprocessing for the dispatch team endpoint
 def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):
@@ -122,116 +119,3 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_mo
     X.columns = X.columns.astype(str)
     
     return X
-
-# Data preprocessing for the resolution label creation
-def resolution_label_creation(data_path: str, output_data_path: str, labels: bool = False, test_set: bool = False):
-    """
-    This function creates the resolution labels for the tickets.
-    It takes the raw tabular text data and returns a dataframe with the resolution labels.
-    The labels are created based on the first reply to the ticket and it's starting sequence.
-
-    This function can also accept only the first replies column
-    """
-    
-    # Get the data
-    df = pd.read_csv(data_path)
-    df.set_index('Ref', inplace=True)
-    
-    # If the data does not contain only the first replies,
-    # keep only the tickets that didn't change the group (otherwise this column is not available)
-    if not labels:
-        df = df[df['Last team ID->Name'].isna()]
-
-    # Extract the first reply from the text
-    df['first_reply'] = df['Public_log_anon'].apply(extract_first_reply)
-    
-    # Remove the beginning of the answers
-    df['first_reply'] = df['first_reply'].apply(remove_name_number_at_beggining)
-    
-    # Remove the certain pattern from the text ("Below you will find...")
-    df['first_reply'] = df['first_reply'].apply(clean)
-    
-    # Extract the initial sequences and create a new column with this sequence
-    df['initial_sequence'] = df['first_reply'].apply(extract_initial_sequence)
-    
-    # Create a mapping from initial sequences to group numbers
-    sequence_mapping = {seq: idx for idx, seq in enumerate(df['initial_sequence'].unique())}
-    
-    # Assign group numbers based on the initial sequences
-    df['initial_sequence'] = df['initial_sequence'].map(sequence_mapping)
-    
-    # Create the labels based on the first reply
-    df[['label_auto', 'label_category']] = df['first_reply'].apply(categorize_text).apply(pd.Series)
-
-    if test_set:
-        # Drop the rows that don't have the label_auto
-        # Test data has to contain the label_auto
-        df = df.dropna(subset=['label_auto'])
-
-    # Save the dataframe
-    df.to_csv(output_data_path, index=True)
-
-    return output_data_path
-
-# Data preprocessing for the resolution endpoint (can be called after resolution_label_creation)
-def resolution(data_path: str, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):   
-    """
-    This function preprocesses the data for the resolution endpoint.
-    It takes the raw tabular text data and returns a dataframe with embeddings
-    for the title and description and one-hot encoded service subcategory and service name.
-    """
-    
-    # Get the data 
-    df = pd.read_csv(data_path)
-    df.set_index('Ref', inplace=True)
-
-    # Define one-hot encoder and label encoder if not provided
-    if not test_set:
-        le = LabelEncoder()
-        oh = OneHotEncoder(handle_unknown='ignore')
-    
-    # reset the index
-    df = df.reset_index(names=['original_index'])
-    
-    # Create a dictionary that maps the new index to the original index
-    # Used later for tracking the ticket Ref number
-    original_index = df['original_index']
-    new_index = df.index
-    index_dict = dict(zip(new_index, original_index))
-
-    # Create a column that contains the title and descripiton
-    df['Title+Description'] = df['Title_anon'] + df['Description_anon']
-    
-    # Embeddings for the Title+Description
-    sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = sentence_model.encode(df['Title+Description'], show_progress_bar=False)
-    # Normalize the embeddings
-    embeddings = normalize(embeddings, norm='l2')
-    # Convert to a dataframe
-    X = pd.DataFrame(embeddings)
-    
-    # One-hot encode other features    
-    if not test_set:
-        one_hot = oh.fit_transform(df[['Service subcategory->Name', 'Service->Name']])
-    else:
-        one_hot = oh.transform(df[['Service subcategory->Name', 'Service->Name']])
-    
-    # Convert one-hot sparse matrix to dense array then DataFrame
-    one_hot = pd.DataFrame(one_hot.toarray())
-
-    # Add the dataframes together
-    X = pd.concat([X, one_hot], axis=1)
-    # Convert the column names to strings
-    X.columns = X.columns.astype(str)
-    
-    if not test_set:
-        # Fit the label encoder (if train set)
-        classes = [np.nan if x == None else x for x in classes]
-        classes = classes + [np.nan]
-        le.fit(classes)
-        y_true = le.transform(df['label_auto'])
-    else:
-        # Use the label encoder fitted on train data (if test set)
-        y_true = df['label_auto']
-    
-    return X, y_true, le, oh, index_dict

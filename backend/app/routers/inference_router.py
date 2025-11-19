@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.dependencies import get_inference_service
 from app.data_models.active_learning_dm import Data
 
-router = APIRouter(prefix="/activelearning")
+router = APIRouter(prefix="/activelearning", tags=["inference"])
 inference_service = get_inference_service()
 
 @router.post("/{al_instance_id}/infer")

@@ -101,7 +101,7 @@ mkdir -p backend/data backend/models
 
 Place the following in `backend/data/`:
 - Resolution KB: `User_Request_last_team_ANON.csv`
-- Active Learning datasets: `al_demo_test_data_res_classes.csv`, `al_demo_test_data.csv`, `al_demo_train_data_res_classes.csv`, `al_demo_train_data.csv`, `al_demo_train_labels_dispatch.csv`, `al_demo_train_labels_res_classes.csv`, `al_demo_train_labels_resolution.csv`
+- Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`, `al_demo_train_labels_dispatch.csv`
 
 Place pre-trained models in `backend/models/`:
 - `perfect_team_classifier/` folder

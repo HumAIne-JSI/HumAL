@@ -48,9 +48,6 @@ const DispatchLabeling = () => {
           const modelPromises = Object.keys(instances).map(async (instanceId) => {
             const instance = instances[instanceId];
             
-            // Only process dispatch models
-            if (instance.al_type !== 'dispatch') return null;
-            
             // Fetch instance info to get f1_scores
             const infoResponse = await apiService.getInstanceInfo(parseInt(instanceId));
             

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Literal, Optional
+from typing import Optional
 
 # Data model for the new instance
 class NewInstance(BaseModel):
@@ -8,7 +8,6 @@ class NewInstance(BaseModel):
     class_list: list[int | str | None]
     train_data_path: str
     test_data_path: str
-    al_type: Literal["dispatch", "resolution"]
 
 # Data model for the label request
 class LabelRequest(BaseModel):

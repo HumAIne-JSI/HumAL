@@ -8,6 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { apiService } from "@/services/api";
 
+const TASK_TYPE = "dispatch";
+
 const Training = () => {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -22,8 +24,7 @@ const Training = () => {
 
   const [config, setConfig] = useState({
     model: "",
-    strategy: "",
-    task: "dispatch" as "dispatch" | "resolution"
+    strategy: ""
   });
 
   // Fetch available models, strategies, and teams on component mount
@@ -81,8 +82,7 @@ const Training = () => {
         qs_strategy: config.strategy,
         class_list: teams, // Use teams from /data/teams endpoint
         train_data_path: "data/al_demo_train_data.csv",
-        test_data_path: "data/al_demo_test_data.csv",
-        al_type: config.task
+        test_data_path: "data/al_demo_test_data.csv"
       });
 
       if (response.success && response.data) {
@@ -139,26 +139,6 @@ const Training = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Basic Configuration */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Basic Configuration</h3>
-              
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="task">Task Type</Label>
-                  <Select value={config.task} onValueChange={(value: "dispatch" | "resolution") => setConfig({...config, task: value})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select task type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="dispatch">Dispatch</SelectItem>
-                      <SelectItem value="resolution">Resolution</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
             {/* Advanced Settings */}
             <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
               <CollapsibleTrigger asChild>
@@ -287,7 +267,7 @@ const Training = () => {
             <div className="grid md:grid-cols-3 gap-4">
               <div className="text-center p-4 bg-muted/30 rounded-lg">
                 <div className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Task</div>
-                <div className="mt-1 text-lg font-bold capitalize">{config.task}</div>
+                <div className="mt-1 text-lg font-bold capitalize">{TASK_TYPE}</div>
               </div>
               <div className="text-center p-4 bg-muted/30 rounded-lg">
                 <div className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Model</div>

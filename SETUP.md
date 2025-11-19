@@ -105,9 +105,9 @@ The automated installer detects your system configuration (CUDA version, package
    mkdir backend\models
    ```
 
-   - Place CSV data files in `backend/data/`.
-     - Resolution KB: `User_Request_last_team_ANON.csv`.
-     - Active Learning datasets: `al_demo_test_data_res_classes.csv`, `al_demo_test_data.csv`, `al_demo_train_data_res_classes.csv`, `al_demo_train_data.csv`,  `al_demo_train_labels_dispatch.csv`, `al_demo_train_labels_res_classes.csv`, `al_demo_train_labels_resolution.csv`
+  - Place CSV data files in `backend/data/`.
+    - Resolution KB: `User_Request_last_team_ANON.csv`.
+    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`,  `al_demo_train_labels_dispatch.csv`
    - Place pre-trained team classification and ticket type classification models in `backend/models/`.
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
@@ -183,9 +183,9 @@ The automated installer detects your system configuration (CUDA version, package
    mkdir backend\models
    ```
 
-   - Place CSV data files in `backend/data/`.
-     - Resolution KB: `User_Request_last_team_ANON.csv`.
-     - Active Learning datasets: `al_demo_test_data_res_classes.csv`, `al_demo_test_data.csv`, `al_demo_train_data_res_classes.csv`, `al_demo_train_data.csv`,  `al_demo_train_labels_dispatch.csv`, `al_demo_train_labels_res_classes.csv`, `al_demo_train_labels_resolution.csv`
+  - Place CSV data files in `backend/data/`.
+    - Resolution KB: `User_Request_last_team_ANON.csv`.
+    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`,  `al_demo_train_labels_dispatch.csv`
    - Place pre-trained team classification and ticket type classification models in `backend/models/`.
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
