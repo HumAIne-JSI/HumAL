@@ -89,8 +89,7 @@ class XaiService:
         nearest_ticket_idx_X_train = X_labeled_indices[nearest_ticket_idx]
 
         # Convert the index to the original reference id (Ref)
-        index_dict_train = self.storage.dataset_dict[al_instance_id]['index_dict_train']
-        nearest_ticket_ref = index_dict_train[nearest_ticket_idx_X_train]
+        nearest_ticket_ref = self.storage.dataset_dict[al_instance_id]['X_train'].index[nearest_ticket_idx_X_train]
 
         # Retrieve nearest ticket's true label
         le = self.storage.dataset_dict[al_instance_id]['le']
@@ -111,10 +110,8 @@ class XaiService:
             - nearest_ticket_labels: list[str]
             - similarity_score: list[float]
         """
-        # Convert the Ref numbers to the indices of the X_train
-        index_dict_train_inv = self.storage.dataset_dict[al_instance_id]['index_dict_train_inv']
-        indices = [index_dict_train_inv[ref] for ref in indices]
-        target_embeddings = self.storage.dataset_dict[al_instance_id]['X_train'].iloc[indices].values
+        # Indices are Ref values; select rows directly
+        target_embeddings = self.storage.dataset_dict[al_instance_id]['X_train'].loc[indices].values
 
         # Extract the train data that is already labeled
         X_train = self.storage.dataset_dict[al_instance_id]['X_train']
@@ -133,8 +130,7 @@ class XaiService:
         nearest_ticket_idxs_X_train = X_labeled_indices[nearest_ticket_idxs]
 
         # Convert the indices to the original reference ids (Ref)
-        index_dict_train = self.storage.dataset_dict[al_instance_id]['index_dict_train']
-        nearest_ticket_refs = [index_dict_train[idx] for idx in nearest_ticket_idxs_X_train]
+        nearest_ticket_refs = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[nearest_ticket_idxs_X_train])
 
         # Retrieve nearest tickets' true labels
         le = self.storage.dataset_dict[al_instance_id]['le']

@@ -16,7 +16,7 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
     
     # Get the labelled data
     df = pd.read_csv(data_path)
-    # Set the 'Ref' column as the index
+    # Keep Ref as stable identifier index
     df.set_index('Ref', inplace=True)
 
     # Define one-hot encoder and label encoder if not provided
@@ -40,20 +40,13 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
         # Train data doesn't have to contain Team->Name (AL -> dataset not labeled)
         df = df.dropna(subset=['Title+Description'])
 
-    # Reset the index (embeddings require a sequential index)
-    df = df.reset_index(names=['original_index'])
-
-    # Dictionary which enables to map the new index to the original index
-    # Used later for tracking the ticket Ref number
-    original_index = df['original_index']
-    new_index = df.index
-    index_dict = dict(zip(new_index, original_index))
-    
     # Embeddings for the Title+Description
     sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = sentence_model.encode(df['Title+Description'], show_progress_bar=False)
-    # Convert to a dataframe
-    X = pd.DataFrame(embeddings)
+    # Convert to a dataframe aligned to original index
+    X = pd.DataFrame(embeddings, index=df.index)
+    # Align features to Ref index for downstream .loc usage
+    X.index = df.index
     
     if not test_set:
         # If train set, fit the one-hot encoder
@@ -63,7 +56,7 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
         one_hot = oh.transform(df[['Service subcategory->Name', 'Service->Name']])
     
     # Convert one-hot sparse matrix to dense array then DataFrame
-    one_hot = pd.DataFrame(one_hot.toarray())
+    one_hot = pd.DataFrame(one_hot.toarray(), index=df.index)  # keep Ref alignment
     # Add the dataframes together
     X = pd.concat([X, one_hot], axis=1)
     # Convert the column names to strings
@@ -79,8 +72,11 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
         # If test set, use the label encoder fitted on train data
         y_true = df['Team->Name']
     
-    # Return the preprocessed data, the label encoder, the one-hot encoder, and the index dictionary
-    return X, y_true, le, oh, index_dict
+    # Align labels to Ref index (keeps Ref stable everywhere)
+    y_true = pd.Series(y_true, index=df.index)
+    
+    # Return the preprocessed data, the label encoder, and the one-hot encoder
+    return X, y_true, le, oh
 
 # Data preprocessing for the inference endpoint
 def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_model: SentenceTransformer = None):
@@ -110,7 +106,7 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_mo
     # One-hot encode the service subcategory and service name
     one_hot = oh.transform(df[['Service subcategory->Name', 'Service->Name']])
     # Convert one-hot sparse matrix to dense array then DataFrame
-    one_hot = pd.DataFrame(one_hot.toarray())
+    one_hot = pd.DataFrame(one_hot.toarray(), index=df.index)  # keep original row alignment
 
     # Add the dataframes together
     X = pd.concat([X, one_hot], axis=1)

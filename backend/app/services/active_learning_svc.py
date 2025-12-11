@@ -32,17 +32,14 @@ class ActiveLearningService:
             'classes': classes
         }
         
-        # Preprocess the data
-        X_train, y_train, le, oh, index_dict_train = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
-        X_test, y_test, _, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
+        # Preprocess the data (indices stay as Ref)
+        X_train, y_train, le, oh = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
+        X_test, y_test, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
         
         # Get the index of np.nan in the LabelEncoder's classes
         empty = le.transform([np.nan])[0]
-        # Replace missing values with MISSING_LABEL in y_train
-        y_train = pd.Series(y_train).replace(empty, MISSING_LABEL)
-        
-        # Dictionary that maps from original index to encoded index
-        index_dict_train_inv = {v: k for k, v in index_dict_train.items()}
+        # Replace missing values with MISSING_LABEL in y_train (indexed by Ref)
+        y_train = y_train.replace(empty, MISSING_LABEL)
         
         # save the data to the dataset dictionary
         self.storage.dataset_dict[instance_id] = {
@@ -52,8 +49,6 @@ class ActiveLearningService:
             'y_test': y_test,
             'le': le,
             'oh': oh,
-            'index_dict_train': index_dict_train,
-            'index_dict_train_inv': index_dict_train_inv,
             'train_data_path': new_instance.train_data_path,
             'test_data_path': new_instance.test_data_path
         }
@@ -86,8 +81,8 @@ class ActiveLearningService:
         else:
             query_idx = qs.query(X=X, y=y, batch_size=batch_size, clf=clf)
         
-        # convert the query_idx to the original index
-        query_idx = [self.storage.dataset_dict[al_instance_id]['index_dict_train'][idx] for idx in query_idx]
+        # convert the query_idx to the original Ref values using positional lookup
+        query_idx = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[query_idx])
         
         # Return the query indices
         return query_idx
@@ -110,17 +105,14 @@ class ActiveLearningService:
         # convert the labels to integers
         labels = le.transform(labels)
         
-        # convert the original index to the new index
-        query_idx = [self.storage.dataset_dict[al_instance_id]['index_dict_train_inv'][idx] for idx in query_idx]
-        
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
         
         instance = self.storage.al_instances_dict[al_instance_id]
         
         # update the labels
-        for idx, label in zip(query_idx, labels):
-            y.iloc[idx] = label
+        # use Ref-based labels directly against index
+        y.loc[query_idx] = labels
 
     # Logic for updating the model
     def update_model(self, al_instance_id: int):
