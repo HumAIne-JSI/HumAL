@@ -1,0 +1,22 @@
+pandas
+numpy<2
+regex
+scikit-learn
+sentence-transformers
+fastapi
+uvicorn
+joblib
+pydantic
+scikit-activeml
+scipy
+lime
+shap
+# Ensure SHAP/numba stack is compatible with Python 3.12
+numba>=0.59.0
+llvmlite>=0.42.0
+python-dotenv
+torch
+faiss-cpu
+transformers
+openai
+duckdb
