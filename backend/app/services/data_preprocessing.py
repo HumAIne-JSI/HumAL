@@ -42,7 +42,8 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
 
     # Embeddings for the Title+Description
     sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = sentence_model.encode(df['Title+Description'], show_progress_bar=False)
+    sentences = df['Title+Description'].astype(str).tolist()
+    embeddings = sentence_model.encode(sentences, show_progress_bar=False)
     # Convert to a dataframe aligned to original index
     X = pd.DataFrame(embeddings, index=df.index)
     # Align features to Ref index for downstream .loc usage
@@ -99,7 +100,8 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_mo
     if sentence_model is None:
         sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
         
-    embeddings = sentence_model.encode(df['Title+Description'], show_progress_bar=False)
+    sentences = df['Title+Description'].astype(str).tolist()
+    embeddings = sentence_model.encode(sentences, show_progress_bar=False)
     # Convert to a dataframe
     X = pd.DataFrame(embeddings)
 

@@ -93,7 +93,7 @@ class XaiService:
 
         # Retrieve nearest ticket's true label
         le = self.storage.dataset_dict[al_instance_id]['le']
-        nearest_ticket_label = le.inverse_transform([int(y_train[nearest_ticket_idx_X_train])])[0]
+        nearest_ticket_label = le.inverse_transform([int(y_train[nearest_ticket_ref])])[0]
 
         return {
             "nearest_ticket_ref": nearest_ticket_ref,
@@ -134,7 +134,7 @@ class XaiService:
 
         # Retrieve nearest tickets' true labels
         le = self.storage.dataset_dict[al_instance_id]['le']
-        nearest_ticket_labels = le.inverse_transform([int(y_train[idx]) for idx in nearest_ticket_idxs_X_train]).tolist()
+        nearest_ticket_labels = le.inverse_transform([int(y_train[idx]) for idx in nearest_ticket_refs]).tolist()
         similarity_scores = [similarities[i, nearest_ticket_idxs[i]] for i in range(len(nearest_ticket_idxs))]
 
         return {

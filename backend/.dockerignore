@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Local envs
+.venv/
+venv/
+al_api_venv/
+
+# Caches
+embeddings_cache/
+*.npz
+
+# Tests (optional)
+tests/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
