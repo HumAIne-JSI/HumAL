@@ -10,7 +10,6 @@ import Footer from '@/components/Footer.vue'
     <main class="flex-1">
       <RouterView />
     </main>
-    <Footer />
     <Toaster />
   </div>
 </template>
