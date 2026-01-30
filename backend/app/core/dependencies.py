@@ -7,6 +7,9 @@ from app.services.config_svc import ConfigService
 from app.services.data_service import DataService
 from app.services.xai_svc import XaiService
 from app.services.resolution_svc import ResolutionService
+from app.persistence.duckdb import DuckDbPersistenceService
+from app.persistence.local_artifacts import LocalArtifactsStore
+from pathlib import Path
 import os
 
 # Create instances
@@ -16,6 +19,14 @@ inference_service = InferenceService(storage)
 config_service = ConfigService()
 data_service = DataService(storage)
 xai_service = XaiService(storage, inference_service)
+
+duckdb_persistence_service = DuckDbPersistenceService(
+    db_path=os.getenv("DUCKDB_PATH", "storage/db/humal.duckdb")
+)
+local_artifacts_store = LocalArtifactsStore(
+    models_dir=Path(os.getenv("MODELS_DIR", "storage/models")),
+    encoders_dir=Path(os.getenv("ENCODERS_DIR", "storage/encoders"))
+)
 
 # Dependency functions
 def get_storage():
@@ -35,6 +46,12 @@ def get_data_service():
 
 def get_xai_service():
     return xai_service
+
+def get_duckdb_persistence_service() -> DuckDbPersistenceService:
+    return duckdb_persistence_service
+
+def get_local_artifacts_store() -> LocalArtifactsStore:
+    return local_artifacts_store
     
 # Lazy-loaded resolution service (heavy models)
 _resolution_service_instance = None

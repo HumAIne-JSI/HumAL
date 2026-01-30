@@ -1,0 +1,449 @@
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import pandas as pd
+
+from .connection import connect
+from .schema import init_database
+
+
+@dataclass(frozen=True)
+class DuckDbPersistenceService:
+    db_path: str | Path = "backend/humal.duckdb"
+
+    def __post_init__(self) -> None:
+        init_database(self.db_path)
+
+    # --- Users ---
+    def upsert_user(
+        self,
+        *,
+        user_id: str | uuid.UUID | None = None,
+        username: str,
+        password: str,
+    ) -> uuid.UUID:
+        """Insert or replace a user row.
+
+        If user_id is None, a new random UUID (uuid4) is generated.
+        """
+        user_uuid = uuid.UUID(str(user_id)) if user_id is not None else uuid.uuid4()
+        with connect(self.db_path) as conn:
+            # Delete existing user if present to avoid unique constraint issues
+            conn.execute("DELETE FROM users WHERE user_id = ?", [str(user_uuid)])
+            conn.execute(
+                """
+                INSERT INTO users (user_id, username, password)
+                VALUES (?, ?, ?)
+                """,
+                [str(user_uuid), username, password],
+            )
+        return user_uuid
+
+    def get_user(self, *, user_id: str | uuid.UUID) -> Optional[Dict[str, Any]]:
+        user_uuid = uuid.UUID(str(user_id))
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, username, password, created_at
+                FROM users
+                WHERE user_id = ?
+                """,
+                [str(user_uuid)],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "user_id": str(row[0]),
+            "username": row[1],
+            "password": row[2],
+            "created_at": row[3],
+        }
+
+    def get_user_by_username(self, *, username: str) -> Optional[Dict[str, Any]]:
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, username, password, created_at
+                FROM users
+                WHERE username = ?
+                """,
+                [username],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "user_id": str(row[0]),
+            "username": row[1],
+            "password": row[2],
+            "created_at": row[3],
+        }
+
+    # --- AL instances ---
+    def save_al_instance(self, al_instance_id: int, instance_data: Dict[str, Any]) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO al_instances
+                (al_instance_id, model_name, query_strategy, classes)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    al_instance_id,
+                    instance_data.get("model_name"),
+                    instance_data.get("query_strategy"),
+                    instance_data.get("classes"),
+                ],
+            )
+
+    def load_al_instance(self, al_instance_id: int) -> Optional[Dict[str, Any]]:
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                SELECT model_name, query_strategy, classes
+                FROM al_instances
+                WHERE al_instance_id = ?
+                """,
+                [al_instance_id],
+            ).fetchone()
+
+        if not result:
+            return None
+
+        return {
+            "model_name": result[0],
+            "qs": result[1],
+            "classes": result[2],
+        }
+
+    def get_all_instances(self) -> Dict[int, Dict[str, Any]]:
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, model_name, query_strategy, classes
+                FROM al_instances
+                ORDER BY al_instance_id
+                """
+            ).fetchall()
+
+        instances: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            instances[int(row[0])] = {
+                "model_name": row[1],
+                "qs": row[2],
+                "classes": row[3],
+            }
+        return instances
+
+    # --- Tickets ---
+    def upsert_tickets_df(
+        self,
+        tickets_df: pd.DataFrame,
+        *,
+        split: str,
+        dataset_timestamp: Optional[str] = None,
+    ) -> int:
+        """Upsert ticket rows from a dataframe.
+
+        Requires column: Ref
+        Optional columns will be mapped to the schema.
+
+        Args:
+            tickets_df: DataFrame with ticket data
+            split: 'train' or 'test'
+            dataset_timestamp: Optional timestamp for the dataset
+        """
+        if tickets_df is None or tickets_df.empty:
+            return 0
+
+        if "Ref" not in tickets_df.columns:
+            raise ValueError("tickets_df must contain 'Ref' column")
+
+        # Map DataFrame columns to schema columns
+        column_mapping = {
+            "Ref": "ref",
+            "Service subcategory->Name": "service_subcategory_name",
+            "Service->Name": "network",
+            "Request Type": "request_type",
+            "Last team ID->Name": "last_team_id_name",
+            "Title_anon": "title_anon",
+            "Description_anon": "description_anon",
+            "Public_log_anon": "public_log_anon",
+        }
+
+        df = tickets_df.copy()
+        
+        # Rename columns that exist in the DataFrame
+        df = df.rename(columns=column_mapping)
+
+        # Add split and dataset_timestamp
+        df["split"] = split
+        df["dataset_timestamp"] = dataset_timestamp
+
+        # Ensure all schema columns exist
+        schema_cols = [
+            "ref",
+            "service_subcategory_name",
+            "network",
+            "request_type",
+            "last_team_id_name",
+            "title_anon",
+            "description_anon",
+            "public_log_anon",
+            "split",
+            "dataset_timestamp",
+        ]
+
+        for col in schema_cols:
+            if col not in df.columns:
+                df[col] = None
+
+        df = df[schema_cols]
+
+        with connect(self.db_path) as conn:
+            conn.register("_tickets_df", df)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tickets
+                SELECT * FROM _tickets_df
+                """
+            )
+            conn.unregister("_tickets_df")
+
+        return int(len(df))
+
+    def load_tickets(self, split: str) -> pd.DataFrame:
+        """Load tickets for a given split ('train' or 'test').
+        
+        Args:
+            split: 'train' or 'test'
+            
+        Returns:
+            DataFrame with all tickets for the specified split
+        """
+        if split not in ('train', 'test'):
+            raise ValueError("split must be 'train' or 'test'")
+        
+        with connect(self.db_path) as conn:
+            df = conn.execute(
+                """
+                SELECT ref, service_subcategory_name, network, request_type, 
+                       last_team_id_name, title_anon, description_anon, public_log_anon, 
+                       split, dataset_timestamp
+                FROM tickets
+                WHERE split = ?
+                """,
+                [split],
+            ).df()
+        
+        return df
+
+    # --- Labels ---
+    def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any]) -> int:
+        """Persist non-null labels for a user/instance. Returns count saved."""
+        user_uuid = uuid.UUID(str(user_id))
+
+        if not labels_dict:
+            return 0
+
+        saved = 0
+        with connect(self.db_path) as conn:
+            for ref, label in labels_dict.items():
+                if pd.isna(label):
+                    continue
+
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [al_instance_id, str(user_uuid), str(ref), str(label)],
+                )
+                saved += 1
+
+        return saved
+
+    def load_labels(self, al_instance_id: int, user_id: str | uuid.UUID) -> pd.Series:
+        """Load labels for an instance/user as a pandas Series indexed by ref."""
+        user_uuid = uuid.UUID(str(user_id))
+        with connect(self.db_path) as conn:
+            df = conn.execute(
+                """
+                SELECT ref, label
+                FROM labels
+                WHERE al_instance_id = ? AND user_id = ?
+                """,
+                [al_instance_id, str(user_uuid)],
+            ).df()
+
+        if df.empty:
+            return pd.Series(dtype=object)
+
+        df["ref"] = df["ref"].astype(str)
+        return df.set_index("ref")["label"]
+
+    # --- Model paths ---
+    def save_model_path(self, al_instance_id: int, model_id: int, path_to_model: str) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO model_paths (al_instance_id, model_id, path_to_model)
+                VALUES (?, ?, ?)
+                """,
+                [al_instance_id, model_id, path_to_model],
+            )
+
+    def load_model_paths(self, al_instance_id: int) -> Dict[int, str]:
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT model_id, path_to_model
+                FROM model_paths
+                WHERE al_instance_id = ?
+                ORDER BY model_id
+                """,
+                [al_instance_id],
+            ).fetchall()
+
+        return {int(model_id): str(path) for (model_id, path) in rows}
+
+    # --- Metrics ---
+    def save_metrics(
+        self,
+        al_instance_id: int,
+        *,
+        iteration_id: Optional[int] = None,
+        f1_score: Optional[float] = None,
+        mean_entropy: Optional[float] = None,
+        num_labeled: Optional[int] = None,
+    ) -> int:
+        with connect(self.db_path) as conn:
+            if iteration_id is None:
+                # Get the next iteration_id for this al_instance_id
+                result = conn.execute(
+                    """
+                    SELECT COALESCE(MAX(iteration_id), 0) + 1
+                    FROM metrics
+                    WHERE al_instance_id = ?
+                    """,
+                    [al_instance_id],
+                ).fetchone()
+                iteration_id = result[0]
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO metrics
+                (al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled],
+            )
+        
+        return iteration_id
+
+    def load_metrics(self, al_instance_id: int, iteration_id: Optional[int] = None) -> Dict[str, any]:
+        with connect(self.db_path) as conn:
+            if iteration_id is None:
+                # Load the latest iteration
+                row = conn.execute(
+                    """
+                    SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                    FROM metrics
+                    WHERE al_instance_id = ?
+                    ORDER BY iteration_id DESC
+                    LIMIT 1
+                    """,
+                    [al_instance_id],
+                ).fetchone()
+            else:
+                # Load specific iteration
+                row = conn.execute(
+                    """
+                    SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                    FROM metrics
+                    WHERE al_instance_id = ? AND iteration_id = ?
+                    """,
+                    [al_instance_id, iteration_id],
+                ).fetchone()
+
+        if not row:
+            return {
+                "iteration_id": None,
+                "f1_score": None,
+                "mean_entropy": None,
+                "num_labeled": None,
+            }
+
+        return {
+            "iteration_id": row[0],
+            "f1_score": row[1],
+            "mean_entropy": row[2],
+            "num_labeled": row[3],
+        }
+
+    def load_all_metrics(self, al_instance_id: int) -> list[Dict[str, any]]:
+        """Load all metrics iterations for an AL instance."""
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                FROM metrics
+                WHERE al_instance_id = ?
+                ORDER BY iteration_id ASC
+                """,
+                [al_instance_id],
+            ).fetchall()
+
+        return [
+            {
+                "iteration_id": row[0],
+                "f1_score": row[1],
+                "mean_entropy": row[2],
+                "num_labeled": row[3],
+            }
+            for row in rows
+        ]
+
+    # --- Events ---
+    def log_event(
+        self,
+        *,
+        al_instance_id: Optional[int] = None,
+        user_id: Optional[str | uuid.UUID] = None,
+        action: str,
+        latency_ms: Optional[int] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else None
+
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO al_events (al_instance_id, user_id, action, latency_ms, payload)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    al_instance_id,
+                    str(resolved_user_id) if resolved_user_id is not None else None,
+                    action,
+                    latency_ms,
+                    json.dumps(payload) if payload is not None else None,
+                ],
+            )
+
+    # --- Deletes ---
+    def delete_instance(self, al_instance_id: int) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute("DELETE FROM al_events WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM model_paths WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM metrics WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM al_instances WHERE al_instance_id = ?", [al_instance_id])
