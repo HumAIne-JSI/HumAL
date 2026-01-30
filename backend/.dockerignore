@@ -10,6 +10,7 @@ venv/
 al_api_venv/
 
 # Caches
+models/
 embeddings_cache/
 *.npz
 

@@ -5,17 +5,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Keep backend paths predictable inside the container
-ENV TEAM_CLASSIFIER_PATH=/app/models/perfect_team_classifier \
-    TICKET_CLASSIFIER_PATH=/app/models/ticket_classifier_model \
-    KNOWLEDGE_BASE_PATH=/app/data/User_Request_last_team_ANON.csv \
-    LLM_MODEL=gpt-3.5-turbo \
-    LLM_MAX_TOKENS=800 \
-    LLM_TEMPERATURE=0.2 \
-    SENTENCE_MODEL=all-MiniLM-L6-v2 \
-    EMBEDDING_CACHE_DIR=embeddings_cache \
-    DEFAULT_TOP_K=3 \
-    DISABLE_EMBEDDING_CACHE=0
+ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
+    SENTENCE_TRANSFORMERS_CACHE_DIR=/app/sentence_transformers_cache
 
 # Install Python dependencies first for better Docker layer caching
 COPY requirements.txt /app/requirements.txt
@@ -34,8 +25,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Copy backend code + bundled artifacts
 COPY app /app/app
-COPY models /app/models
 COPY data /app/data
+COPY sentence_transformers_cache /app/sentence_transformers_cache
 
 EXPOSE 8000
 

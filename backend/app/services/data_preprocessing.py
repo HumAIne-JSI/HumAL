@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore")
 from sentence_transformers import SentenceTransformer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
+from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL
 
 # Data preprocessing for the dispatch team endpoint
 def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):
@@ -41,7 +42,7 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
         df = df.dropna(subset=['Title+Description'])
 
     # Embeddings for the Title+Description
-    sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+    sentence_model = SentenceTransformer(SENTENCE_TRANSFORMERS_MODEL, cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR)
     sentences = df['Title+Description'].astype(str).tolist()
     embeddings = sentence_model.encode(sentences, show_progress_bar=False)
     # Convert to a dataframe aligned to original index
@@ -98,7 +99,7 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_mo
     
     # Embeddings for the Title+Description
     if sentence_model is None:
-        sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        sentence_model = SentenceTransformer(SENTENCE_TRANSFORMERS_MODEL, cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR)
         
     sentences = df['Title+Description'].astype(str).tolist()
     embeddings = sentence_model.encode(sentences, show_progress_bar=False)

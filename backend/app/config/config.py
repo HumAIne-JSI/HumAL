@@ -3,8 +3,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from skactiveml.pool import UncertaintySampling, RandomSampling, QueryByCommittee, ValueOfInformationEER, Clue
 from skactiveml.utils import MISSING_LABEL
+import os
 
 RANDOM_STATE = 42
+
+# Sentence Transformers cache directory and model from environment variables
+SENTENCE_TRANSFORMERS_CACHE_DIR = os.getenv('SENTENCE_TRANSFORMERS_CACHE_DIR', os.path.join(os.path.dirname(__file__), '../../sentence_transformers_cache'))
+SENTENCE_TRANSFORMERS_MODEL = os.getenv('SENTENCE_TRANSFORMERS_MODEL', 'all-MiniLM-L6-v2')
 
 qs_dict = {
     'random sampling': RandomSampling(random_state=RANDOM_STATE, missing_label=MISSING_LABEL),
