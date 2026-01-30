@@ -10,6 +10,7 @@ RANDOM_STATE = 42
 # Sentence Transformers cache directory and model from environment variables
 SENTENCE_TRANSFORMERS_CACHE_DIR = os.getenv('SENTENCE_TRANSFORMERS_CACHE_DIR', os.path.join(os.path.dirname(__file__), '../../sentence_transformers_cache'))
 SENTENCE_TRANSFORMERS_MODEL = os.getenv('SENTENCE_TRANSFORMERS_MODEL', 'all-MiniLM-L6-v2')
+SENTENCE_TRANSFORMERS_LOCAL_ONLY = os.getenv('SENTENCE_TRANSFORMERS_LOCAL_ONLY', '1').lower() in ('1', 'true', 'yes', 'y')
 
 qs_dict = {
     'random sampling': RandomSampling(random_state=RANDOM_STATE, missing_label=MISSING_LABEL),

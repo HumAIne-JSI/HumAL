@@ -6,7 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
-    SENTENCE_TRANSFORMERS_CACHE_DIR=/app/sentence_transformers_cache
+    SENTENCE_TRANSFORMERS_CACHE_DIR=/app/sentence_transformers_cache \
+    SENTENCE_TRANSFORMERS_LOCAL_ONLY=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 # Install Python dependencies first for better Docker layer caching
 COPY requirements.txt /app/requirements.txt

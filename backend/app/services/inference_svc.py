@@ -4,12 +4,16 @@ import pandas as pd
 import joblib
 from app.services.data_preprocessing import inference
 from sentence_transformers import SentenceTransformer
-from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL
+from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 
 class InferenceService:
     def __init__(self, storage: ActiveLearningStorage):
         self.storage = storage
-        self.sentence_model = SentenceTransformer(SENTENCE_TRANSFORMERS_MODEL, cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR)
+        self.sentence_model = SentenceTransformer(
+            SENTENCE_TRANSFORMERS_MODEL,
+            cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR,
+            local_files_only=SENTENCE_TRANSFORMERS_LOCAL_ONLY
+        )
 
     # Logic for inference
     def infer(self, al_instance_id: int, X: Data, model_id: int = 0):

@@ -9,13 +9,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
 from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
-from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL
+from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 
 class XaiService:
     def __init__(self, storage: ActiveLearningStorage, inference_service: InferenceService):
         self.storage = storage
         self.inference_service = inference_service
-        self.sentence_model = SentenceTransformer(SENTENCE_TRANSFORMERS_MODEL, cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR)
+        self.sentence_model = SentenceTransformer(
+            SENTENCE_TRANSFORMERS_MODEL,
+            cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR,
+            local_files_only=SENTENCE_TRANSFORMERS_LOCAL_ONLY
+        )
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """
