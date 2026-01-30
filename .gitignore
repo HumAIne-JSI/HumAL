@@ -169,6 +169,7 @@ models/
 al_api_venv/
 backend/app/services/resolution_task.py
 backend/app/services/resolution_task_new.py
+backend/sentence_transformers_cache/
 # commented because it contais the API key.
 # Uncomment it when you fix the issue.
 
