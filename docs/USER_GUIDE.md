@@ -30,8 +30,7 @@ HumAL consists of five main pages:
 1. **Home** - Landing page and navigation hub
 2. **Training** - Create and configure active learning instances
 3. **Dispatch Labeling** - Label tickets for team routing
-4. **Ticket Resolution** - Generate automated ticket responses
-5. **Inference** - Run predictions on new tickets
+4. **Inference** - Run predictions on new tickets
 
 ---
 
@@ -123,55 +122,7 @@ Repeat steps 2-6 until:
 
 ---
 
-### 4. Ticket Resolution Page (`/ticket-resolution`)
-
-**Purpose**: Generate automated first-reply responses for IT support tickets using an LLM.
-
-#### How It Works
-
-The system uses **Retrieval-Augmented Generation (RAG)**:
-1. Finds similar tickets from knowledge base
-2. Retrieves their resolutions
-3. Uses GPT to generate contextually appropriate response
-
-#### Using the Resolution Generator
-
-**Step 1: Enter Ticket Information**
-
-1. Ticket Category
-2. Ticket Subcategory
-3. Ticket Title
-4. Ticket Description
-
-**Step 2: Generate Resolution**
-
-Click "Generate Resolution" button.
-
-**Step 3: Review Generated Response**
-
-The system displays:
-
-1. **Generated Resolution**
-
-2. **Similar Tickets**
-   - Top 3 similar past tickets
-   - Their resolutions
-   - Similarity scores
-   - Useful for verification
-
-**Step 4: Evaluate and Edit**
-
-1. Read the generated resolution carefully
-2. Check for:
-   - Technical accuracy
-   - Completeness
-   - Appropriate tone
-   - Relevant troubleshooting steps
-3. Edit if necessary before sending to user
-
----
-
-### 5. Inference Page (`/inference`)
+### 4. Inference Page (`/inference`)
 
 **Purpose**: Run predictions on new, unlabeled tickets using trained models.
 

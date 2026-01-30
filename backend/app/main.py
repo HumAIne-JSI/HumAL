@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router, resolution_router
+from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router
 
 app = FastAPI(
     title="HumAL API",
@@ -23,7 +23,6 @@ app.include_router(active_learning_router.router)
 app.include_router(config_router.router)
 app.include_router(data_router.router)
 app.include_router(xai_router.router)
-app.include_router(resolution_router.router)
 
 # Entry point for running the application
 if __name__ == "__main__":

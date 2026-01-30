@@ -47,7 +47,6 @@ backend/
 │   ├── routers/             # API endpoint handlers
 │   │   ├── active_learning_router.py
 │   │   ├── inference_router.py
-│   │   ├── resolution_router.py
 │   │   ├── data_router.py
 │   │   ├── config_router.py
 │   │   ├── xai_router.py
@@ -55,7 +54,6 @@ backend/
 │   ├── services/            # Business logic layer
 │   │   ├── active_learning_service.py
 │   │   ├── inference_service.py
-│   │   ├── resolution_service.py
 │   │   ├── data_service.py
 │   │   ├── config_service.py
 │   │   ├── xai_service.py
@@ -66,17 +64,15 @@ backend/
 │   │   └── rag_system.py    # RAG implementation
 │   ├── data_models/         # Pydantic schemas
 │   │   ├── active_learning_dm.py
-│   │   └── resolution_dm.py
 │   ├── config/              # Configuration management
 │   │   ├── config.py
-│   │   └── resolution_config.py
 │   └── utils/               # Utility functions
 │       ├── model_utils.py
 │       ├── query_strategies.py
 │       └── embedding_utils.py
 ├── data/                    # CSV datasets
 ├── models/                  # Saved model artifacts
-├── embeddings_cache/        # Cached embeddings
+├── models/                  # Saved model artifacts
 └── tests/                   # Test suite
 ```
 
@@ -93,7 +89,6 @@ frontend/
 │   │   ├── Home.tsx
 │   │   ├── Training.tsx
 │   │   ├── DispatchLabeling.tsx
-│   │   ├── TicketResolution.tsx
 │   │   └── Inference.tsx
 │   ├── components/          # Reusable UI components
 │   │   ├── ui/              # shadcn-ui components
@@ -128,11 +123,6 @@ frontend/
 - **inference_router.py**: Model prediction endpoints
   - Run inference on new tickets
   - Batch prediction support
-  
-- **resolution_router.py**: Automated resolution generation
-  - RAG-based ticket resolution
-  - Feedback collection
-  - Embeddings management
   
 - **xai_router.py**: Explainability features
   - LIME explanations
@@ -197,28 +187,12 @@ class Storage:
 - Model persistence tracking
 - Data and embeddings caching
 
-#### RAG System (`core/rag_system.py`)
-**Purpose**: Retrieval-Augmented Generation for ticket resolution.
-
-**Components:**
-1. **Embedding Generation**: Sentence Transformers (all-MiniLM-L6-v2)
-2. **Vector Store**: FAISS for similarity search
-3. **Retrieval**: Top-k similar tickets
-4. **Generation**: OpenAI GPT-4 for response synthesis
-
-**Workflow:**
-```
-User Query → Embed Query → FAISS Search → Retrieve Top-K
-→ Build Context → GPT Prompt → Generate Resolution
-```
-
 #### Dependencies (`core/dependencies.py`)
 **Purpose**: Dependency injection for services.
 
 ```python
 def get_al_service() -> ActiveLearningService
 def get_inference_service() -> InferenceService
-def get_resolution_service() -> ResolutionService
 ```
 
 ---
@@ -263,7 +237,6 @@ class ResolutionResponse(BaseModel):
 - **Home**: Landing page with feature overview
 - **Training**: AL instance creation and configuration
 - **DispatchLabeling**: Interactive labeling interface
-- **TicketResolution**: Resolution generation and feedback
 - **Inference**: Model prediction interface
 
 #### API Service (`services/api.ts`)
@@ -275,10 +248,6 @@ export const api = {
     createInstance: (data: NewInstance) => Promise<{instance_id: number}>,
     getNext: (id: number, batchSize: number) => Promise<NextBatch>,
     submitLabels: (id: number, labels: LabelRequest) => Promise<Response>
-  },
-  resolution: {
-    process: (request: ResolutionRequest) => Promise<ResolutionResponse>,
-    submitFeedback: (feedback: FeedbackRequest) => Promise<Response>
   }
 }
 ```
