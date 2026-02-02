@@ -156,7 +156,7 @@ All colors MUST be HSL.
 
   .ml-card:hover {
     box-shadow: var(--shadow-elegant);
-    transform: translateY(-2px);
+    /* transform: translateY(-2px); */
   }
 
   .ml-button-primary {
@@ -224,5 +224,112 @@ All colors MUST be HSL.
       opacity: 1;
       transform: scale(1);
     }
+  }
+
+  /* Floating blob animation for decorative backgrounds */
+  .ml-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.5;
+    animation: ml-float 10s ease-in-out infinite;
+  }
+
+  .ml-blob-1 {
+    animation-delay: 0s;
+  }
+
+  .ml-blob-2 {
+    animation-delay: -3s;
+    animation-duration: 12s;
+  }
+
+  .ml-blob-3 {
+    animation-delay: -6s;
+    animation-duration: 14s;
+  }
+
+  @keyframes ml-float {
+    0%, 100% {
+      transform: translate(0, 0) scale(1);
+    }
+    25% {
+      transform: translate(10px, -15px) scale(1.05);
+    }
+    50% {
+      transform: translate(-5px, 10px) scale(0.95);
+    }
+    75% {
+      transform: translate(-10px, -5px) scale(1.02);
+    }
+  }
+
+  /* Config card with gradient border accent */
+  .ml-config-card {
+    @apply relative overflow-hidden rounded-lg transition-all duration-300;
+    background: hsl(var(--card));
+  }
+
+  .ml-config-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--gradient-primary);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .ml-config-card:hover::before {
+    opacity: 1;
+  }
+
+  /* Staggered fade-in animation */
+  .ml-stagger-fade {
+    animation: ml-fade-in 0.5s ease-out backwards;
+  }
+
+  /* Icon glow ring */
+  .ml-icon-glow {
+    @apply relative;
+  }
+
+  .ml-icon-glow::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--gradient-primary);
+    opacity: 0.15;
+    z-index: -1;
+    animation: ml-glow-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes ml-glow-pulse {
+    0%, 100% {
+      opacity: 0.15;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.25;
+      transform: scale(1.1);
+    }
+  }
+
+  /* Gradient top accent for panels */
+  .ml-panel-accent {
+    @apply relative overflow-hidden;
+  }
+
+  .ml-panel-accent::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-primary);
   }
 }
