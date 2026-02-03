@@ -195,3 +195,11 @@ export interface ResolutionFeedbackResponse {
   embedding_added_incrementally: boolean;
   embedding_invalidated: boolean;
 }
+
+export interface EmbeddingsRebuildResponse {
+  rebuilt: boolean;
+  records: number;
+  embedding_dim: number | null;
+  cache_file: string | null;
+  cache_saved: boolean;
+}

@@ -21,6 +21,7 @@ import {
   type ResolutionProcessResponse,
   type ResolutionFeedbackRequest,
   type ResolutionFeedbackResponse,
+  type EmbeddingsRebuildResponse,
 } from '@/types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -56,6 +57,7 @@ export const API_ENDPOINTS = {
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
   RESOLUTION_FEEDBACK: '/resolution/feedback',
+  RESOLUTION_REBUILD_EMBEDDINGS: '/resolution/rebuild-embeddings',
 } as const;
 
 /**
@@ -216,5 +218,10 @@ export const apiService = {
     apiCall<ResolutionFeedbackResponse>(API_ENDPOINTS.RESOLUTION_FEEDBACK, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  rebuildEmbeddings: () =>
+    apiCall<EmbeddingsRebuildResponse>(API_ENDPOINTS.RESOLUTION_REBUILD_EMBEDDINGS, {
+      method: 'POST',
     }),
 };

@@ -5,6 +5,7 @@ export interface ButtonProps {
   variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link' | 'success' | 'warning' | 'info'
   size?: 'default' | 'sm' | 'lg' | 'icon'
   disabled?: boolean
+  loading?: boolean
   asChild?: boolean
 }
 
@@ -12,6 +13,7 @@ const props = withDefaults(defineProps<ButtonProps>(), {
   variant: 'default',
   size: 'default',
   disabled: false,
+  loading: false,
   asChild: false,
 })
 
@@ -19,6 +21,7 @@ const classes = computed(() => [
   'btn',
   `btn-v-${props.variant}`,
   `btn-s-${props.size}`,
+  { 'btn-loading': props.loading },
 ])
 </script>
 
@@ -26,10 +29,13 @@ const classes = computed(() => [
   <component
     :is="asChild ? 'slot' : 'button'"
     :class="classes"
-    :disabled="disabled"
+    :disabled="disabled || loading"
     data-slot="button"
   >
-    <slot />
+    <span v-if="loading" class="btn-spinner" />
+    <span :class="{ 'btn-content-hidden': loading }">
+      <slot />
+    </span>
   </component>
 </template>
 
@@ -186,6 +192,34 @@ const classes = computed(() => [
     width: 2.25rem;
     height: 2.25rem;
     padding: 0;
+  }
+
+  // ============================================
+  // Loading State
+  // ============================================
+  &-loading {
+    position: relative;
+    pointer-events: none;
+  }
+
+  &-spinner {
+    position: absolute;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: btn-spin 0.6s linear infinite;
+  }
+
+  &-content-hidden {
+    visibility: hidden;
+  }
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>
