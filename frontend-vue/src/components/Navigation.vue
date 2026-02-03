@@ -32,13 +32,15 @@
       </div>
     </aside>
 
-    <button
+    <Button
+      variant="ghost"
+      size="icon"
       class="toggle-btn"
       @click="toggle"
     >
-      <X v-if="isOpen" class="toggle-btn__icon" />
-      <Menu v-else class="toggle-btn__icon" />
-    </button>
+      <X v-if="isOpen" />
+      <Menu v-else />
+    </Button>
   </div>
 </template>
 
@@ -47,6 +49,7 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, X } from 'lucide-vue-next'
 import { navItems } from '../router'
+import Button from './ui/Button.vue'
 
 const route = useRoute()
 const isOpen = ref(true)
@@ -178,24 +181,5 @@ const toggle = () => {
   top: 0.75rem;
   right: -2.5rem;
   z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem;
-  background-color: var(--background);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background-color 0.15s;
-
-  &:hover {
-    background-color: var(--muted);
-  }
-
-  &__icon {
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--foreground);
-  }
 }
 </style>
