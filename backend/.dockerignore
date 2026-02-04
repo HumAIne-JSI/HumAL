@@ -20,3 +20,6 @@ tests/
 .DS_Store
 .vscode/
 .idea/
+
+# Other
+benchmarking_suite/

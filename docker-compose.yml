@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: rokklancic/humal-backend:dev
+    ports:
+      - "8000:8000"
+    networks:
+      - humal-network
+
+  frontend:
+    image: rokklancic/humal-frontend:dev
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - humal-network
+
+networks:
+  humal-network:
+    driver: bridge
