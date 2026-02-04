@@ -1,0 +1,229 @@
+{
+  "sim_id": "pilot_ticketing_al_v1",
+  "environment": {
+    "id": "TICKETING_ENV",
+    "class": "base.Environment",
+    "attributes": {
+      "domain": "smart-ticketing",
+      "task": "active_learning_ticket_resolution",
+      "rt_max_ai_ms": 20000,
+      "rt_max_human_s": 60
+    }
+  },
+  "agents": [
+    {
+      "id": "LAB",
+      "class": "base.Agent",
+      "model": "human",
+      "affordances": [
+        "abstain",
+        "label_ticket",
+        "validate_resolution"
+      ]
+    },
+    {
+      "id": "AL",
+      "class": "base.Agent",
+      "model": "ai",
+      "affordances": [
+        "compute_uncertainty",
+        "query_human",
+        "rank_candidates",
+        "score_candidates",
+        "select_batch"
+      ]
+    },
+    {
+      "id": "MOD",
+      "class": "base.Agent",
+      "model": "ai",
+      "affordances": [
+        "evaluate_ticket",
+        "update_model"
+      ]
+    },
+    {
+      "id": "ORCH",
+      "class": "base.Agent",
+      "model": "system",
+      "affordances": [
+        "export_logs",
+        "import_dataset",
+        "process_end",
+        "process_start"
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "id": "KB",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "knowledge_base_article"
+      },
+      "affordances": [
+        "link_to_ticket",
+        "retrieve",
+        "search",
+        "suggest"
+      ]
+    },
+    {
+      "id": "Lbl",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "ticket_label"
+      },
+      "affordances": [
+        "confirm",
+        "override",
+        "propose",
+        "store"
+      ]
+    },
+    {
+      "id": "Mdl",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "model"
+      },
+      "affordances": [
+        "checkpoint",
+        "deploy",
+        "evaluate",
+        "predict",
+        "rollback",
+        "train",
+        "update"
+      ]
+    },
+    {
+      "id": "Pool",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "ticket_pool"
+      },
+      "affordances": [
+        "add_ticket",
+        "remove_ticket",
+        "sample_candidates",
+        "snapshot",
+        "stats",
+        "update"
+      ]
+    },
+    {
+      "id": "Sel",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "selection_batch"
+      },
+      "affordances": [
+        "add_member",
+        "create",
+        "export_for_labeling",
+        "finalize"
+      ]
+    },
+    {
+      "id": "Snap",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "model_snapshot"
+      },
+      "affordances": [
+        "compare",
+        "create",
+        "load",
+        "promote"
+      ]
+    },
+    {
+      "id": "Ticket",
+      "class": "base.Object",
+      "attributes": {
+        "kind": "support_ticket"
+      },
+      "affordances": [
+        "ai_propose_resolution",
+        "ai_propose_routing",
+        "assign_group",
+        "close",
+        "create",
+        "human_correct",
+        "human_validate",
+        "reopen",
+        "resolve",
+        "triage",
+        "update_fields"
+      ]
+    }
+  ],
+  "script": [
+    {
+      "t": 0.0,
+      "agent": "ORCH",
+      "action": "process_start",
+      "object": "Ticket",
+      "effect": {
+        "batch_id": "st_run_001"
+      }
+    },
+    {
+      "t": 1.0,
+      "agent": "MOD",
+      "action": "evaluate_ticket",
+      "object": "Ticket",
+      "effect": {
+        "ticket_id": "T-001",
+        "ai_decision": "needs_label",
+        "confidence": 0.62
+      },
+      "latency_ms": 1200
+    },
+    {
+      "t": 2.0,
+      "agent": "AL",
+      "action": "select_batch",
+      "object": "Sel",
+      "effect": {
+        "selected": [
+          "T-001"
+        ],
+        "criterion": "uncertainty"
+      },
+      "latency_ms": 35
+    },
+    {
+      "t": 10.0,
+      "agent": "LAB",
+      "action": "label_ticket",
+      "object": "Lbl",
+      "effect": {
+        "ticket_id": "T-001",
+        "label": "routing=DB_TEAM"
+      },
+      "duration_s": 18.4
+    },
+    {
+      "t": 15.0,
+      "agent": "MOD",
+      "action": "update_model",
+      "object": "Mdl",
+      "effect": {
+        "delta_samples": 1,
+        "model_version_new": "v_next"
+      },
+      "latency_ms": 5400
+    },
+    {
+      "t": 20.0,
+      "agent": "ORCH",
+      "action": "process_end",
+      "object": "Ticket",
+      "effect": {
+        "batch_id": "st_run_001"
+      }
+    }
+  ]
+}
