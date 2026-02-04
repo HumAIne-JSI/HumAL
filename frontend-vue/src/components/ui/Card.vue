@@ -136,7 +136,7 @@ const props = withDefaults(defineProps<CardProps>(), {
   &__footer {
     display: flex;
     align-items: center;
-    padding: 0 1.5rem 1.5rem;
+    padding: 1.5rem 1.5rem;
   }
 }
 </style>

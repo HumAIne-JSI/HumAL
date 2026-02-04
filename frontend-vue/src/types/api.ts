@@ -28,7 +28,7 @@ export interface CreateInstanceResponse {
 }
 
 export interface NextInstancesResponse {
-  query_idx: number[];
+  query_idx: (number | string)[];
 }
 
 export interface LabelInstanceResponse {
@@ -42,6 +42,8 @@ export interface InstanceInfo {
   qs?: string;
   classes?: (string | number)[];
   f1_scores?: number[];
+  num_labeled?: number[];
+  mean_entropies?: number[];
   training_accuracy?: number;
   test_accuracy?: number;
   labeled_count?: number;

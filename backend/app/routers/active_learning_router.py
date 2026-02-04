@@ -44,7 +44,26 @@ def save_model(al_instance_id: int):
 
 @router.get("/instances")
 def get_instances():
-    return {"instances": al_service.storage.al_instances_dict}
+    """Get all instances with their info merged from al_instances_dict and results_dict."""
+    instances = {}
+    for instance_id, instance_data in al_service.storage.al_instances_dict.items():
+        # Start with base instance data (excluding non-serializable 'model' object)
+        merged = {
+            'model_name': instance_data.get('model_name'),
+            'qs': instance_data.get('qs'),
+            'classes': instance_data.get('classes'),
+        }
+        # Merge results data if available (contains f1_scores, training metrics, etc.)
+        if instance_id in al_service.storage.results_dict:
+            results = al_service.storage.results_dict[instance_id]
+            merged['f1_scores'] = results.get('f1_scores', [])
+            merged['num_labeled'] = results.get('num_labeled', [])
+            merged['mean_entropies'] = results.get('mean_entropies', [])
+            # Add test_accuracy as the last f1_score if available
+            if results.get('f1_scores'):
+                merged['test_accuracy'] = results['f1_scores'][-1]
+        instances[instance_id] = merged
+    return {"instances": instances}
 
 @router.delete("/{al_instance_id}")
 def delete_instance(al_instance_id: int):
