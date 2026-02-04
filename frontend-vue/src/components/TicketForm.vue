@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import Input from '@/components/ui/Input.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Select from '@/components/ui/Select.vue'
 import { useCategories, useSubcategories } from '@/composables/api/useData'
 import type { InferenceData } from '@/types/api'
+
+// Default train data path used by the demo
+const DEFAULT_TRAIN_DATA_PATH = 'data/al_demo_train_data.csv'
 
 export interface TicketFormProps {
   modelValue: InferenceData
@@ -12,6 +15,10 @@ export interface TicketFormProps {
   showAllFields?: boolean
   disabled?: boolean
   compact?: boolean
+  /** Filter subcategories based on selected category (requires backend support or mapping) */
+  filterSubcategories?: boolean
+  /** Path to training data for fetching categories/subcategories */
+  trainDataPath?: string
 }
 
 const props = withDefaults(defineProps<TicketFormProps>(), {
@@ -19,6 +26,8 @@ const props = withDefaults(defineProps<TicketFormProps>(), {
   showAllFields: false,
   disabled: false,
   compact: false,
+  filterSubcategories: true,
+  trainDataPath: DEFAULT_TRAIN_DATA_PATH,
 })
 
 const emit = defineEmits<{
@@ -26,12 +35,36 @@ const emit = defineEmits<{
 }>()
 
 // Fetch categories and subcategories if showing category selects
-const { data: categoriesData } = useCategories(0, undefined, {
+const { data: categoriesData } = useCategories(0, props.trainDataPath, {
   enabled: computed(() => props.showCategories),
 })
-const { data: subcategoriesData } = useSubcategories(0, undefined, {
-  enabled: computed(() => props.showCategories),
-})
+
+// Fetch subcategories filtered by selected category (when enabled)
+const selectedCategory = computed(() => 
+  props.filterSubcategories ? props.modelValue.service_name : undefined
+)
+
+const { data: subcategoriesData } = useSubcategories(
+  0, 
+  props.trainDataPath,
+  selectedCategory,
+  {
+    enabled: computed(() => props.showCategories),
+  }
+)
+
+// Reset subcategory when category changes
+watch(
+  () => props.modelValue.service_name,
+  (newCategory, oldCategory) => {
+    if (newCategory !== oldCategory && props.modelValue.service_subcategory_name) {
+      emit('update:modelValue', {
+        ...props.modelValue,
+        service_subcategory_name: '',
+      })
+    }
+  }
+)
 
 const categoryOptions = computed(() =>
   (categoriesData.value?.categories ?? []).map((cat) => ({
@@ -40,12 +73,14 @@ const categoryOptions = computed(() =>
   }))
 )
 
-const subcategoryOptions = computed(() =>
-  (subcategoriesData.value?.subcategories ?? []).map((sub) => ({
+// Subcategories are now filtered by backend based on selected category
+const subcategoryOptions = computed(() => {
+  const subcategories = subcategoriesData.value?.subcategories ?? []
+  return subcategories.map((sub) => ({
     value: sub,
     label: sub,
   }))
-)
+})
 
 const updateField = <K extends keyof InferenceData>(field: K, value: InferenceData[K]) => {
   emit('update:modelValue', {
@@ -155,6 +190,7 @@ const updateField = <K extends keyof InferenceData>(field: K, value: InferenceDa
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
+    min-width: 0;
   }
 
   &__label {
@@ -167,6 +203,7 @@ const updateField = <K extends keyof InferenceData>(field: K, value: InferenceDa
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
+    min-width: 0;
 
     @media (max-width: 640px) {
       grid-template-columns: 1fr;

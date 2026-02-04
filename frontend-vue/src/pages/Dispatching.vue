@@ -11,6 +11,7 @@ import InstanceSelector from '@/components/InstanceSelector.vue'
 import TicketForm from '@/components/TicketForm.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
 import ExportButton from '@/components/ExportButton.vue'
+import LimeExplanation from '@/components/LimeExplanation.vue'
 import { useInstances, useInstanceInfo } from '@/composables/api/useActiveLearning'
 import { useInferWithModelCheck } from '@/composables/api/useInference'
 import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
@@ -19,10 +20,7 @@ import {
   Zap,
   Search,
   Brain,
-  ChevronDown,
-  ChevronUp,
   AlertCircle,
-  Lightbulb,
   Target,
   FileText,
 } from 'lucide-vue-next'
@@ -81,28 +79,12 @@ const nearestResult = ref<NearestTicketResponse | null>(null)
 
 // Processing states
 const isRunning = ref(false)
-const showExplanation = ref(false)
 
 // Computed
 const hasInstance = computed(() => selectedInstanceId.value > 0)
 const isTrained = computed(() => instanceInfo.value?.test_accuracy !== undefined)
 const canRun = computed(() => hasInstance.value && isTrained.value)
 const hasInput = computed(() => !!(ticket.value.title_anon || ticket.value.description_anon))
-
-// Sorted explanation features by importance (top_words from LIME response)
-interface FeatureImportance {
-  word: string
-  importance: number
-}
-
-const sortedFeatures = computed((): FeatureImportance[] => {
-  if (!explanation.value || !explanation.value[0]?.top_words) return []
-  // top_words is [string, number][]
-  return explanation.value[0].top_words
-    .map(([word, importance]) => ({ word, importance }))
-    .sort((a, b) => Math.abs(b.importance) - Math.abs(a.importance))
-    .slice(0, 10)
-})
 
 // Process nearest tickets response into display format
 interface NearestTicketDisplay {
@@ -130,6 +112,10 @@ const nearestTickets = computed((): NearestTicketDisplay[] => {
 // Export data
 const exportData = computed(() => {
   if (!prediction.value) return []
+  // Process LIME features for export
+  const features = explanation.value?.[0]?.top_words
+    ?.map(([word, importance]) => `${word}: ${importance.toFixed(3)}`)
+    .join('; ') ?? ''
   return [
     {
       title: ticket.value.title_anon,
@@ -139,7 +125,7 @@ const exportData = computed(() => {
       ...Object.fromEntries(
         Object.entries(prediction.value.probabilities ?? {}).map(([k, v]) => [`prob_${k}`, v])
       ),
-      explanation_features: sortedFeatures.value.map((f) => `${f.word}: ${f.importance.toFixed(3)}`).join('; '),
+      explanation_features: features,
       nearest_tickets: nearestTickets.value.map((t) => `${t.team}: ${t.ref}`).join(' | '),
     },
   ]
@@ -302,56 +288,12 @@ const clearAll = () => {
 
           <!-- Explanation Card -->
           <Card v-if="explanation || isRunning" class="results__explanation">
-            <template #title>
-              <Lightbulb :size="18" />
-              Why this prediction?
-            </template>
-            <template #action>
-              <Button
-                variant="ghost"
-                size="sm"
-                @click="showExplanation = !showExplanation"
-              >
-                {{ showExplanation ? 'Hide' : 'Show' }} Details
-                <ChevronDown v-if="!showExplanation" :size="14" />
-                <ChevronUp v-else :size="14" />
-              </Button>
-            </template>
-
-            <div v-if="isRunning" class="results__loading">
-              <Progress :value="undefined" />
-              <span>Generating explanation...</span>
-            </div>
-
-            <template v-else-if="explanation && sortedFeatures.length > 0">
-              <div class="explanation-summary">
-                <p>The model based its prediction on the following key words:</p>
-              </div>
-
-              <div v-if="showExplanation" class="explanation-features">
-                <div
-                  v-for="(feature, index) in sortedFeatures"
-                  :key="index"
-                  class="feature-item"
-                >
-                  <span class="feature-item__word">{{ feature.word }}</span>
-                  <div class="feature-item__bar-container">
-                    <div
-                      class="feature-item__bar"
-                      :class="{ 'feature-item__bar--negative': feature.importance < 0 }"
-                      :style="{ width: `${Math.abs(feature.importance) * 100}%` }"
-                    />
-                  </div>
-                  <span class="feature-item__value" :class="{ negative: feature.importance < 0 }">
-                    {{ feature.importance.toFixed(3) }}
-                  </span>
-                </div>
-              </div>
-            </template>
-
-            <div v-else class="no-explanation">
-              <span>Explanation not available</span>
-            </div>
+            <LimeExplanation
+              :explanation="explanation"
+              :loading="isRunning"
+              collapsible
+              :default-expanded="false"
+            />
           </Card>
 
           <!-- Similar Tickets Card -->
@@ -535,68 +477,6 @@ const clearAll = () => {
   }
 }
 
-.explanation-summary {
-  p {
-    margin: 0;
-    font-size: 0.9375rem;
-
-    strong {
-      color: var(--primary);
-    }
-  }
-}
-
-.explanation-features {
-  margin-top: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.feature-item {
-  display: grid;
-  grid-template-columns: 120px 1fr 60px;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.875rem;
-
-  &__word {
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__bar-container {
-    height: 8px;
-    background: var(--muted);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  &__bar {
-    height: 100%;
-    background: var(--primary);
-    border-radius: 4px;
-    transition: width 0.3s ease;
-
-    &--negative {
-      background: var(--destructive);
-    }
-  }
-
-  &__value {
-    text-align: right;
-    font-family: monospace;
-    color: var(--primary);
-
-    &.negative {
-      color: var(--destructive);
-    }
-  }
-}
-
-.no-explanation,
 .no-similar {
   padding: 1rem;
   text-align: center;

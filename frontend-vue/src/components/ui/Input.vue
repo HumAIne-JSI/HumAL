@@ -95,6 +95,7 @@ const handleBlur = (event: FocusEvent) => {
   color: var(--foreground);
   outline: none;
   transition: color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  box-sizing: border-box;
 }
 
 .input::placeholder {

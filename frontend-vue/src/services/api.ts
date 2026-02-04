@@ -134,11 +134,26 @@ export const apiService = {
     }),
 
   // Inference
-  infer: (id: number, data: InferenceData) =>
-    apiCall<InferenceResponse>(API_ENDPOINTS.INFER(id), {
+  infer: async (id: number, data: InferenceData): Promise<InferenceResponse> => {
+    // Backend returns array of predictions, e.g., ["Team Name"]
+    // We need to transform it to InferenceResponse format
+    const rawResponse = await apiCall<string[] | InferenceResponse>(API_ENDPOINTS.INFER(id), {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    });
+    
+    // If backend returns array, convert to InferenceResponse format
+    if (Array.isArray(rawResponse)) {
+      return {
+        prediction: rawResponse[0] ?? '',
+        confidence: undefined,
+        probabilities: undefined,
+      };
+    }
+    
+    // If backend already returns InferenceResponse format, use it directly
+    return rawResponse;
+  },
 
   // XAI
   explainLime: (
@@ -200,9 +215,16 @@ export const apiService = {
     return apiCall<CategoriesResponse>(url);
   },
 
-  getSubcategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath
-      ? `${API_ENDPOINTS.GET_SUBCATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
+  getSubcategories: (instanceId: number = 0, trainDataPath?: string, category?: string) => {
+    const params = new URLSearchParams();
+    if (trainDataPath) {
+      params.append('train_data_path', trainDataPath);
+    }
+    if (category) {
+      params.append('category', category);
+    }
+    const url = params.toString()
+      ? `${API_ENDPOINTS.GET_SUBCATEGORIES(instanceId)}?${params.toString()}`
       : API_ENDPOINTS.GET_SUBCATEGORIES(instanceId);
     return apiCall<SubcategoriesResponse>(url);
   },

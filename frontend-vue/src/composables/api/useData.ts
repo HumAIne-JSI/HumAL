@@ -107,24 +107,33 @@ export function useCategories(
 
 /**
  * Fetch available subcategories.
+ * Optionally filter by category.
  * 
  * @example
  * ```ts
- * const { data: subcategories } = useSubcategories(instanceId);
+ * const { data: subcategories } = useSubcategories(instanceId, trainDataPath, category);
  * // subcategories.value?.subcategories is string[]
  * ```
  */
 export function useSubcategories(
   instanceId: MaybeRef<number> = 0,
   trainDataPath?: MaybeRef<string | undefined>,
+  category?: MaybeRef<string | undefined>,
   options?: UseDataOptions
 ) {
   return useQuery({
-    queryKey: computed(() => dataKeys.subcategories(toValue(instanceId), toValue(trainDataPath))),
-    queryFn: () => apiService.getSubcategories(toValue(instanceId), toValue(trainDataPath)),
+    queryKey: computed(() => [
+      ...dataKeys.subcategories(toValue(instanceId), toValue(trainDataPath)),
+      toValue(category)
+    ]),
+    queryFn: () => apiService.getSubcategories(
+      toValue(instanceId),
+      toValue(trainDataPath),
+      toValue(category)
+    ),
     // Subcategories rarely change - cache for 5 minutes
     staleTime: 5 * 60 * 1000,
-    enabled: options?.enabled,
+    ...(options?.enabled !== undefined && { enabled: options.enabled }),
     ...options,
   });
 }
@@ -144,7 +153,7 @@ export function useReferenceData(
 ) {
   const teamsQuery = useTeams(instanceId, trainDataPath, options);
   const categoriesQuery = useCategories(instanceId, trainDataPath, options);
-  const subcategoriesQuery = useSubcategories(instanceId, trainDataPath, options);
+  const subcategoriesQuery = useSubcategories(instanceId, trainDataPath, undefined, options);
 
   return {
     teams: teamsQuery.data,

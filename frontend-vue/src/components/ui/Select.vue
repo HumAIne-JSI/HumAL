@@ -347,7 +347,9 @@ const contentStyle = computed(() => ({
   gap: 0.5rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   flex: 1;
+  min-width: 0;
   text-align: left;
 }
 
@@ -374,6 +376,7 @@ const contentStyle = computed(() => ({
   position: fixed;
   z-index: 50;
   min-width: 8rem;
+  max-width: 32rem;
   overflow: hidden;
   background-color: var(--popover);
   color: var(--popover-foreground);
@@ -459,6 +462,11 @@ const contentStyle = computed(() => ({
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Select Group */

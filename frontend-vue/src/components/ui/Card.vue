@@ -53,6 +53,8 @@ const props = withDefaults(defineProps<CardProps>(), {
   background-color: var(--card);
   color: var(--card-foreground);
   border-radius: var(--radius);
+  overflow: hidden;
+  min-width: 0;
 
   // Variants
   &-v-default {
@@ -107,6 +109,7 @@ const props = withDefaults(defineProps<CardProps>(), {
       display: flex;
       flex-direction: column;
       gap: 0.375rem;
+      min-width: 0;
     }
   }
 
@@ -130,6 +133,8 @@ const props = withDefaults(defineProps<CardProps>(), {
   // Content
   &__content {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
   }
 
   // Footer
