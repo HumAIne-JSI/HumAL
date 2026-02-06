@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 venv/
 al_api_venv/
+.env/
 
 # Caches
 embeddings_cache/
