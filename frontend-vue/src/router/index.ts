@@ -6,6 +6,7 @@ import {
   Send,
   CheckCircle2,
   Brain,
+  Tag,
 } from 'lucide-vue-next'
 
 export interface NavItem {
@@ -31,7 +32,7 @@ const routes = [
     path: '/dispatching',
     name: 'dispatching',
     component: () => import('../pages/Dispatching.vue'),
-    meta: { label: 'Dispatching', icon: Send, showInNav: true }
+    meta: { label: 'Dispatch Labeling', icon: Tag, showInNav: true }
   },
   {
     path: '/ticket-resolution',
@@ -44,6 +45,12 @@ const routes = [
     name: 'inference',
     component: () => import('../pages/Inference.vue'),
     meta: { label: 'Inference', icon: Brain, showInNav: true }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('../pages/NotFound.vue'),
+    meta: { showInNav: false }
   },
 ]
 

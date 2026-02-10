@@ -6,23 +6,24 @@ import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
-import Accordion from '@/components/ui/Accordion.vue'
+import Select from '@/components/ui/Select.vue'
 import InstanceSelector from '@/components/InstanceSelector.vue'
-import TicketForm from '@/components/TicketForm.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
-import ExportButton from '@/components/ExportButton.vue'
 import LimeExplanation from '@/components/LimeExplanation.vue'
-import { useInstances, useInstanceInfo } from '@/composables/api/useActiveLearning'
+import { useInstanceInfo, useLabelInstance } from '@/composables/api/useActiveLearning'
 import { useInferWithModelCheck } from '@/composables/api/useInference'
 import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
+import { useTeams } from '@/composables/api/useData'
+import { apiService } from '@/services/api'
 import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse } from '@/types/api'
 import {
-  Zap,
   Search,
   Brain,
-  AlertCircle,
   Target,
   FileText,
+  Tag,
+  Check,
+  RefreshCw,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -66,6 +67,22 @@ const inferMutation = useInferWithModelCheck(selectedInstanceId, {
 const limeMutation = useExplainLimeMutation(selectedInstanceId)
 const nearestMutation = useNearestTicketMutation(selectedInstanceId)
 
+// Labeling composables
+const labelMutation = useLabelInstance(selectedInstanceId, {
+  onSuccess: () => {
+    toast.success('Label submitted', { description: 'Proceeding to next ticket' })
+  },
+})
+const { data: teamsData } = useTeams(selectedInstanceId, undefined, {
+  enabled: computed(() => selectedInstanceId.value > 0),
+})
+
+// Labeling mode state
+const currentTicketIdx = ref<string | null>(null)
+const currentTicketRef = ref<string | null>(null)
+const selectedReassignTeam = ref<string>('')
+const isFetchingNextTicket = ref(false)
+
 // Input
 const ticket = ref<InferenceData>({
   title_anon: '',
@@ -82,16 +99,6 @@ const isRunning = ref(false)
 
 // Computed
 const hasInstance = computed(() => selectedInstanceId.value > 0)
-// Consider trained if has test_accuracy, training_accuracy, or f1_scores (matching Inference logic)
-const isTrained = computed(() => {
-  if (!instanceInfo.value) return false
-  return (
-    instanceInfo.value.test_accuracy !== undefined ||
-    instanceInfo.value.training_accuracy !== undefined ||
-    (instanceInfo.value.f1_scores && instanceInfo.value.f1_scores.length > 0)
-  )
-})
-const canRun = computed(() => hasInstance.value && isTrained.value)
 const hasInput = computed(() => !!(ticket.value.title_anon || ticket.value.description_anon))
 
 // Process nearest tickets response into display format
@@ -115,28 +122,6 @@ const nearestTickets = computed((): NearestTicketDisplay[] => {
     team: labels[i] ?? 'Unknown',
     similarity: scores[i] ?? 0,
   }))
-})
-
-// Export data
-const exportData = computed(() => {
-  if (!prediction.value) return []
-  // Process LIME features for export
-  const features = explanation.value?.[0]?.top_words
-    ?.map(([word, importance]) => `${word}: ${importance.toFixed(3)}`)
-    .join('; ') ?? ''
-  return [
-    {
-      title: ticket.value.title_anon,
-      description: ticket.value.description_anon,
-      prediction: prediction.value.prediction,
-      confidence: prediction.value.confidence,
-      ...Object.fromEntries(
-        Object.entries(prediction.value.probabilities ?? {}).map(([k, v]) => [`prob_${k}`, v])
-      ),
-      explanation_features: features,
-      nearest_tickets: nearestTickets.value.map((t) => `${t.team}: ${t.ref}`).join(' | '),
-    },
-  ]
 })
 
 // Methods
@@ -192,6 +177,93 @@ const clearAll = () => {
   prediction.value = null
   explanation.value = null
   nearestResult.value = null
+  currentTicketIdx.value = null
+  currentTicketRef.value = null
+  selectedReassignTeam.value = ''
+}
+
+// ----- Labeling Mode Methods -----
+
+const availableTeams = computed(() => teamsData.value?.teams ?? [])
+
+const fetchNextTicket = async () => {
+  if (!hasInstance.value) return
+
+  isFetchingNextTicket.value = true
+  clearAll()
+
+  try {
+    // Fetch next ticket index from active learning queue
+    const nextData = await apiService.getNextInstances(selectedInstanceId.value, 1)
+    const queryIdx = nextData.query_idx
+    if (!queryIdx || queryIdx.length === 0) {
+      toast.info('No more tickets', { description: 'Active learning queue is empty' })
+      return
+    }
+    const idx = queryIdx[0].toString()
+    currentTicketIdx.value = idx
+
+    // Fetch ticket details using POST with indices in body
+    const ticketData = await apiService.getTickets(selectedInstanceId.value, [idx])
+    if (!ticketData.tickets || ticketData.tickets.length === 0) {
+      throw new Error('Ticket not found')
+    }
+    const t = ticketData.tickets[0]
+    currentTicketRef.value = t.Ref ?? idx
+
+    // Populate form with ticket data
+    ticket.value = {
+      title_anon: t.Title_anon ?? '',
+      description_anon: t.Description_anon ?? '',
+      service_name: t['Service->Name'] ?? undefined,
+      service_subcategory_name: t['Service subcategory->Name'] ?? undefined,
+    }
+
+    toast.success('Ticket loaded', { description: `Ticket ${currentTicketRef.value} ready for labeling` })
+
+    // Auto-run inference if model is trained
+    if (hasInput.value) {
+      await runDispatch()
+    }
+  } catch (e) {
+    toast.error('Failed to fetch ticket', { description: (e as Error).message })
+  } finally {
+    isFetchingNextTicket.value = false
+  }
+}
+
+const confirmPrediction = async () => {
+  if (!prediction.value || !currentTicketIdx.value) return
+
+  try {
+    await labelMutation.mutateAsync({
+      query_idx: [currentTicketIdx.value],
+      labels: [prediction.value.prediction],
+    })
+    // Fetch next ticket automatically
+    await fetchNextTicket()
+  } catch (e) {
+    toast.error('Failed to confirm', { description: (e as Error).message })
+  }
+}
+
+const reassignTeam = async () => {
+  if (!selectedReassignTeam.value || !currentTicketIdx.value) {
+    toast.error('Select a team', { description: 'Please choose a team to reassign' })
+    return
+  }
+
+  try {
+    await labelMutation.mutateAsync({
+      query_idx: [currentTicketIdx.value],
+      labels: [selectedReassignTeam.value],
+    })
+    selectedReassignTeam.value = ''
+    // Fetch next ticket automatically
+    await fetchNextTicket()
+  } catch (e) {
+    toast.error('Failed to reassign', { description: (e as Error).message })
+  }
 }
 </script>
 
@@ -199,14 +271,15 @@ const clearAll = () => {
   <div class="dispatching">
     <header class="dispatching__header">
       <div class="dispatching__header-content">
-        <h1 class="dispatching__title">Ticket Dispatching</h1>
-        <p class="dispatching__subtitle">Predict ticket assignments with explainable AI insights</p>
+        <h1 class="dispatching__title">Dispatch Labeling</h1>
+        <p class="dispatching__subtitle">
+          Label tickets for active learning training
+        </p>
       </div>
       <div class="dispatching__header-actions">
         <InstanceSelector
           :model-value="String(selectedInstanceId || '')"
-          placeholder="Select model..."
-          filter-trained
+          placeholder="Select instance..."
           @update:model-value="handleInstanceSelect"
         />
       </div>
@@ -227,57 +300,76 @@ const clearAll = () => {
       </div>
     </Card>
 
-    <!-- Warning if not trained -->
-    <Card v-if="hasInstance && !isTrained" class="dispatching__warning" variant="outline" padding="sm">
-      <div class="warning-content">
-        <AlertCircle :size="20" />
-        <span>This instance has not been trained yet. Please complete training first.</span>
-        <Button variant="outline" size="sm" @click="router.push({ path: '/training', query: { instance: String(selectedInstanceId) } })">
-          Go to Training
-        </Button>
-      </div>
-    </Card>
-
     <!-- No instance selected -->
     <div v-if="!hasInstance" class="dispatching__empty">
       <Brain :size="48" class="dispatching__empty-icon" />
-      <h3>No model selected</h3>
-      <p>Select a trained model to analyze ticket dispatching</p>
+      <h3>No instance selected</h3>
+      <p>Select an instance to start labeling tickets</p>
     </div>
 
-    <!-- Main Content -->
-    <template v-else-if="canRun">
+    <!-- Main Content: Labeling -->
+    <template v-else-if="hasInstance">
       <div class="dispatching__content">
-        <!-- Input Section -->
+        <!-- Get Next Ticket Section -->
         <Card class="dispatching__input">
-          <template #title>Ticket Details</template>
-          <template #description>Enter the ticket to analyze</template>
+          <template #title>
+            <Tag :size="18" />
+            Active Learning Labeling
+          </template>
+          <template #description>
+            Fetch tickets from the active learning queue and confirm or correct predictions
+          </template>
 
-          <TicketForm v-model="ticket" show-categories show-all-fields />
+          <!-- Show ticket details if loaded -->
+          <div v-if="currentTicketRef" class="labeling-ticket">
+            <div class="labeling-ticket__header">
+              <Badge variant="outline">Ticket {{ currentTicketRef }}</Badge>
+            </div>
+            <div class="labeling-ticket__content">
+              <div class="labeling-ticket__field">
+                <label>Title</label>
+                <p>{{ ticket.title_anon || '(No title)' }}</p>
+              </div>
+              <div class="labeling-ticket__field">
+                <label>Description</label>
+                <p>{{ ticket.description_anon || '(No description)' }}</p>
+              </div>
+              <div v-if="ticket.service_name" class="labeling-ticket__field">
+                <label>Service</label>
+                <p>{{ ticket.service_name }}</p>
+              </div>
+              <div v-if="ticket.service_subcategory_name" class="labeling-ticket__field">
+                <label>Subcategory</label>
+                <p>{{ ticket.service_subcategory_name }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="labeling-empty">
+            <FileText :size="32" class="labeling-empty__icon" />
+            <p>Click "Get Next Ticket" to load a ticket from the active learning queue</p>
+          </div>
 
           <template #footer>
             <div class="input-actions">
-              <Button variant="ghost" size="sm" @click="clearAll" :disabled="isRunning">
+              <Button variant="ghost" size="sm" @click="clearAll" :disabled="isFetchingNextTicket || isRunning">
                 Clear
               </Button>
-              <Button @click="runDispatch" :loading="isRunning" :disabled="!hasInput">
-                <Zap :size="16" />
-                Analyze & Dispatch
+              <Button @click="fetchNextTicket" :loading="isFetchingNextTicket" variant="outline">
+                <RefreshCw :size="16" />
+                Get Next Ticket
               </Button>
             </div>
           </template>
         </Card>
 
-        <!-- Results Section -->
+        <!-- Prediction & Actions Section (Labeling Mode) -->
         <div v-if="prediction || isRunning" class="dispatching__results">
-          <!-- Prediction Card -->
+          <!-- Prediction Card with Labeling Actions -->
           <Card class="results__prediction">
             <template #title>
               <Target :size="18" />
               Prediction
-            </template>
-            <template #action v-if="prediction">
-              <ExportButton :data="exportData" filename="dispatch_result" />
             </template>
 
             <div v-if="isRunning" class="results__loading">
@@ -292,6 +384,34 @@ const clearAll = () => {
               :probabilities="prediction.probabilities"
               show-details
             />
+
+            <!-- Labeling Actions -->
+            <div v-if="prediction && !isRunning" class="labeling-actions">
+              <div class="labeling-actions__confirm">
+                <Button @click="confirmPrediction" :loading="labelMutation.isPending.value" variant="default">
+                  <Check :size="16" />
+                  Confirm Prediction
+                </Button>
+              </div>
+
+              <div class="labeling-actions__reassign">
+                <span class="labeling-actions__label">Or reassign to:</span>
+                <Select
+                  v-model="selectedReassignTeam"
+                  placeholder="Select team..."
+                  :options="availableTeams.map(t => ({ value: t, label: t }))"
+                  class="labeling-actions__select"
+                />
+                <Button
+                  @click="reassignTeam"
+                  :disabled="!selectedReassignTeam"
+                  :loading="labelMutation.isPending.value"
+                  variant="outline"
+                >
+                  Reassign
+                </Button>
+              </div>
+            </div>
           </Card>
 
           <!-- Explanation Card -->
@@ -316,11 +436,7 @@ const clearAll = () => {
               <span>Finding similar tickets...</span>
             </div>
 
-            <Accordion
-              v-else-if="nearestTickets.length > 0"
-              type="single"
-              collapsible
-            >
+            <div v-else-if="nearestTickets.length > 0">
               <div
                 v-for="(nearTicket, index) in nearestTickets"
                 :key="index"
@@ -334,10 +450,6 @@ const clearAll = () => {
                   </Badge>
                 </div>
               </div>
-            </Accordion>
-
-            <div v-else class="no-similar">
-              <span>No similar tickets found</span>
             </div>
           </Card>
         </div>
@@ -529,6 +641,88 @@ const clearAll = () => {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+}
+
+// Labeling styles
+.labeling-ticket {
+  &__header {
+    margin-bottom: 1rem;
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  &__field {
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--muted-foreground);
+      margin-bottom: 0.25rem;
+    }
+
+    p {
+      margin: 0;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--foreground);
+    }
+  }
+}
+
+.labeling-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted-foreground);
+
+  &__icon {
+    margin-bottom: 0.75rem;
+    opacity: 0.5;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+}
+
+.labeling-actions {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  &__confirm {
+    display: flex;
+    justify-content: center;
+  }
+
+  &__reassign {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  &__label {
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+
+  &__select {
+    min-width: 200px;
   }
 }
 </style>
