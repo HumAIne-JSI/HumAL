@@ -127,7 +127,7 @@ export function useCreateInstance(options?: { meta?: QueryMeta; onSuccess?: (dat
  */
 export function useLabelInstance(
   instanceId: MaybeRef<number>,
-  options?: { meta?: QueryMeta; onSuccess?: (data: LabelInstanceResponse) => void }
+  options?: { meta?: QueryMeta; onSuccess?: (data: LabelInstanceResponse) => void; batchSize?: MaybeRef<number> }
 ) {
   const queryClient = useQueryClient();
 
@@ -136,8 +136,9 @@ export function useLabelInstance(
     onSuccess: (data) => {
       const id = toValue(instanceId);
       // Invalidate instance info and next instances
+      // Use specific keys to avoid duplicate refetches from prefix matching
       queryClient.invalidateQueries({ queryKey: activeLearningKeys.info(id) });
-      queryClient.invalidateQueries({ queryKey: activeLearningKeys.instance(id) });
+      queryClient.invalidateQueries({ queryKey: activeLearningKeys.next(id, toValue(options?.batchSize ?? 1)) });
       options?.onSuccess?.(data);
     },
     meta: options?.meta,

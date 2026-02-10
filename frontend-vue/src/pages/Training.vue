@@ -116,10 +116,10 @@ const createInstanceMutation = useCreateInstance({
 })
 
 const labelInstanceMutation = useLabelInstance(selectedInstanceId, {
+  batchSize,
   onSuccess: () => {
     toast.success('Labels saved')
-    refetchInstanceInfo()
-    refetchNextInstances()
+    // No manual refetch needed - invalidateQueries in the composable handles it
     clearSelections()
   },
 })

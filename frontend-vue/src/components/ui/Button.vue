@@ -1,28 +1,37 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed } from "vue";
 
 export interface ButtonProps {
-  variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link' | 'success' | 'warning' | 'info'
-  size?: 'default' | 'sm' | 'lg' | 'icon'
-  disabled?: boolean
-  loading?: boolean
-  asChild?: boolean
+  variant?:
+    | "default"
+    | "destructive"
+    | "outline"
+    | "secondary"
+    | "ghost"
+    | "link"
+    | "success"
+    | "warning"
+    | "info";
+  size?: "default" | "sm" | "lg" | "icon";
+  disabled?: boolean;
+  loading?: boolean;
+  asChild?: boolean;
 }
 
 const props = withDefaults(defineProps<ButtonProps>(), {
-  variant: 'default',
-  size: 'default',
+  variant: "default",
+  size: "default",
   disabled: false,
   loading: false,
   asChild: false,
-})
+});
 
 const classes = computed(() => [
-  'btn',
+  "btn",
   `btn-v-${props.variant}`,
   `btn-s-${props.size}`,
-  { 'btn-loading': props.loading },
-])
+  { "btn-loading": props.loading },
+]);
 </script>
 
 <template>
@@ -50,7 +59,10 @@ const classes = computed(() => [
   border-radius: var(--radius);
   font-size: 0.875rem;
   font-weight: var(--font-weight-medium);
-  transition: background-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease,
+    color 0.15s ease;
   outline: none;
   flex-shrink: 0;
   cursor: pointer;
@@ -67,7 +79,7 @@ const classes = computed(() => [
     pointer-events: none;
     flex-shrink: 0;
 
-    &:not([class*='size-']) {
+    &:not([class*="size-"]) {
       width: 1rem;
       height: 1rem;
     }

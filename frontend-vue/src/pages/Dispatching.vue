@@ -82,7 +82,15 @@ const isRunning = ref(false)
 
 // Computed
 const hasInstance = computed(() => selectedInstanceId.value > 0)
-const isTrained = computed(() => instanceInfo.value?.test_accuracy !== undefined)
+// Consider trained if has test_accuracy, training_accuracy, or f1_scores (matching Inference logic)
+const isTrained = computed(() => {
+  if (!instanceInfo.value) return false
+  return (
+    instanceInfo.value.test_accuracy !== undefined ||
+    instanceInfo.value.training_accuracy !== undefined ||
+    (instanceInfo.value.f1_scores && instanceInfo.value.f1_scores.length > 0)
+  )
+})
 const canRun = computed(() => hasInstance.value && isTrained.value)
 const hasInput = computed(() => !!(ticket.value.title_anon || ticket.value.description_anon))
 
