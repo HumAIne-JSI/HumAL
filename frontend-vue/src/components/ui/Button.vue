@@ -42,7 +42,7 @@ const classes = computed(() => [
     data-slot="button"
   >
     <span v-if="loading" class="btn-spinner" />
-    <span :class="{ 'btn-content-hidden': loading }">
+    <span class="btn-content" :class="{ 'btn-content-hidden': loading }">
       <slot />
     </span>
   </component>
@@ -226,6 +226,12 @@ const classes = computed(() => [
 
   &-content-hidden {
     visibility: hidden;
+  }
+
+  &-content {
+    display: inline-flex;
+    align-items: center;
+    gap: inherit;
   }
 }
 

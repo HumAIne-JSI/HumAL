@@ -22,6 +22,7 @@ import {
 } from '@/composables/api/useActiveLearning'
 import { useConfig } from '@/composables/api/useConfig'
 import { useTeams, useTickets } from '@/composables/api/useData'
+import { useInstanceStore } from '@/stores/useInstanceStore'
 import type { NewInstanceRequest, Ticket } from '@/types/api'
 import {
   Plus,
@@ -38,20 +39,24 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const instanceStore = useInstanceStore()
 
-// URL-synced instance ID
-const selectedInstanceId = ref<number>(0)
+// Use store's instance ID with computed wrapper
+const selectedInstanceId = computed({
+  get: () => instanceStore.selectedInstanceId,
+  set: (value: number) => instanceStore.setInstance(value)
+})
 
 // Initialize from route query
 onMounted(() => {
   const instanceParam = route.query.instance
   if (instanceParam) {
-    selectedInstanceId.value = Number(instanceParam)
+    instanceStore.setInstance(Number(instanceParam))
   }
 })
 
 // Sync URL with instance selection
-watch(selectedInstanceId, (newId) => {
+watch(() => instanceStore.selectedInstanceId, (newId) => {
   if (newId > 0) {
     router.replace({ query: { ...route.query, instance: String(newId) } })
   } else {
@@ -320,7 +325,7 @@ const handleDeleteInstance = () => {
 
 // Handle instance selector update
 const handleInstanceSelect = (value: string) => {
-  selectedInstanceId.value = Number(value) || 0
+  instanceStore.setInstance(Number(value) || 0)
 }
 </script>
 

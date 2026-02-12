@@ -11,6 +11,16 @@
         <p class="sidebar__subtitle">AI-Powered Ticket System</p>
       </div>
 
+      <div class="sidebar__instance">
+        <label class="sidebar__instance-label">Active Instance</label>
+        <InstanceSelector
+          :model-value="String(instanceStore.selectedInstanceId || '')"
+          placeholder="Select instance..."
+          size="sm"
+          @update:model-value="handleInstanceChange"
+        />
+      </div>
+
       <nav class="sidebar__nav">
         <RouterLink
           v-for="item in navItems"
@@ -50,9 +60,16 @@ import { useRoute } from 'vue-router'
 import { Menu, X } from 'lucide-vue-next'
 import { navItems } from '../router'
 import Button from './ui/Button.vue'
+import InstanceSelector from './InstanceSelector.vue'
+import { useInstanceStore } from '@/stores/useInstanceStore'
 
 const route = useRoute()
+const instanceStore = useInstanceStore()
 const isOpen = ref(true)
+
+const handleInstanceChange = (value: string) => {
+  instanceStore.setInstance(value)
+}
 
 const isActive = (path: string): boolean => {
   return route.path === path
@@ -108,6 +125,21 @@ const toggle = () => {
     color: var(--muted-foreground);
     margin: 0.25rem 0 0;
     white-space: nowrap;
+  }
+
+  &__instance {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+
+  &__instance-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: var(--font-weight-medium);
+    color: var(--muted-foreground);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   &__nav {

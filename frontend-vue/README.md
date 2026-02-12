@@ -1,48 +1,153 @@
-# frontend-vue
+# HumAL - Presentation Guide
 
-This template should help get you started developing with Vue 3 in Vite.
+## What is HumAL?
 
-## Recommended IDE Setup
+**HumAL** (HumAIne Active Learning) is a full-stack platform that enables **human-in-the-loop machine learning** for IT service management. It combines traditional ML, Large Language Models (LLMs), and explainable AI to automate ticket classification and resolution generation.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+---
 
-## Recommended Browser Setup
+## The Problem We Solve
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+| Challenge | Impact |
+|-----------|--------|
+| IT support teams are overwhelmed with ticket volume | Slow response times, frustrated users |
+| Manual ticket routing causes delays | Tickets go to wrong teams, bouncing around |
+| Training ML models requires massive labeled datasets | Expensive, time-consuming data labeling |
+| AI predictions feel like "black boxes" | Low trust, reluctance to adopt |
 
-## Type Support for `.vue` Imports in TS
+**HumAL addresses all of these with a human-centered AI approach.**
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+---
 
-## Customize configuration
+## Key Features to Highlight
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+### 1. Active Learning Pipeline
+- **Smart sample selection** - The system picks the most informative tickets for humans to label
+- **Iterative training** - Model improves after every labeling batch
+- **Reduced labeling effort** - Achieve high accuracy with fewer labeled examples
+- **Multiple strategies**: Uncertainty, Margin, Entropy, Random sampling
 
-## Project Setup
+### 2. Automated Ticket Classification
+- Route tickets to the correct support team automatically
+- Choose from multiple ML models:
+  - Logistic Regression, Random Forest, SVM, Gradient Boosting, Neural Network
+- Real-time predictions with confidence scores
 
-```sh
-bun install
+### 3. RAG-Powered Resolution Generation
+- Uses **Retrieval-Augmented Generation** (RAG) with OpenAI GPT
+- Finds similar past tickets from a knowledge base
+- Generates contextual first-reply responses
+- Speeds up agent response time significantly
+
+### 4. Explainable AI (XAI)
+- **LIME explanations** show which words influenced the prediction
+- **Similar ticket retrieval** provides context for decisions
+- Builds trust and allows humans to verify AI recommendations
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Frontend                              │
+│              Vue.js / TypeScript / Tailwind                  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ REST API
+┌───────────────────────────▼─────────────────────────────────┐
+│                        Backend                               │
+│                   FastAPI (Python)                           │
+├──────────────┬──────────────┬──────────────┬────────────────┤
+│ Active       │ Inference    │ Resolution   │ XAI            │
+│ Learning     │ Service      │ (RAG)        │ (LIME)         │
+│ Service      │              │              │                │
+├──────────────┴──────────────┴──────────────┴────────────────┤
+│          scikit-learn │ PyTorch │ FAISS │ OpenAI           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Compile and Hot-Reload for Development
+---
 
-```sh
-bun dev
-```
+## Technology Stack
 
-### Type-Check, Compile and Minify for Production
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | Vue 3, TypeScript, Vite, Tailwind CSS |
+| **Backend** | FastAPI, Python 3.8+ |
+| **ML/NLP** | scikit-learn, PyTorch, Sentence Transformers |
+| **Vector Search** | FAISS (for similarity search) |
+| **LLM** | OpenAI GPT (for resolution generation) |
+| **XAI** | LIME (Local Interpretable Model-agnostic Explanations) |
 
-```sh
-bun run build
-```
+---
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+## Demo Walkthrough
 
-```sh
-bun test:unit
+### Page 1: Training
+- Create a new Active Learning instance
+- Select model type and query strategy
+- Watch accuracy metrics improve over iterations
+
+### Page 2: Dispatch Labeling
+- Human-in-the-loop labeling interface
+- View model predictions + LIME explanations
+- Assign correct team labels
+- Model automatically retrains after each batch
+
+### Page 3: Inference
+- Input new ticket details
+- Get instant team prediction with confidence
+- See LIME explanation and similar tickets
+
+### Page 4: Ticket Resolution
+- Enter ticket information
+- Generate AI-powered resolution using RAG
+- Review similar past tickets and their solutions
+
+---
+
+## Key Metrics & Value Proposition
+
+- **Reduced labeling effort**: Active learning typically needs 30-50% fewer labels than random sampling
+- **Faster ticket routing**: Automated classification in milliseconds
+- **Improved response time**: AI-generated resolutions as first drafts
+- **Transparency**: Every prediction comes with an explanation
+
+---
+
+## Future Directions
+
+- Multi-language support
+- Integration with ITSM tools (ServiceNow, Jira Service Management)
+- Continuous learning from production feedback
+- Custom model fine-tuning
+
+---
+
+## Questions to Prepare For
+
+1. **How does active learning reduce labeling costs?**
+   - By strategically selecting uncertain samples, we maximize information gain per label
+
+2. **Why use LIME for explainability?**
+   - Model-agnostic, works with any classifier, provides intuitive word-level explanations
+
+3. **How does the RAG system work?**
+   - Embeds tickets with Sentence Transformers, uses FAISS for similarity search, feeds context to GPT
+
+4. **What about data privacy with OpenAI?**
+   - Only ticket text is sent; can be configured for on-premise LLMs if needed
+
+---
+
+## Running the Demo
+
+```bash
+# Start both frontend and backend
+.\start-dev.bat   # Windows
+./start-dev.sh    # Linux/Mac
+
+# Access points
+# Frontend: http://localhost:5173
+# API Docs: http://localhost:8000/docs
 ```
