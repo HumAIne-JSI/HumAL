@@ -228,10 +228,10 @@ class ActiveLearningService:
     # Logic for labeling instances
     def label_instance(self, al_instance_id: int, label_request: LabelRequest):
         # get the data
-        X = self.storage.dataset_dict[al_instance_id]['X_train']
+        # X = self.storage.dataset_dict[al_instance_id]['X_train']
         y = self.storage.dataset_dict[al_instance_id]['y_train']
-        X_test = self.storage.dataset_dict[al_instance_id]['X_test']
-        y_test = self.storage.dataset_dict[al_instance_id]['y_test']
+        # X_test = self.storage.dataset_dict[al_instance_id]['X_test']
+        # y_test = self.storage.dataset_dict[al_instance_id]['y_test']
         
         # Get the query indices and labels
         query_idx = label_request.query_idx
@@ -246,11 +246,19 @@ class ActiveLearningService:
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
         
-        instance = self.storage.al_instances_dict[al_instance_id]
+        #instance = self.storage.al_instances_dict[al_instance_id]
         
         # update the labels
         # use Ref-based labels directly against index
         y.loc[query_idx] = labels
+
+        # Save the labels to persistence
+        self.duckdb_service.save_labels(
+            al_instance_id=al_instance_id,
+            user_id="00000000-0000-0000-0000-000000000000",  # System user ID for now
+            labels_dict=dict(zip(query_idx, labels)),
+            split="train"
+        )
 
     # Logic for updating the model
     def update_model(self, al_instance_id: int):
@@ -272,13 +280,23 @@ class ActiveLearningService:
         os.makedirs(f'models/{al_instance_id}', exist_ok=True)
         
         # save the model (the clf object)
-        model_path = f'models/{al_instance_id}/0.pkl'
-        joblib.dump(clf, model_path)
+        model_path = self.local_artifacts_store.save_model(
+            al_instance_id=al_instance_id, 
+            model_id=0, 
+            model=clf)
+        
         
         # save the model path
         if al_instance_id not in self.storage.model_paths_dict:
             self.storage.model_paths_dict[al_instance_id] = {}
         self.storage.model_paths_dict[al_instance_id][0] = model_path
+
+        # Save the model path to persistence
+        self.duckdb_service.save_model_path(
+            al_instance_id=al_instance_id,
+            model_id=0,
+            path_to_model=model_path
+        )
 
 
     def calculate_metrics(self, al_instance_id: int):
@@ -291,8 +309,7 @@ class ActiveLearningService:
         le = self.storage.dataset_dict[al_instance_id]['le']
 
         # Get the model
-        model_path = self.storage.model_paths_dict[al_instance_id][0]
-        clf = joblib.load(model_path)
+        clf = self.local_artifacts_store.load_model(al_instance_id, 0)
 
         # calculate the entropy of the model
         mean_entropy = np.mean(entropy(clf.predict_proba(X_test), axis=1))
@@ -325,6 +342,13 @@ class ActiveLearningService:
         f1 = f1_score(y_test, le.inverse_transform(predictions), average='macro')
         self.storage.results_dict[al_instance_id]["f1_scores"].append(f1)
 
+        # Save the metrics to persistence
+        self.duckdb_service.save_metrics(
+            al_instance_id=al_instance_id,
+            f1_score=f1,
+            mean_entropy=mean_entropy,
+            num_labeled=num_labeled
+        )
 
     # Logic for saving the model
     def save_model(self, al_instance_id: int):
@@ -332,15 +356,25 @@ class ActiveLearningService:
             self.storage.model_paths_dict[al_instance_id] = {}
 
         # Get the current model
-        current_model = joblib.load(self.storage.model_paths_dict[al_instance_id][0])
+        current_model = self.local_artifacts_store.load_model(al_instance_id, 0)
         
         # Save the model
         model_id = max(self.storage.model_paths_dict[al_instance_id].keys()) + 1
-        model_path = f'models/{al_instance_id}/{model_id}.pkl'
-        joblib.dump(current_model, model_path)
+        model_path = self.local_artifacts_store.save_model(
+            al_instance_id=al_instance_id, 
+            model_id=model_id, 
+            model=current_model
+            )
         
         # Save the model path
         self.storage.model_paths_dict[al_instance_id][model_id] = model_path
+
+        # Save the model path to persistence
+        self.duckdb_service.save_model_path(
+            al_instance_id=al_instance_id,
+            model_id=model_id,
+            path_to_model=model_path
+        )
 
         return model_id
     
@@ -351,9 +385,11 @@ class ActiveLearningService:
         del self.storage.dataset_dict[al_instance_id]
         del self.storage.results_dict[al_instance_id]
         
-        # delete the saved models
-        for model_id in self.storage.model_paths_dict[al_instance_id].keys():
-            os.remove(self.storage.model_paths_dict[al_instance_id][model_id])
-        
         # delete the model dictionary
         del self.storage.model_paths_dict[al_instance_id]
+
+        # Delete the local artifacts
+        self.local_artifacts_store.delete_instance_artifacts(al_instance_id)
+
+        # Delete the instance from persistence
+        self.duckdb_service.delete_al_instance(al_instance_id)

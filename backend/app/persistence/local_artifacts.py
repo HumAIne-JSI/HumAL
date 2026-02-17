@@ -45,6 +45,8 @@ class LocalArtifactsStore:
 
         joblib.dump(model, model_dir / f"{model_id}.joblib")
 
+        return model_dir / f"{model_id}.joblib"
+
     def load_model(self, al_instance_id: int, model_id: int) -> Any:
         model_path = self.models_dir / str(al_instance_id) / f"{model_id}.joblib"
         return joblib.load(model_path)
