@@ -93,14 +93,16 @@ class DuckDbPersistenceService:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO al_instances
-                (al_instance_id, model_name, query_strategy, classes)
-                VALUES (?, ?, ?, ?)
+                (al_instance_id, model_name, query_strategy, classes, train_data_path, test_data_path)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     al_instance_id,
                     instance_data.get("model_name"),
-                    instance_data.get("query_strategy"),
+                    instance_data.get("qs"),
                     instance_data.get("classes"),
+                    instance_data.get("train_data_path"),
+                    instance_data.get("test_data_path")
                 ],
             )
 
@@ -108,7 +110,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             result = conn.execute(
                 """
-                SELECT model_name, query_strategy, classes
+                SELECT model_name, query_strategy, classes, train_data_path, test_data_path
                 FROM al_instances
                 WHERE al_instance_id = ?
                 """,
@@ -122,13 +124,15 @@ class DuckDbPersistenceService:
             "model_name": result[0],
             "qs": result[1],
             "classes": result[2],
+            "train_data_path": result[3],
+            "test_data_path": result[4],
         }
 
     def get_all_instances(self) -> Dict[int, Dict[str, Any]]:
         with connect(self.db_path) as conn:
             rows = conn.execute(
                 """
-                SELECT al_instance_id, model_name, query_strategy, classes
+                SELECT al_instance_id, model_name, query_strategy, classes, train_data_path, test_data_path
                 FROM al_instances
                 ORDER BY al_instance_id
                 """
@@ -140,6 +144,8 @@ class DuckDbPersistenceService:
                 "model_name": row[1],
                 "qs": row[2],
                 "classes": row[3],
+                "train_data_path": row[4],
+                "test_data_path": row[5],
             }
         return instances
 
@@ -247,7 +253,7 @@ class DuckDbPersistenceService:
         return df
 
     # --- Labels ---
-    def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any]) -> int:
+    def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any], split: str) -> int:
         """Persist non-null labels for a user/instance. Returns count saved."""
         user_uuid = uuid.UUID(str(user_id))
 
@@ -262,33 +268,76 @@ class DuckDbPersistenceService:
 
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label)
-                    VALUES (?, ?, ?, ?)
+                    INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label, split)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    [al_instance_id, str(user_uuid), str(ref), str(label)],
+                    [al_instance_id, str(user_uuid), str(ref), str(label), split],
                 )
                 saved += 1
 
         return saved
 
-    def load_labels(self, al_instance_id: int, user_id: str | uuid.UUID) -> pd.Series:
-        """Load labels for an instance/user as a pandas Series indexed by ref."""
-        user_uuid = uuid.UUID(str(user_id))
+    def load_labels(self, al_instance_id: int, user_id: Optional[str | uuid.UUID] = None, split: Optional[str] = None) -> pd.Series:
+        """Load labels for an instance, optionally filtered by user and/or split."""
+        query = "SELECT ref, label, labeled_at FROM labels WHERE al_instance_id = ?"
+        params = [al_instance_id]
+        
+        if user_id is not None:
+            user_uuid = uuid.UUID(str(user_id))
+            query += " AND user_id = ?"
+            params.append(str(user_uuid))
+        
+        if split is not None:
+            if split not in ("train", "test"):
+                raise ValueError("split must be 'train' or 'test'")
+            query += " AND split = ?"
+            params.append(split)
+        
         with connect(self.db_path) as conn:
-            df = conn.execute(
-                """
-                SELECT ref, label
-                FROM labels
-                WHERE al_instance_id = ? AND user_id = ?
-                """,
-                [al_instance_id, str(user_uuid)],
-            ).df()
+            df = conn.execute(query, params).df()
 
         if df.empty:
             return pd.Series(dtype=object)
+        
+        df = self._keep_majority_or_latest_label(df)
 
         df["ref"] = df["ref"].astype(str)
-        return df.set_index("ref")["label"]
+        df = df.rename(columns={"label": "Team->Name"})
+        return df.set_index("ref")["Team->Name"]
+    
+    def _keep_majority_or_latest_label(self, labels: pd.DataFrame) -> pd.DataFrame:
+        """Helper to resolve label conflicts by keeping the majority label or latest if tie."""
+
+        if labels is None or labels.empty:
+            return pd.DataFrame(columns=["ref", "label"])
+
+        if "ref" in labels.columns:
+            grouped = labels.groupby("ref", sort=False)
+        else:
+            raise NameError("Labels DataFrame must contain 'ref' column")
+
+        rows = []
+        for ref, ref_rows in grouped:
+            if isinstance(ref_rows, pd.Series):
+                ref_rows = ref_rows.to_frame().T
+
+            label_counts = ref_rows["label"].value_counts()
+            max_count = label_counts.max()
+            most_frequent_labels = label_counts[label_counts == max_count].index.tolist()
+
+            if len(most_frequent_labels) == 1:
+                chosen_label = most_frequent_labels[0]
+            else:
+                candidate_rows = ref_rows[ref_rows["label"].isin(most_frequent_labels)]
+                if "labeled_at" in candidate_rows.columns:
+                    candidate_rows = candidate_rows.sort_values("labeled_at", ascending=False)
+                else:
+                    raise NameError("Labels DataFrame must contain 'labeled_at' column for tie-breaking")
+                chosen_label = candidate_rows.iloc[0]["label"]
+
+            rows.append({"ref": ref, "label": chosen_label})
+
+        return pd.DataFrame(rows, columns=["ref", "label"])
 
     # --- Model paths ---
     def save_model_path(self, al_instance_id: int, model_id: int, path_to_model: str) -> None:

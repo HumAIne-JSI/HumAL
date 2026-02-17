@@ -13,6 +13,7 @@ def init_database(db_path: Optional[str | Path] = None) -> None:
     with connect(db_path) as conn:
         _create_tables(conn)
         _create_indexes(conn)
+        _populate_default_users(conn)
 
 
 def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
@@ -23,6 +24,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             model_name VARCHAR,
             query_strategy VARCHAR,
             classes VARCHAR[],
+            train_data_path VARCHAR,
+            test_data_path VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -63,6 +66,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             user_id UUID NOT NULL,
             ref VARCHAR NOT NULL,
             label VARCHAR,
+            split VARCHAR NOT NULL CHECK (split IN ('train', 'test')),
             labeled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (al_instance_id, ref, user_id),
             FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id),
@@ -149,5 +153,21 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_al_events_instance
         ON al_events(al_instance_id)
+        """
+    )
+
+
+def _populate_default_users(conn: duckdb.DuckDBPyConnection) -> None:
+    """Insert default system user for deployments without user authentication."""
+    conn.execute(
+        """
+        INSERT INTO users (user_id, username, password, created_at)
+        VALUES (
+            '00000000-0000-0000-0000-000000000000'::UUID,
+            'system',
+            NULL,
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT DO NOTHING
         """
     )

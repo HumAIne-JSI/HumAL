@@ -14,12 +14,6 @@ import os
 
 # Create instances
 storage = ActiveLearningStorage()
-al_service = ActiveLearningService(storage)
-inference_service = InferenceService(storage)
-config_service = ConfigService()
-data_service = DataService(storage)
-xai_service = XaiService(storage, inference_service)
-
 duckdb_persistence_service = DuckDbPersistenceService(
     db_path=os.getenv("DUCKDB_PATH", "storage/db/humal.duckdb")
 )
@@ -27,6 +21,11 @@ local_artifacts_store = LocalArtifactsStore(
     models_dir=Path(os.getenv("MODELS_DIR", "storage/models")),
     encoders_dir=Path(os.getenv("ENCODERS_DIR", "storage/encoders"))
 )
+al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store)
+inference_service = InferenceService(storage)
+config_service = ConfigService()
+data_service = DataService(storage)
+xai_service = XaiService(storage, inference_service)
 
 # Dependency functions
 def get_storage():

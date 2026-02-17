@@ -199,11 +199,11 @@ class TestLabels:
             "T003": "ClassA"
         }
         
-        count = service.save_labels(1, user_id, labels)
+        count = service.save_labels(1, user_id, labels, split="train")
         
         assert count == 3
         
-        loaded = service.load_labels(1, user_id)
+        loaded = service.load_labels(1, user_id, split="train")
         
         assert loaded["T001"] == "ClassA"
         assert loaded["T002"] == "ClassB"
@@ -222,22 +222,22 @@ class TestLabels:
             "T004": "ClassB"
         }
         
-        count = service.save_labels(1, user_id, labels)
+        count = service.save_labels(1, user_id, labels, split="train")
         
         assert count == 2  # Only T001 and T004
         
-        loaded = service.load_labels(1, user_id)
+        loaded = service.load_labels(1, user_id, split="train")
         assert len(loaded) == 2
         assert "T002" not in loaded.index
 
     def test_save_labels_empty_dict(self, service):
         user_id = service.upsert_user(username="labeler3", password="pwd")
-        count = service.save_labels(1, user_id, {})
+        count = service.save_labels(1, user_id, {}, split="train")
         assert count == 0
 
     def test_load_labels_nonexistent(self, service):
         user_id = service.upsert_user(username="labeler4", password="pwd")
-        loaded = service.load_labels(999, user_id)
+        loaded = service.load_labels(999, user_id, split="train")
         
         assert len(loaded) == 0
         assert isinstance(loaded, pd.Series)
@@ -248,10 +248,10 @@ class TestLabels:
         user_id = service.upsert_user(username="labeler5", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
         
-        service.save_labels(1, user_id, {"T001": "OldClass"})
-        service.save_labels(1, user_id, {"T001": "NewClass"})
+        service.save_labels(1, user_id, {"T001": "OldClass"}, split="train")
+        service.save_labels(1, user_id, {"T001": "NewClass"}, split="train")
         
-        loaded = service.load_labels(1, user_id)
+        loaded = service.load_labels(1, user_id, split="train")
         assert loaded["T001"] == "NewClass"
 
     def test_labels_isolated_by_user(self, service):
@@ -261,14 +261,49 @@ class TestLabels:
         user2 = service.upsert_user(username="user2", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
         
-        service.save_labels(1, user1, {"T001": "User1Class"})
-        service.save_labels(1, user2, {"T001": "User2Class"})
+        service.save_labels(1, user1, {"T001": "User1Class"}, split="train")
+        service.save_labels(1, user2, {"T001": "User2Class"}, split="train")
         
-        loaded1 = service.load_labels(1, user1)
-        loaded2 = service.load_labels(1, user2)
+        loaded1 = service.load_labels(1, user1, split="train")
+        loaded2 = service.load_labels(1, user2, split="train")
         
         assert loaded1["T001"] == "User1Class"
         assert loaded2["T001"] == "User2Class"
+
+    def test_labels_majority_label_wins(self, service):
+        labels_df = pd.DataFrame(
+            {
+                "ref": ["T001", "T001", "T001"],
+                "label": ["ClassA", "ClassA", "ClassB"],
+                "labeled_at": [
+                    pd.Timestamp("2026-02-10 10:00:00"),
+                    pd.Timestamp("2026-02-10 11:00:00"),
+                    pd.Timestamp("2026-02-10 12:00:00"),
+                ],
+            }
+        )
+
+        resolved = service._keep_majority_or_latest_label(labels_df)
+
+        assert resolved.loc[resolved["ref"] == "T001", "label"].iloc[0] == "ClassA"
+
+    def test_labels_latest_majority_breaks_tie(self, service):
+        labels_df = pd.DataFrame(
+            {
+                "ref": ["T002", "T002", "T002", "T002"],
+                "label": ["ClassA", "ClassB", "ClassA", "ClassB"],
+                "labeled_at": [
+                    pd.Timestamp("2026-02-10 09:00:00"),
+                    pd.Timestamp("2026-02-10 10:00:00"),
+                    pd.Timestamp("2026-02-10 11:00:00"),
+                    pd.Timestamp("2026-02-10 12:00:00"),
+                ],
+            }
+        )
+
+        resolved = service._keep_majority_or_latest_label(labels_df)
+
+        assert resolved.loc[resolved["ref"] == "T002", "label"].iloc[0] == "ClassB"
 
 
 class TestModelPaths:
@@ -418,7 +453,7 @@ class TestDeletion:
         # Add related data
         service.save_metrics(1, f1_score=0.85)
         service.save_model_path(1, 1, "path/to/model.joblib")
-        service.save_labels(1, user_id, {"T001": "ClassA"})
+        service.save_labels(1, user_id, {"T001": "ClassA"}, split="train")
         
         # Delete instance
         service.delete_instance(1)
@@ -427,7 +462,7 @@ class TestDeletion:
         assert service.load_al_instance(1) is None
         assert service.load_metrics(1)["f1_score"] is None
         assert service.load_model_paths(1) == {}
-        assert len(service.load_labels(1, user_id)) == 0
+        assert len(service.load_labels(1, user_id, split="train")) == 0
 
     def test_delete_nonexistent_instance(self, service):
         # Should not raise an error
@@ -464,7 +499,7 @@ class TestIntegration:
         })
         
         # Label some tickets
-        service.save_labels(1, user_id, {"T1": "A", "T2": "B"})
+        service.save_labels(1, user_id, {"T1": "A", "T2": "B"}, split="train")
         
         # Save model paths
         service.save_model_path(1, 1, "models/1/model_1.joblib")
@@ -482,7 +517,7 @@ class TestIntegration:
         instance = service.load_al_instance(1)
         assert instance["model_name"] == "SVC"
         
-        labels = service.load_labels(1, user_id)
+        labels = service.load_labels(1, user_id, split="train")
         assert len(labels) == 2
         
         paths = service.load_model_paths(1)
