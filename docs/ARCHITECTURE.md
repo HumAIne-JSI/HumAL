@@ -2,7 +2,7 @@
 
 ## System Overview
 
-HumAL is a full-stack human-in-the-loop active learning platform designed for IT ticket classification, automated resolution generation, and interactive model training. The system combines traditional machine learning with modern LLM capabilities and explainable AI.
+HumAL is a full-stack human-in-the-loop active learning platform designed for IT ticket classification, automated resolution generation, and interactive model training. The system combines traditional machine learning with LLM capabilities and XAI.
 
 **Technology Stack:**
 - **Backend**: FastAPI (Python 3.8+)
@@ -16,23 +16,8 @@ HumAL is a full-stack human-in-the-loop active learning platform designed for IT
 
 ## High-Level Architecture
 
-```mermaid
-graph TD;
-    Pipeline --> Data_Manager
-    Pipeline --> Model_Manager
-    Pipeline --> Oracle
-    Pipeline --> Selection_Strategy
+![High-Level Architecture](images/smart_ticketing_architecture.svg)
 
-    Model_Manager --> Train
-    Model_Manager --> Predict
-
-    Train --> Retrain
-    Train --> Incremental
-    Train --> Finetuning
-
-    Oracle --> Benchmark
-    Oracle --> Human_User
-```
 
 ---
 
@@ -45,35 +30,11 @@ backend/
 ├── app/
 │   ├── main.py              # FastAPI application entry point
 │   ├── routers/             # API endpoint handlers
-│   │   ├── active_learning_router.py
-│   │   ├── inference_router.py
-│   │   ├── resolution_router.py
-│   │   ├── data_router.py
-│   │   ├── config_router.py
-│   │   ├── xai_router.py
-│   │   └── label_creation_router.py
 │   ├── services/            # Business logic layer
-│   │   ├── active_learning_service.py
-│   │   ├── inference_service.py
-│   │   ├── resolution_service.py
-│   │   ├── data_service.py
-│   │   ├── config_service.py
-│   │   ├── xai_service.py
-│   │   └── data_preprocessing.py
 │   ├── core/                # Core system components
-│   │   ├── dependencies.py  # Dependency injection
-│   │   ├── storage.py       # In-memory state management
-│   │   └── rag_system.py    # RAG implementation
 │   ├── data_models/         # Pydantic schemas
-│   │   ├── active_learning_dm.py
-│   │   └── resolution_dm.py
 │   ├── config/              # Configuration management
-│   │   ├── config.py
-│   │   └── resolution_config.py
 │   └── utils/               # Utility functions
-│       ├── model_utils.py
-│       ├── query_strategies.py
-│       └── embedding_utils.py
 ├── data/                    # CSV datasets
 ├── models/                  # Saved model artifacts
 ├── embeddings_cache/        # Cached embeddings
@@ -90,21 +51,9 @@ frontend/
 │   ├── main.tsx             # Application entry point
 │   ├── App.tsx              # Root component with routing
 │   ├── pages/               # Route-level components
-│   │   ├── Home.tsx
-│   │   ├── Training.tsx
-│   │   ├── DispatchLabeling.tsx
-│   │   ├── TicketResolution.tsx
-│   │   └── Inference.tsx
 │   ├── components/          # Reusable UI components
-│   │   ├── ui/              # shadcn-ui components
-│   │   ├── ActiveLearningDashboard.tsx
-│   │   ├── TicketCard.tsx
-│   │   ├── ModelMetrics.tsx
-│   │   └── ExplanationView.tsx
 │   ├── services/            # API client layer
-│   │   └── api.ts
 │   ├── types/               # TypeScript type definitions
-│   │   └── api.ts
 │   ├── hooks/               # Custom React hooks
 │   └── lib/                 # Utility functions
 └── public/                  # Static assets
@@ -160,14 +109,11 @@ frontend/
 #### Inference Service
 - Loads trained models
 - Performs predictions
-- Calculates confidence scores
-- Manages model versioning
 
 #### Resolution Service
 - Implements RAG pipeline
-- Integrates with OpenAI GPT
+- Uses OpenAI models
 - Manages knowledge base embeddings
-- Handles feedback loop
 
 #### XAI Service
 - Generates LIME explanations
@@ -192,7 +138,6 @@ class Storage:
 ```
 
 **Features:**
-- Singleton pattern for global state
 - Instance lifecycle management
 - Model persistence tracking
 - Data and embeddings caching
@@ -204,7 +149,7 @@ class Storage:
 1. **Embedding Generation**: Sentence Transformers (all-MiniLM-L6-v2)
 2. **Vector Store**: FAISS for similarity search
 3. **Retrieval**: Top-k similar tickets
-4. **Generation**: OpenAI GPT-4 for response synthesis
+4. **Generation**: OpenAI model for response creation
 
 **Workflow:**
 ```
@@ -266,101 +211,82 @@ class ResolutionResponse(BaseModel):
 - **TicketResolution**: Resolution generation and feedback
 - **Inference**: Model prediction interface
 
-#### API Service (`services/api.ts`)
-**Purpose**: Centralized API client with TypeScript types.
-
-```typescript
-export const api = {
-  activelearning: {
-    createInstance: (data: NewInstance) => Promise<{instance_id: number}>,
-    getNext: (id: number, batchSize: number) => Promise<NextBatch>,
-    submitLabels: (id: number, labels: LabelRequest) => Promise<Response>
-  },
-  resolution: {
-    process: (request: ResolutionRequest) => Promise<ResolutionResponse>,
-    submitFeedback: (feedback: FeedbackRequest) => Promise<Response>
-  }
-}
-```
 
 ---
 
 ## Data Flow
 
-### Active Learning Workflow
+### Active Learning
 
-```
-1. User Creates Instance
-   ↓
-2. Frontend → POST /activelearning/new
-   ↓
-3. AL Service initializes pipeline
-   ↓
-4. Storage saves instance state
-   ↓
-5. Return instance_id
-   ↓
-6. User Requests Next Batch
-   ↓
-7. Query Strategy selects uncertain samples
-   ↓
-8. Return unlabeled tickets
-   ↓
-9. User Submits Labels
-   ↓
-10. Model retrains incrementally
-    ↓
-11. Update metrics and state
-    ↓
-12. Repeat steps 6-11
+```mermaid
+flowchart TD
+    A[Database] --> B[Data anonymization]
+    B --> C[Data cleaning]
+
+    C --> D[Text features]
+    C --> E[Other features]
+
+    D --> F[Embeddings]
+    E --> G[One-hot encoding]
+
+    F --> H[Final feature vector]
+    G --> H
+
+    I[Labels] --> J[Active learning loop]
+    H --> J
+
+    J --> K[Final model]
+    K --> L[Evaluation]
+
 ```
 
 ### Resolution Generation Workflow
 
-```
-1. User Inputs Ticket Description
-   ↓
-2. Frontend → POST /resolution/process
-   ↓
-3. Resolution Service receives request
-   ↓
-4. Generate embedding for query
-   ↓
-5. FAISS searches similar tickets
-   ↓
-6. Retrieve top-k matches from KB
-   ↓
-7. Build context with similar resolutions
-   ↓
-8. Send prompt to OpenAI GPT
-   ↓
-9. GPT generates resolution
-   ↓
-10. Return resolution + metadata
-    ↓
-11. User provides feedback (optional)
-    ↓
-12. Store feedback for improvement
+```mermaid
+flowchart TD
+    A[User inputs ticket description]
+    B[Frontend → POST /resolution/process]
+    C[Resolution Service receives request]
+    D[Generate embedding for query]
+    E[FAISS searches similar tickets]
+    F[Retrieve top-k matches from KB]
+    G[Build context with similar resolutions]
+    H[Send prompt to OpenAI GPT]
+    I[GPT generates resolution]
+    J[Return resolution + metadata]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    I --> J
 ```
 
 ### Inference Workflow
 
-```
-1. User Inputs New Ticket
-   ↓
-2. Frontend → POST /activelearning/{id}/infer
-   ↓
-3. Load trained model from storage
-   ↓
-4. Preprocess ticket text
-   ↓
-5. Generate features (embeddings)
-   ↓
-6. Model predicts class
-   ↓
-7. Return predictions
-   ↓
-8. Optional: Generate LIME explanation
+```mermaid
+flowchart TD
+    A[User inputs new ticket]
+    B["Frontend → POST /activelearning/{id}/infer"]
+    C[Load trained model from storage]
+    D[Preprocess ticket text]
+    E["Generate features (embeddings)"]
+    F[Model predicts class]
+    G[Return predictions]
+    H[Generate LIME explanation]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+
 ```
 
 ---
@@ -370,9 +296,9 @@ export const api = {
 ### Active Learning Components
 
 #### 1. Query Strategies
-- **Uncertainty Sampling**: Select instances with lowest confidence
-- **Margin Sampling**: Select instances with smallest margin between top-2 classes
-- **Entropy Sampling**: Select instances with highest prediction entropy
+- **Uncertainty Sampling Least Confidence**: Select instances with lowest confidence
+- **Uncertainty Sampling Margin Sampling**: Select instances with smallest margin between top-2 classes
+- **Uncertainty Sampling Entropy**: Select instances with highest prediction entropy
 - **Random Sampling**: Baseline random selection
 - **Query by Committee**: Ensemble disagreement
 
@@ -406,42 +332,6 @@ backend/embeddings_cache/
 
 **Format**: NumPy compressed arrays (.npz)
 
-**Benefits**:
-- Fast loading
-- Automatic regeneration if missing
-- Version tracking via timestamp
-
 ### Data Storage
 - **Format**: CSV files
 - **Location**: `backend/data/`
-- **Structure**: Ticket ID, Description, Team, Resolution
-
----
-
-## Configuration Management
-
-### Backend Configuration (`config/config.py`)
-```python
-class Config:
-    MODELS = ["LogisticRegression", "RandomForest", "SVM"]
-    QUERY_STRATEGIES = ["UncertaintySampling", "MarginSampling"]
-    DEFAULT_BATCH_SIZE = 10
-    MAX_ITERATIONS = 100
-```
-
-### Resolution Configuration (`config/resolution_config.py`)
-```python
-class ResolutionConfig:
-    EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-    TOP_K_SIMILAR = 5
-    OPENAI_MODEL = "gpt-3.5 Turbo"
-    MAX_CONTEXT_LENGTH = 2000
-```
-
-### Environment Variables
-```bash
-OPENAI_API_KEY=sk-...
-HOST=0.0.0.0
-PORT=8000
-DEBUG=True
-```
