@@ -276,9 +276,6 @@ class ActiveLearningService:
         # Train the model
         clf.fit(X, y)
         
-        # create the model directory if it doesn't exist
-        os.makedirs(f'models/{al_instance_id}', exist_ok=True)
-        
         # save the model (the clf object)
         model_path = self.local_artifacts_store.save_model(
             al_instance_id=al_instance_id, 

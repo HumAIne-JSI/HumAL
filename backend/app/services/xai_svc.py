@@ -9,12 +9,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
 from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
+from typing import Optional
+from app.persistence.local_artifacts import LocalArtifactsStore
 
 class XaiService:
-    def __init__(self, storage: ActiveLearningStorage, inference_service: InferenceService):
+    def __init__(
+            self, 
+            storage: ActiveLearningStorage, 
+            inference_service: InferenceService,
+            local_artifacts_store: Optional[LocalArtifactsStore] = None,
+            ):
         self.storage = storage
         self.inference_service = inference_service
         self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.local_artifacts_store = local_artifacts_store
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """
@@ -150,8 +158,8 @@ class XaiService:
         It adds other features to the texts and then predicts the probabilities.
         """
 
-        model_path = self.storage.model_paths_dict[al_instance_id][model_id]
-        model = joblib.load(model_path)
+        # Load the model
+        model = self.local_artifacts_store.load_model(al_instance_id, model_id)
         
         le = self.storage.dataset_dict[al_instance_id]['le']
         oh = self.storage.dataset_dict[al_instance_id]['oh']

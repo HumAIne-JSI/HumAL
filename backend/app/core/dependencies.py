@@ -22,10 +22,10 @@ local_artifacts_store = LocalArtifactsStore(
     encoders_dir=Path(os.getenv("ENCODERS_DIR", "storage/encoders"))
 )
 al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store)
-inference_service = InferenceService(storage)
+inference_service = InferenceService(storage, local_artifacts_store)
 config_service = ConfigService()
 data_service = DataService(storage)
-xai_service = XaiService(storage, inference_service)
+xai_service = XaiService(storage, inference_service, local_artifacts_store)
 
 # Dependency functions
 def get_storage():
