@@ -21,3 +21,13 @@ model_dict = {
     'logistic regression': LogisticRegression(random_state=RANDOM_STATE),
     'svm': SVC(random_state=RANDOM_STATE, probability=True)
 }
+
+# ============ AL User/Instance IDs ============
+SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000000"
+GROUND_TRUTH_AL_INSTANCE_ID = 0  # Reserved for global labels
+
+
+# ============ Tickets ============
+TEAM_NAME = "Team->Name"
+TEST_SPLIT = "test"
+TRAIN_SPLIT = "train"   

@@ -13,6 +13,7 @@ from app.data_models.active_learning_dm import NewInstance, LabelRequest
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.data_preprocessing import dispatch_team
+from app.config.config import SYSTEM_USER_ID
 
 class ActiveLearningService:
     def __init__(
@@ -255,7 +256,7 @@ class ActiveLearningService:
         # Save the labels to persistence
         self.duckdb_service.save_labels(
             al_instance_id=al_instance_id,
-            user_id="00000000-0000-0000-0000-000000000000",  # System user ID for now
+            user_id=SYSTEM_USER_ID,  # System user ID for now
             labels_dict=dict(zip(query_idx, labels)),
             split="train"
         )

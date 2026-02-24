@@ -111,20 +111,20 @@ def main():
     print("Tickets shape:", loaded_tickets.shape)
     print(f"Vectorized tickets load time: {tickets_load_time:.4f}s")
 
-    # Check for newer dataset XLSX (load_data now returns None if nothing newer exists)
-    print(f"\nChecking for newer dataset XLSX from MinIO")
-    latest_dataset_timestamp = 20260124
+    # Check for newer datasets XLSX (load_data returns all datasets newer than timestamp, or None)
+    print(f"\nChecking for newer datasets XLSX from MinIO")
+    latest_dataset_timestamp = "2026-01-24T00:00:00Z"
 
     start = time.time()
     maybe_new_data = svc.load_data(latest_dataset_timestamp)
     load_time = time.time() - start
     if maybe_new_data is None:
-        print(f"No newer dataset found (latest_dataset_timestamp={latest_dataset_timestamp}).")
+        print(f"No newer datasets found (latest_dataset_timestamp={latest_dataset_timestamp}).")
         print(f"Check time: {load_time:.4f}s")
     else:
-        print(f"New dataset loaded in {load_time:.4f}s")
-        print("New dataset head:\n", maybe_new_data.head())
-        print("New dataset shape:", maybe_new_data.shape)
+        print(f"New datasets loaded in {load_time:.4f}s")
+        print("New datasets head:\n", maybe_new_data.head())
+        print("New datasets shape:", maybe_new_data.shape)
 
     print("\nDone. Verify objects exist in MinIO if needed.")
 

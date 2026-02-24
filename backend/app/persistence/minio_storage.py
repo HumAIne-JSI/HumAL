@@ -1,6 +1,7 @@
 """
 High-level model operations backed by MinIO.
 """
+from datetime import datetime
 from io import BytesIO
 import re
 from typing import Any, Dict, Optional, Union
@@ -106,72 +107,47 @@ class MinioService:
         downloaded = self.client.download_object(MODELS_BUCKET, object_name)
         return joblib.load(BytesIO(downloaded))
 
-    def load_data(self, latest_dataset_timestamp: Union[int, str, None]) -> Optional[pd.DataFrame]:
-        """Load the latest dataset from MinIO if a newer one exists.
+    def load_data(self, split: str, latest_dataset_timestamp: datetime=datetime.min) -> Optional[Dict[datetime, pd.DataFrame]]:
+        """Load all newer tickets, newer than `latest_dataset_timestamp` from MinIO.
 
         The method checks for objects named:
         `datasets/User Request_last_team_ANON_{timestamp}.xlsx`
 
-        If the largest discovered `{timestamp}` is greater than `latest_dataset_timestamp`,
-        the newest XLSX dataset is downloaded and loaded.
+        The timestamp is of the format `%Y%m%dT%H%M%S`, e.g. `20240101T120000`.
+        All datasets with `timestamp` greater than `latest_dataset_timestamp`,
+        are downloaded and returned as a dictionary of DataFrames.
 
         Returns None if no newer dataset is available.
         """
+        # Construct the prefix
+        prefix = f"datasets/{split}/"
+        # Find all of the datasets in the bucket (of the given split)
+        listing = self.client.list_objects(DATA_BUCKET, prefix=prefix, filter_type="exact")
+        
+        if not listing or not listing.get("matches"):
+            return None
 
-        def to_int_ts(value: Union[int, str, None]) -> int:
-            if value is None:
-                return 0
-            if isinstance(value, int):
-                return value
-            s = str(value).strip()
+        pattern = re.compile(rf"^datasets/{split}/User Request_last_team_ANON_(\d{{8}}T\d{{6}})\.xlsx$")
+        new_tickets = {}
 
-            m = re.search(r"(\d+)", s)
-            return int(m.group(1)) if m else 0
-
-        current_ts = to_int_ts(latest_dataset_timestamp)
-
-        # Discover newest uploaded dataset XLSX object.
-        # Response shape depends on the API facade; handle common variants.
-        listing = self.client.list_objects(DATA_BUCKET, prefix="datasets/", filter_type="exact")
-
-        def iter_object_names(listing_obj):
-            if listing_obj is None:
-                return
-            if isinstance(listing_obj, list):
-                for item in listing_obj:
-                    if isinstance(item, str):
-                        yield item
-                    elif isinstance(item, dict):
-                        yield (
-                            item.get("object")
-                            or item.get("object_name")
-                            or item.get("name")
-                            or item.get("key")
-                        )
-                return
-            if isinstance(listing_obj, dict):
-                if "matches" in listing_obj and isinstance(listing_obj["matches"], list):
-                    yield from iter_object_names(listing_obj["matches"])
-                return
-
-        pattern = re.compile(r"^datasets/User Request_last_team_ANON_(\d+)\.xlsx$")
-        newest_ts = None
-        newest_object = None
-
-        for name in iter_object_names(listing):
-            if not name:
-                continue
+        for name in listing["matches"]:
             m = pattern.match(str(name))
-            if not m:
+            if not m: 
                 continue
-            ts = int(m.group(1))
-            if newest_ts is None or ts > newest_ts:
-                newest_ts = ts
-                newest_object = str(name)
+            # Extract timestamp from filename
+            ts = m.group(1)
+            # Convert to datetime for comparison
+            try:
+                ts_dt = datetime.strptime(ts, "%Y%m%dT%H%M%S")
+            except ValueError:
+                continue
 
-        if newest_ts is not None and newest_object is not None and newest_ts > current_ts:
-            downloaded = self.client.download_object(DATA_BUCKET, newest_object)
-            return pd.read_excel(BytesIO(downloaded))
+            if ts_dt > latest_dataset_timestamp:
+                downloaded = self.client.download_object(DATA_BUCKET, str(name))
+                new_tickets[ts_dt] = pd.read_excel(BytesIO(downloaded))
+
+        if new_tickets:
+            return new_tickets
 
         return None
 

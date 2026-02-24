@@ -11,6 +11,10 @@ import pandas as pd
 from .connection import connect
 from .schema import init_database
 
+from datetime import datetime
+
+from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID
+
 
 @dataclass(frozen=True)
 class DuckDbPersistenceService:
@@ -155,7 +159,7 @@ class DuckDbPersistenceService:
         tickets_df: pd.DataFrame,
         *,
         split: str,
-        dataset_timestamp: Optional[str] = None,
+        dataset_timestamp: Optional[datetime] = None,
     ) -> int:
         """Upsert ticket rows from a dataframe.
 
@@ -251,9 +255,36 @@ class DuckDbPersistenceService:
             ).df()
         
         return df
+    
+    def get_ticket_counts_by_split(self) -> Dict[str, int]:
+        """Get counts of tickets by split."""
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT split, COUNT(*) as count
+                FROM tickets
+                GROUP BY split
+                """
+            ).fetchall()
+
+        return {row[0]: row[1] for row in rows}
+    
+    def get_latest_dataset_timestamp(self, split) -> Optional[str]:
+        """Get the latest dataset timestamp for a given split."""
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                SELECT MAX(dataset_timestamp)
+                FROM tickets
+                WHERE split = ?
+                """,
+                [split],
+            ).fetchone()
+
+        return result[0] if result and result[0] is not None else None
 
     # --- Labels ---
-    def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any], split: str) -> int:
+    def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any], split: str, timestamp: Optional[datetime] = None) -> int:
         """Persist non-null labels for a user/instance. Returns count saved."""
         user_uuid = uuid.UUID(str(user_id))
 
@@ -268,10 +299,10 @@ class DuckDbPersistenceService:
 
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label, split)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label, split, labeled_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    [al_instance_id, str(user_uuid), str(ref), str(label), split],
+                    [al_instance_id, str(user_uuid), str(ref), str(label), split, timestamp],
                 )
                 saved += 1
 
@@ -279,8 +310,8 @@ class DuckDbPersistenceService:
 
     def load_labels(self, al_instance_id: int, user_id: Optional[str | uuid.UUID] = None, split: Optional[str] = None) -> pd.Series:
         """Load labels for an instance, optionally filtered by user and/or split."""
-        query = "SELECT ref, label, labeled_at FROM labels WHERE al_instance_id = ?"
-        params = [al_instance_id]
+        query = "SELECT ref, label, labeled_at FROM labels WHERE al_instance_id IN (?, ?)"
+        params = [al_instance_id, GROUND_TRUTH_AL_INSTANCE_ID]
         
         if user_id is not None:
             user_uuid = uuid.UUID(str(user_id))
@@ -490,6 +521,8 @@ class DuckDbPersistenceService:
 
     # --- Deletes ---
     def delete_instance(self, al_instance_id: int) -> None:
+        if al_instance_id==GROUND_TRUTH_AL_INSTANCE_ID:
+            raise ValueError("Cannot delete ground truth AL instance")
         with connect(self.db_path) as conn:
             conn.execute("DELETE FROM al_events WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
