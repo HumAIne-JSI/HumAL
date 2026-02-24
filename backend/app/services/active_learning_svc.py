@@ -46,8 +46,8 @@ class ActiveLearningService:
         }
         
         # Preprocess the data (indices stay as Ref)
-        X_train, y_train, le, oh = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
-        X_test, y_test, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
+        X_train, y_train, le, oh = dispatch_team(duckdb_service=self.duckdb_service, test_set=False, classes=new_instance.class_list)
+        X_test, y_test, _, _ = dispatch_team(duckdb_service=self.duckdb_service, test_set=True, le=le, oh=oh)
         
         # Get the index of np.nan in the LabelEncoder's classes
         empty = le.transform([np.nan])[0]

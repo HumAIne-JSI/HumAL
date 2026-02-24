@@ -24,7 +24,7 @@ local_artifacts_store = LocalArtifactsStore(
 al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store)
 inference_service = InferenceService(storage, local_artifacts_store)
 config_service = ConfigService()
-data_service = DataService(storage)
+data_service = DataService(duckdb_service=duckdb_persistence_service)
 xai_service = XaiService(storage, inference_service, local_artifacts_store)
 
 # Dependency functions

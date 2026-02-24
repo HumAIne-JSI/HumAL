@@ -47,7 +47,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS tickets (
             ref VARCHAR PRIMARY KEY,
             service_subcategory_name VARCHAR,
-            network VARCHAR,
+            service_name VARCHAR,
             request_type VARCHAR,
             last_team_id_name VARCHAR,
             title_anon VARCHAR,

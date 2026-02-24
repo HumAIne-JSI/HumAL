@@ -181,7 +181,7 @@ class DuckDbPersistenceService:
         column_mapping = {
             "Ref": "ref",
             "Service subcategory->Name": "service_subcategory_name",
-            "Service->Name": "network",
+            "Service->Name": "service_name",
             "Request Type": "request_type",
             "Last team ID->Name": "last_team_id_name",
             "Title_anon": "title_anon",
@@ -202,7 +202,7 @@ class DuckDbPersistenceService:
         schema_cols = [
             "ref",
             "service_subcategory_name",
-            "network",
+            "service_name",
             "request_type",
             "last_team_id_name",
             "title_anon",
@@ -245,7 +245,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             df = conn.execute(
                 """
-                SELECT ref, service_subcategory_name, network, request_type, 
+                SELECT ref, service_subcategory_name, service_name, request_type, 
                        last_team_id_name, title_anon, description_anon, public_log_anon, 
                        split, dataset_timestamp
                 FROM tickets
@@ -253,6 +253,45 @@ class DuckDbPersistenceService:
                 """,
                 [split],
             ).df()
+        
+        df = df.rename(columns={
+            "ref": "Ref",
+            "service_subcategory_name": "Service subcategory->Name",
+            "service_name": "Service->Name",
+            "request_type": "Request Type",
+            "last_team_id_name": "Last team ID->Name",
+            "title_anon": "Title_anon",
+            "description_anon": "Description_anon",
+            "public_log_anon": "Public_log_anon"})
+        
+        return df
+    
+    def load_tickets_by_ref(self, ref_list: list[str]) -> Optional[pd.DataFrame]:
+        """Load tickets for a given list of refs."""
+        if not ref_list:
+            return None
+        
+        with connect(self.db_path) as conn:
+            df = conn.execute(
+                f"""
+                SELECT ref, service_subcategory_name, service_name, request_type, 
+                       last_team_id_name, title_anon, description_anon, public_log_anon, 
+                       split, dataset_timestamp
+                FROM tickets
+                WHERE ref IN ({','.join(['?']*len(ref_list))})
+                """,
+                ref_list,
+            ).df()
+        
+        df = df.rename(columns={
+            "ref": "Ref",
+            "service_subcategory_name": "Service subcategory->Name",
+            "service_name": "Service->Name",
+            "request_type": "Request Type",
+            "last_team_id_name": "Last team ID->Name",
+            "title_anon": "Title_anon",
+            "description_anon": "Description_anon",
+            "public_log_anon": "Public_log_anon"})
         
         return df
     
