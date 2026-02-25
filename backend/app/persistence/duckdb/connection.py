@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import os
 from pathlib import Path
 from typing import Iterator, Optional
 
 import duckdb
 
 
-DEFAULT_DB_PATH = Path("storage/db/humal.duckdb")
+DEFAULT_DB_PATH = "storage/db/humal.duckdb"
 
 
 def resolve_db_path(db_path: Optional[str | Path]) -> Path:
     if db_path is None:
-        return DEFAULT_DB_PATH
+        return Path(os.getenv("DUCKDB_PATH", DEFAULT_DB_PATH))
     return Path(db_path)
 
 

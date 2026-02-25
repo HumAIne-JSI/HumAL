@@ -18,7 +18,7 @@ from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID
 
 @dataclass(frozen=True)
 class DuckDbPersistenceService:
-    db_path: str | Path = "backend/humal.duckdb"
+    db_path: Optional[str | Path] = None
 
     def __post_init__(self) -> None:
         init_database(self.db_path)
