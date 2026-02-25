@@ -14,6 +14,7 @@ def init_database(db_path: Optional[str | Path] = None) -> None:
         _create_tables(conn)
         _create_indexes(conn)
         _populate_default_users(conn)
+        _populate_default_al_instance(conn)
 
 
 def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
@@ -23,7 +24,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             al_instance_id INTEGER PRIMARY KEY,
             model_name VARCHAR,
             query_strategy VARCHAR,
-            classes VARCHAR[],
+            classes INTEGER[],
             train_data_path VARCHAR,
             test_data_path VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -165,6 +166,24 @@ def _populate_default_users(conn: duckdb.DuckDBPyConnection) -> None:
         VALUES (
             '00000000-0000-0000-0000-000000000000'::UUID,
             'system',
+            NULL,
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT DO NOTHING
+        """
+    )
+
+def _populate_default_al_instance(conn: duckdb.DuckDBPyConnection) -> None:
+    """Insert default AL instance for deployments without multiple AL instances."""
+    conn.execute(
+        """
+        INSERT INTO al_instances (al_instance_id, model_name, query_strategy, classes, train_data_path, test_data_path, created_at)
+        VALUES (
+            0,
+            'default_model',
+            'default_query_strategy',
+            ARRAY[1, 2],
+            NULL,
             NULL,
             CURRENT_TIMESTAMP
         )

@@ -111,7 +111,7 @@ class MinioService:
         """Load all newer tickets, newer than `latest_dataset_timestamp` from MinIO.
 
         The method checks for objects named:
-        `datasets/User Request_last_team_ANON_{timestamp}.xlsx`
+        `datasets/{split}/User Request_last_team_ANON_{timestamp}.xlsx`
 
         The timestamp is of the format `%Y%m%dT%H%M%S`, e.g. `20240101T120000`.
         All datasets with `timestamp` greater than `latest_dataset_timestamp`,

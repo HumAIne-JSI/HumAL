@@ -73,7 +73,7 @@ class ActiveLearningService:
             al_instance_data["test_data_path"] = new_instance.test_data_path
 
             self.duckdb_service.save_al_instance(
-                instance_id=instance_id,
+                al_instance_id=instance_id,
                 instance_data = al_instance_data
             )
 
@@ -133,12 +133,12 @@ class ActiveLearningService:
                 continue
 
             y_train = self.duckdb_service.load_labels(instance_id, split="train")
-            y_train = self._encode_labels(y_train, le)
             y_train = self._align_labels(y_train, X_train.index, fill_missing=MISSING_LABEL)
+            y_train = self._encode_labels(y_train, le)
 
             y_test = self.duckdb_service.load_labels(instance_id, split="test")
-            y_test = self._encode_labels(y_test, le)
             y_test = self._align_labels(y_test, X_test.index, fill_missing=np.nan)
+            #y_test = self._encode_labels(y_test, le)
 
             self.storage.al_instances_dict[instance_id] = {
                 "model": model,
@@ -178,11 +178,7 @@ class ActiveLearningService:
         if labels is None or labels.empty:
             return pd.Series([fill_missing] * len(index), index=index)
 
-        # Create result series with fill_missing as default
-        result = pd.Series([fill_missing] * len(index), index=index, dtype=object)
-        # Update with actual labels where they exist
-        result.loc[labels.index] = labels.values
-        return result
+        return labels.reindex(index).fillna(fill_missing)
     
     def _encode_labels(self, labels: pd.Series, label_encoder) -> pd.Series:
         """Encode labels using label encoder, preserving NaN as NaN."""
@@ -190,8 +186,18 @@ class ActiveLearningService:
             return labels
         
         encoded = labels.copy()
-        mask = labels.notna()
-        encoded[mask] = labels[mask].apply(lambda x: label_encoder.transform([x])[0])
+        encoded = label_encoder.transform(encoded)
+
+        encoded = pd.Series(encoded, index=labels.index)
+
+        # Get the index of np.nan in the LabelEncoder's classes
+        empty = label_encoder.transform([np.nan])[0]
+        # Replace missing values with MISSING_LABEL in y_train (indexed by Ref)
+        encoded = encoded.replace(empty, MISSING_LABEL)
+        
+        # encoded = labels.copy()
+        # mask = labels.notna()
+        # encoded[mask] = labels[mask].apply(lambda x: label_encoder.transform([x])[0])
         return encoded
 
     # Logic for getting the next instances
@@ -242,7 +248,7 @@ class ActiveLearningService:
         
         le = self.storage.dataset_dict[al_instance_id]['le']
         # convert the labels to integers
-        labels = le.transform(labels)
+        labels_encoded = le.transform(labels)
         
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
@@ -251,7 +257,7 @@ class ActiveLearningService:
         
         # update the labels
         # use Ref-based labels directly against index
-        y.loc[query_idx] = labels
+        y.loc[query_idx] = labels_encoded
 
         # Save the labels to persistence
         self.duckdb_service.save_labels(

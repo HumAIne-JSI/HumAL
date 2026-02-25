@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.config.config import TEST_SPLIT, TRAIN_SPLIT
+from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, TEST_SPLIT, TRAIN_SPLIT
 from app.services import data_preprocessing as dp
 
 
@@ -127,6 +127,42 @@ def test_dispatch_team_test_set_uses_transform_and_keeps_string_labels(monkeypat
     assert y_true.tolist() == ["Team B"]
     assert le is provided_le
     assert oh is provided_oh
+
+
+def test_dispatch_team_loads_labels_when_team_column_missing(monkeypatch, mock_duckdb_service: MagicMock):
+    monkeypatch.setattr(dp, "LabelEncoder", FakeLabelEncoder)
+    monkeypatch.setattr(dp, "OneHotEncoder", FakeOneHotEncoder)
+
+    mock_sentence_model = MagicMock()
+    mock_sentence_model.encode.return_value = [[0.5, 0.6]]
+    mock_sentence_transformer_class = MagicMock(return_value=mock_sentence_model)
+    monkeypatch.setattr(dp, "SentenceTransformer", mock_sentence_transformer_class)
+
+    mock_duckdb_service.load_tickets.return_value = pd.DataFrame(
+        {
+            "Ref": ["R1"],
+            "Last team ID->Name": [None],
+            "Title_anon": ["Title 1"],
+            "Description_anon": [" Desc 1"],
+            "Service subcategory->Name": ["Sub A"],
+            "Service->Name": ["Srv A"],
+        }
+    )
+    mock_duckdb_service.load_labels.return_value = pd.Series(
+        ["Team A"], index=["R1"], name="Team->Name"
+    )
+
+    _, y_true, _, _ = dp.dispatch_team(
+        duckdb_service=mock_duckdb_service,
+        test_set=False,
+        classes=["Team A", "Team B"],
+    )
+
+    mock_duckdb_service.load_labels.assert_called_once_with(
+        al_instance_id=GROUND_TRUTH_AL_INSTANCE_ID,
+        split=TRAIN_SPLIT,
+    )
+    assert y_true.tolist() == [0]
 
 
 def test_dispatch_team_raises_when_no_data(mock_duckdb_service: MagicMock):

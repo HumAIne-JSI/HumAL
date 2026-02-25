@@ -9,6 +9,9 @@ from app.services.xai_svc import XaiService
 from app.services.resolution_svc import ResolutionService
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence import MinioService
+from app.services.startup_svc import StartupService
+from app.core.minio_client import MinioClient
 from pathlib import Path
 import os
 
@@ -26,6 +29,13 @@ inference_service = InferenceService(storage, local_artifacts_store)
 config_service = ConfigService()
 data_service = DataService(duckdb_service=duckdb_persistence_service)
 xai_service = XaiService(storage, inference_service, local_artifacts_store)
+minio_client = MinioClient()
+minio_service = MinioService(client=minio_client)
+startup_service = StartupService(
+    duckdb_service=duckdb_persistence_service,
+    minio_service=minio_service,
+)
+
 
 # Dependency functions
 def get_storage():
@@ -51,6 +61,9 @@ def get_duckdb_persistence_service() -> DuckDbPersistenceService:
 
 def get_local_artifacts_store() -> LocalArtifactsStore:
     return local_artifacts_store
+
+def get_startup_service() -> StartupService:
+    return startup_service
     
 # Lazy-loaded resolution service (heavy models)
 _resolution_service_instance = None

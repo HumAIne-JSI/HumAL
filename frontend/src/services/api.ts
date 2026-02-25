@@ -47,10 +47,10 @@ export const API_ENDPOINTS = {
   GET_QUERY_STRATEGIES: '/config/query-strategies',
   
   // Data
-  GET_TICKETS: (id: number) => `/data/${id}/tickets`,
-  GET_TEAMS: (id: number) => `/data/${id}/teams`,
-  GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
-  GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
+  GET_TICKETS: '/data/tickets',
+  GET_TEAMS: '/data/teams',
+  GET_CATEGORIES: '/data/categories',
+  GET_SUBCATEGORIES: '/data/subcategories',
   
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
@@ -187,36 +187,20 @@ export const apiService = {
     apiCall<ConfigStrategiesResponse>(API_ENDPOINTS.GET_QUERY_STRATEGIES),
 
   // Data
-  getTickets: (instanceId: number, indices: string[], trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_TICKETS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TICKETS(instanceId);
-    return apiCall<TicketsResponse>(url, {
+  getTickets: (indices: string[]) => 
+    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS, {
       method: 'POST',
       body: JSON.stringify(indices),
-    });
-  },
+    }),
 
-  getTeams: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_TEAMS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TEAMS(instanceId);
-    return apiCall<TeamsResponse>(url);
-  },
+  getTeams: () => 
+    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS),
 
-  getCategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_CATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_CATEGORIES(instanceId);
-    return apiCall<CategoriesResponse>(url);
-  },
+  getCategories: () => 
+    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES),
 
-  getSubcategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_SUBCATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_SUBCATEGORIES(instanceId);
-    return apiCall<SubcategoriesResponse>(url);
-  },
+  getSubcategories: () => 
+    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
 
   // Resolution
   processResolution: (data: ResolutionProcessRequest) => 

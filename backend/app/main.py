@@ -3,10 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router, resolution_router
 
+from contextlib import asynccontextmanager
+from app.core.dependencies import get_startup_service
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_startup_service().load_data_from_minio_into_duckdb()
+    yield
+
 app = FastAPI(
     title="HumAL API",
     description="Human-in-the-loop Active Learning API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS

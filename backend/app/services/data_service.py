@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from app.persistence.duckdb.service import DuckDbPersistenceService
 
-from app.config.config import TRAIN_SPLIT, TEAM_NAME
+from app.config.config import TRAIN_SPLIT, TEAM_NAME, GROUND_TRUTH_AL_INSTANCE_ID
 
 class DataService:
     def __init__(
@@ -30,13 +30,15 @@ class DataService:
         """
         Get teams from the dataset.
         """
-        df = self.duckdb_service.load_tickets(split=TRAIN_SPLIT)
+        teams = self.duckdb_service.load_labels(
+            al_instance_id=GROUND_TRUTH_AL_INSTANCE_ID, 
+            split=TRAIN_SPLIT)
 
-        if df is None or df.empty:
+        if teams is None or teams.empty:
             return {"teams": []}
         
         # Extract unique teams that are not NaN
-        teams = df[TEAM_NAME].dropna().unique().tolist()
+        teams = teams.dropna().unique().tolist()
         return {"teams": teams}
 
     def get_categories(self):

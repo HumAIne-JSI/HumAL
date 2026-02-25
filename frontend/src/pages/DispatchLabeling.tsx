@@ -90,9 +90,7 @@ const DispatchLabeling = () => {
 
     const fetchTeams = async () => {
       try {
-        // Use instance ID 0 with train data path before instance is created
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const teamsResponse = await apiService.getTeams(0, trainDataPath);
+        const teamsResponse = await apiService.getTeams();
         if (teamsResponse.success && teamsResponse.data) {
           setAvailableTeams(teamsResponse.data.teams);
         }
@@ -137,7 +135,7 @@ const DispatchLabeling = () => {
       }
       
       // Call /data/tickets endpoint with the returned index
-      const ticketsResponse = await apiService.getTickets(parseInt(selectedModel), [queryIdx[0].toString()]);
+      const ticketsResponse = await apiService.getTickets([queryIdx[0].toString()]);
       
       if (!ticketsResponse.success || !ticketsResponse.data || ticketsResponse.data.tickets.length === 0) {
         throw new Error("Failed to retrieve ticket data");
@@ -293,7 +291,7 @@ const DispatchLabeling = () => {
             if (ref && label !== undefined && similarity !== undefined) {
               // Fetch the full ticket details for the nearest ticket
               try {
-                const nearestTicketResponse = await apiService.getTickets(parseInt(selectedModel), [ref.toString()]);
+                const nearestTicketResponse = await apiService.getTickets([ref.toString()]);
                 
                 if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
                   const nearestTicketData = nearestTicketResponse.data.tickets[0];

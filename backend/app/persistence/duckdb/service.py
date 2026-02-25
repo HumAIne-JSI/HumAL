@@ -13,7 +13,7 @@ from .schema import init_database
 
 from datetime import datetime
 
-from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID
+from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, TEAM_NAME
 
 
 @dataclass(frozen=True)
@@ -264,6 +264,8 @@ class DuckDbPersistenceService:
             "description_anon": "Description_anon",
             "public_log_anon": "Public_log_anon"})
         
+        df['Ref'] = df['Ref'].astype(str)
+        
         return df
     
     def load_tickets_by_ref(self, ref_list: list[str]) -> Optional[pd.DataFrame]:
@@ -293,6 +295,8 @@ class DuckDbPersistenceService:
             "description_anon": "Description_anon",
             "public_log_anon": "Public_log_anon"})
         
+        df['Ref'] = df['Ref'].astype(str)
+
         return df
     
     def get_ticket_counts_by_split(self) -> Dict[str, int]:
@@ -372,8 +376,8 @@ class DuckDbPersistenceService:
         df = self._keep_majority_or_latest_label(df)
 
         df["ref"] = df["ref"].astype(str)
-        df = df.rename(columns={"label": "Team->Name"})
-        return df.set_index("ref")["Team->Name"]
+        df = df.rename(columns={"label": TEAM_NAME})
+        return df.set_index("ref")[TEAM_NAME]
     
     def _keep_majority_or_latest_label(self, labels: pd.DataFrame) -> pd.DataFrame:
         """Helper to resolve label conflicts by keeping the majority label or latest if tie."""

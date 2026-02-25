@@ -41,8 +41,7 @@ const TicketResolution = () => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const categoriesResponse = await apiService.getCategories(0, trainDataPath);
+        const categoriesResponse = await apiService.getCategories();
         if (categoriesResponse.success && categoriesResponse.data) {
           setAvailableCategories(categoriesResponse.data.categories);
         }
@@ -53,8 +52,7 @@ const TicketResolution = () => {
 
     const fetchSubcategories = async () => {
       try {
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const subcategoriesResponse = await apiService.getSubcategories(0, trainDataPath);
+        const subcategoriesResponse = await apiService.getSubcategories();
         if (subcategoriesResponse.success && subcategoriesResponse.data) {
           setAvailableSubcategories(subcategoriesResponse.data.subcategories);
         }

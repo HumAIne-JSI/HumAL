@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
 
 from app.persistence.duckdb.service import DuckDbPersistenceService
-from app.config.config import TRAIN_SPLIT, TEST_SPLIT, TEAM_NAME
+from app.config.config import TRAIN_SPLIT, TEST_SPLIT, TEAM_NAME, GROUND_TRUTH_AL_INSTANCE_ID
 
 # Data preprocessing for the dispatch team endpoint
 def dispatch_team(duckdb_service: DuckDbPersistenceService, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):
@@ -25,6 +25,19 @@ def dispatch_team(duckdb_service: DuckDbPersistenceService, test_set: bool = Fal
 
     if df is None or df.empty:
         raise ValueError("No data found for the specified split.")
+
+    # In DB-backed datasets labels are stored in the labels table.
+    # If Team->Name is not present on tickets, recover it from persisted ground truth labels.
+    if TEAM_NAME not in df.columns:
+        split = TEST_SPLIT if test_set else TRAIN_SPLIT
+        labels = duckdb_service.load_labels(
+            al_instance_id=GROUND_TRUTH_AL_INSTANCE_ID,
+            split=split,
+        )
+        if labels is not None and not labels.empty:
+            df[TEAM_NAME] = labels.reindex(df['Ref']).to_numpy()
+        else:
+            df[TEAM_NAME] = np.nan
     
     # Keep Ref as stable identifier index
     df.set_index('Ref', inplace=True)

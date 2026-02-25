@@ -1,7 +1,8 @@
 from typing import Optional
 
-from backend.app.persistence.duckdb.service import DuckDbPersistenceService
-from backend.app.persistence.minio_storage import MinioService
+
+from app.persistence.duckdb.service import DuckDbPersistenceService
+from app.persistence.minio_storage import MinioService
 from app.config.config import SYSTEM_USER_ID, TEAM_NAME, GROUND_TRUTH_AL_INSTANCE_ID, TRAIN_SPLIT, TEST_SPLIT
 
 class StartupService:

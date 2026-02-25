@@ -95,9 +95,7 @@ const Inference = () => {
 
     const fetchCategories = async () => {
       try {
-        // Use instance ID 0 with train data path before instance is created
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const categoriesResponse = await apiService.getCategories(0, trainDataPath);
+        const categoriesResponse = await apiService.getCategories();
         if (categoriesResponse.success && categoriesResponse.data) {
           setAvailableCategories(categoriesResponse.data.categories);
         }
@@ -108,9 +106,7 @@ const Inference = () => {
 
     const fetchSubcategories = async () => {
       try {
-        // Use instance ID 0 with train data path before instance is created
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const subcategoriesResponse = await apiService.getSubcategories(0, trainDataPath);
+        const subcategoriesResponse = await apiService.getSubcategories();
         if (subcategoriesResponse.success && subcategoriesResponse.data) {
           setAvailableSubcategories(subcategoriesResponse.data.subcategories);
         }
@@ -230,7 +226,7 @@ const Inference = () => {
             if (ref && label !== undefined && similarity !== undefined) {
               // Fetch the full ticket details for the nearest ticket
               try {
-                const nearestTicketResponse = await apiService.getTickets(parseInt(selectedModel), [ref.toString()]);
+                const nearestTicketResponse = await apiService.getTickets([ref.toString()]);
                 
                 if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
                   const nearestTicketData = nearestTicketResponse.data.tickets[0];
