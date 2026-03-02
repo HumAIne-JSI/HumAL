@@ -156,11 +156,12 @@ class MinioService:
         *,
         al_instance_id: int,
         tickets_version: int,
+        split: str,
         df: pd.DataFrame,
     ):
-        """Upload vectorized tickets as Parquet format."""
-        object_name = f"vectorized_tickets/{al_instance_id}/{tickets_version}.parquet"
-        tickets_bytes = self._to_parquet(df)
+        """Upload vectorized tickets as joblib format."""
+        object_name = f"vectorized_tickets/{al_instance_id}/{tickets_version}_{split}.joblib"
+        tickets_bytes = self._to_joblib(df)
         self.client.upload_file_bytes(DATA_BUCKET, object_name, tickets_bytes)
         return {"bucket": DATA_BUCKET, "object": object_name}
 
@@ -169,11 +170,54 @@ class MinioService:
         *,
         al_instance_id: int,
         tickets_version: int,
+        split: str,
     ) -> pd.DataFrame:
         """Download and deserialize vectorized tickets from MinIO."""
-        object_name = f"vectorized_tickets/{al_instance_id}/{tickets_version}.parquet"
+        object_name = f"vectorized_tickets/{al_instance_id}/{tickets_version}_{split}.joblib"
         downloaded = self.client.download_object(DATA_BUCKET, object_name)
-        return pd.read_parquet(BytesIO(downloaded))
+        return joblib.load(BytesIO(downloaded))
+    
+    def save_labels(
+        self,
+        *,
+        al_instance_id: int,
+        labels_version: int,
+        split: str,
+        df: pd.Series,
+    ):
+        """Upload labels as joblib format."""
+        object_name = f"labels/{al_instance_id}/{labels_version}_{split}.joblib"
+        labels_bytes = self._to_joblib(df)
+        self.client.upload_file_bytes(DATA_BUCKET, object_name, labels_bytes)
+        return {"bucket": DATA_BUCKET, "object": object_name}
+
+    def load_labels(
+        self,
+        *,
+        al_instance_id: int,
+        labels_version: int,
+        split: str,
+    ) -> pd.Series:
+        """Download and deserialize labels from MinIO."""
+        object_name = f"labels/{al_instance_id}/{labels_version}_{split}.joblib"
+        downloaded = self.client.download_object(DATA_BUCKET, object_name)
+        return joblib.load(BytesIO(downloaded))
+    
+    def delete_instance_objects(self, al_instance_id: int):
+        """Delete all objects related to a given AL instance."""
+        # Define prefixes for all object types related to the instance
+        prefixes = [
+            f"models/{al_instance_id}/",
+            f"encoders/{al_instance_id}/",
+            f"vectorized_tickets/{al_instance_id}/",
+            f"labels/{al_instance_id}/",
+        ]
+
+        for prefix in prefixes:
+            listing = self.client.list_objects(MODELS_BUCKET, prefix=prefix, filter_type="exact")
+            if listing and listing.get("matches"):
+                for obj_name in listing["matches"]:
+                    self.client.delete_object(MODELS_BUCKET, str(obj_name))
 
     def _to_joblib(self, obj: Any) -> bytes:
         """Serialize a Python object to joblib bytes."""
@@ -182,9 +226,9 @@ class MinioService:
         buffer.seek(0)
         return buffer.read()
 
-    def _to_parquet(self, df: pd.DataFrame) -> bytes:
-        """Serialize a DataFrame to Parquet bytes."""
-        buffer = BytesIO()
-        df.to_parquet(buffer)
-        buffer.seek(0)
-        return buffer.read()
+    # def _to_parquet(self, df: pd.DataFrame) -> bytes:
+    #     """Serialize a DataFrame to Parquet bytes."""
+    #     buffer = BytesIO()
+    #     df.to_parquet(buffer)
+    #     buffer.seek(0)
+    #     return buffer.read()

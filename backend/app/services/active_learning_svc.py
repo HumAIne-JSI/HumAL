@@ -14,6 +14,7 @@ from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.data_preprocessing import dispatch_team
 from app.config.config import SYSTEM_USER_ID
+from app.persistence.minio_storage import MinioService
 
 class ActiveLearningService:
     def __init__(
@@ -21,10 +22,12 @@ class ActiveLearningService:
         storage: ActiveLearningStorage,
         duckdb_service: Optional[DuckDbPersistenceService] = None,
         local_artifacts_store: Optional[LocalArtifactsStore] = None,
+        minio_service: Optional[MinioService] = None
     ):
         self.storage = storage
         self.duckdb_service = duckdb_service
         self.local_artifacts_store = local_artifacts_store
+        self.minio_service = minio_service
         if self.duckdb_service is not None and self.local_artifacts_store is not None:
             self._load_from_persistence()
 
@@ -92,6 +95,46 @@ class ActiveLearningService:
                 al_instance_id=instance_id,
                 X=X_test,
                 split="test"
+            )
+
+        # Save the datasets, encoders and labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_label_encoder(
+                al_instance_id=instance_id,
+                encoder=le
+            )
+
+            self.minio_service.save_one_hot_encoder(
+                al_instance_id=instance_id,
+                encoder=oh
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=instance_id,
+                tickets_version=0,
+                split="train",
+                df=X_train
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=instance_id,
+                tickets_version=0,
+                df=X_test,
+                split="test"
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=instance_id,
+                labels_version=0,
+                split="train",
+                df=y_train
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=instance_id,
+                labels_version=0,
+                split="test",
+                df=y_test
             )
 
 
@@ -267,6 +310,15 @@ class ActiveLearningService:
             split="train"
         )
 
+        # Save the labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=0,
+                split="train",
+                df=y
+            )
+
     # Logic for updating the model
     def update_model(self, al_instance_id: int):
         # Instance
@@ -301,6 +353,14 @@ class ActiveLearningService:
             model_id=0,
             path_to_model=model_path
         )
+
+        # Save the model to MinIO (original model, not the clf wrapper (easier integration with outside services))
+        if self.minio_service is not None:
+            self.minio_service.save_model(
+                al_instance_id=al_instance_id,
+                model_version=0,
+                model=clf.estimator_
+            )
 
 
     def calculate_metrics(self, al_instance_id: int):
@@ -376,9 +436,45 @@ class ActiveLearningService:
         # Save the model path to persistence
         self.duckdb_service.save_model_path(
             al_instance_id=al_instance_id,
-            model_id=model_id,
+            model_version=model_id,
             path_to_model=model_path
         )
+
+        # Save the model, vectorized datasets and labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=al_instance_id,
+                tickets_version=model_id,
+                split="train",
+                df=self.storage.dataset_dict[al_instance_id]['X_train']
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=al_instance_id,
+                tickets_version=model_id,
+                df=self.storage.dataset_dict[al_instance_id]['X_test'],
+                split="test"
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=model_id,
+                split="train",
+                df=self.storage.dataset_dict[al_instance_id]['y_train']
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=model_id,
+                split="test",
+                df=self.storage.dataset_dict[al_instance_id]['y_test']
+            )
+
+            self.minio_service.save_model(
+                al_instance_id=al_instance_id,
+                model_version=model_id,
+                model=current_model
+            )
 
         return model_id
     
@@ -396,4 +492,7 @@ class ActiveLearningService:
         self.local_artifacts_store.delete_instance_artifacts(al_instance_id)
 
         # Delete the instance from persistence
-        self.duckdb_service.delete_al_instance(al_instance_id)
+        self.duckdb_service.delete_instance(al_instance_id)
+
+        # Delete the instance's objects from MinIO        if self.minio_service is not None:
+        self.minio_service.delete_instance_objects(al_instance_id)
