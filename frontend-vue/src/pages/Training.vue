@@ -430,13 +430,32 @@ const handleInstanceSelect = (value: string) => {
 
     <!-- No Instance Selected -->
     <div v-else-if="!hasInstance" class="training__empty">
-      <AlertCircle :size="48" class="training__empty-icon" />
-      <h3>No instance selected</h3>
-      <p>Select an existing instance or create a new one to start training</p>
-      <Button @click="showCreateForm = true">
-        <Plus :size="16" />
-        Create New Instance
-      </Button>
+      <div class="training__empty-card">
+        <AlertCircle :size="64" class="training__empty-icon" />
+        <h2>Get Started with Active Learning</h2>
+        <p class="training__empty-description">
+          To begin training a model, you need to create an active learning instance first.
+          This will set up a new training session where you can label data and train your classifier.
+        </p>
+        <div class="training__empty-steps">
+          <div class="training__empty-step">
+            <span class="training__empty-step-number">1</span>
+            <span>Create a new instance with your chosen model and strategy</span>
+          </div>
+          <div class="training__empty-step">
+            <span class="training__empty-step-number">2</span>
+            <span>Label tickets suggested by the active learning algorithm</span>
+          </div>
+          <div class="training__empty-step">
+            <span class="training__empty-step-number">3</span>
+            <span>Save your trained model when ready</span>
+          </div>
+        </div>
+        <Button size="lg" @click="showCreateForm = true">
+          <Plus :size="18" />
+          Create Your First Instance
+        </Button>
+      </div>
     </div>
 
     <!-- Instance Dashboard -->
@@ -706,23 +725,71 @@ const handleInstanceSelect = (value: string) => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 4rem 2rem;
+    padding: 3rem 2rem;
+    min-height: 60vh;
+  }
+
+  &__empty-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    background: var(--muted);
-    border-radius: var(--radius);
+    max-width: 540px;
+    padding: 3rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 
-    h3 {
-      margin: 1rem 0 0.5rem;
-    }
-
-    p {
-      margin: 0 0 1.5rem;
-      color: var(--muted-foreground);
+    h2 {
+      margin: 1.5rem 0 0.75rem;
+      font-size: 1.5rem;
+      font-weight: 600;
     }
   }
 
-  &__empty-icon {
+  &__empty-description {
+    margin: 0 0 2rem;
     color: var(--muted-foreground);
+    line-height: 1.6;
+  }
+
+  &__empty-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    margin-bottom: 2rem;
+    text-align: left;
+  }
+
+  &__empty-step {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--muted);
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+  }
+
+  &__empty-step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border-radius: 50%;
+    font-weight: 600;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  &__empty-icon {
+    color: var(--primary);
+    opacity: 0.8;
   }
 
   &__info {

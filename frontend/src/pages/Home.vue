@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { Brain, BookOpen, Zap, ArrowRight, Users } from 'lucide-vue-next'
+import { Brain, Target, MessageSquareText, Zap, ArrowRight } from 'lucide-vue-next'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -15,14 +15,14 @@ const features = [
   {
     title: 'Dispatch Labeling',
     description: 'Review and confirm team assignments for support tickets to train dispatch models.',
-    icon: Users,
+    icon: Target,
     path: '/dispatch-labeling',
     color: 'from-blue-500 to-cyan-600',
   },
   {
     title: 'Ticket Resolution',
     description: 'Generate and refine AI-powered resolutions for support tickets.',
-    icon: BookOpen,
+    icon: MessageSquareText,
     path: '/ticket-resolution',
     color: 'from-purple-500 to-pink-600',
   },

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Brain, BookOpen, Zap, Menu } from 'lucide-vue-next'
+import { Home, Brain, Target, MessageSquareText, Zap, Menu } from 'lucide-vue-next'
 
 const route = useRoute()
 const isOpen = ref(false)
 
 const navItems = [
-  { path: '/', label: 'Home', icon: Brain },
-  { path: '/training', label: 'Model Training', icon: BookOpen },
-  { path: '/dispatch-labeling', label: 'Dispatch Labeling', icon: BookOpen },
-  { path: '/ticket-resolution', label: 'Ticket Resolution', icon: BookOpen },
+  { path: '/', label: 'Home', icon: Home },
+  { path: '/training', label: 'Model Training', icon: Brain },
+  { path: '/dispatch-labeling', label: 'Labeling', icon: Target },
+  { path: '/ticket-resolution', label: 'Ticket Resolution', icon: MessageSquareText },
   { path: '/inference', label: 'Inference', icon: Zap },
 ]
 

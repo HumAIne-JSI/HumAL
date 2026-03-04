@@ -2,11 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { Component } from 'vue'
 import {
   Home,
-  BookOpen,
-  Send,
-  CheckCircle2,
   Brain,
-  Tag,
+  Target,
+  MessageSquareText,
+  Zap,
 } from 'lucide-vue-next'
 
 export interface NavItem {
@@ -26,25 +25,25 @@ const routes = [
     path: '/training',
     name: 'training',
     component: () => import('../pages/Training.vue'),
-    meta: { label: 'Training', icon: BookOpen, showInNav: true }
+    meta: { label: 'Training', icon: Brain, showInNav: true }
   },
   {
     path: '/dispatching',
     name: 'dispatching',
     component: () => import('../pages/Dispatching.vue'),
-    meta: { label: 'Dispatch Labeling', icon: Tag, showInNav: true }
+    meta: { label: 'Dispatch Labeling', icon: Target, showInNav: true }
   },
   {
     path: '/ticket-resolution',
     name: 'ticket-resolution',
     component: () => import('../pages/TicketResolution.vue'),
-    meta: { label: 'Ticket Resolution', icon: CheckCircle2, showInNav: true }
+    meta: { label: 'Ticket Resolution', icon: MessageSquareText, showInNav: true }
   },
   {
     path: '/inference',
     name: 'inference',
     component: () => import('../pages/Inference.vue'),
-    meta: { label: 'Inference', icon: Brain, showInNav: true }
+    meta: { label: 'Inference', icon: Zap, showInNav: true }
   },
   {
     path: '/:pathMatch(.*)*',

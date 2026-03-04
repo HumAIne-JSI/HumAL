@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { Brain, BookOpen, Zap, Github, Mail, ExternalLink } from 'lucide-vue-next'
+import { Home, Brain, Target, MessageSquareText, Zap, Github, Mail, ExternalLink } from 'lucide-vue-next'
 import HumaineLogo from './HumaineLogo.vue'
 
 const currentYear = new Date().getFullYear()
 
 const navLinks = [
-  { path: '/', label: 'Home', icon: Brain },
-  { path: '/training', label: 'Model Training', icon: BookOpen },
-  { path: '/dispatch-labeling', label: 'Dispatch Labeling', icon: BookOpen },
-  { path: '/ticket-resolution', label: 'Ticket Resolution', icon: BookOpen },
+  { path: '/', label: 'Home', icon: Home },
+  { path: '/training', label: 'Model Training', icon: Brain },
+  { path: '/dispatch-labeling', label: 'Dispatch Labeling', icon: Target },
+  { path: '/ticket-resolution', label: 'Ticket Resolution', icon: MessageSquareText },
   { path: '/inference', label: 'Inference', icon: Zap },
 ]
 </script>
