@@ -25,8 +25,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             model_name VARCHAR,
             query_strategy VARCHAR,
             classes INTEGER[],
-            train_data_path VARCHAR,
-            test_data_path VARCHAR,
+            minio_prefix VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -39,23 +38,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             username VARCHAR UNIQUE,
             password VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tickets (
-            ref VARCHAR PRIMARY KEY,
-            service_subcategory_name VARCHAR,
-            service_name VARCHAR,
-            request_type VARCHAR,
-            last_team_id_name VARCHAR,
-            title_anon VARCHAR,
-            description_anon VARCHAR,
-            public_log_anon VARCHAR,
-            split VARCHAR NOT NULL CHECK (split IN ('train', 'test')),
-            dataset_timestamp TIMESTAMP
         )
         """
     )
@@ -94,19 +76,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS model_paths (
-            al_instance_id INTEGER NOT NULL,
-            model_id INTEGER NOT NULL,
-            path_to_model VARCHAR NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (al_instance_id, model_id),
-            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
-        )
-        """
-    )
-
-    conn.execute(
-        """
         CREATE TABLE IF NOT EXISTS al_events (
             al_instance_id INTEGER,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -116,6 +85,26 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             payload JSON,
             FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id),
             FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dataset_configs (
+            al_instance_id INTEGER NOT NULL,
+            dataset_name VARCHAR NOT NULL,
+            version VARCHAR NOT NULL,
+            dataset_format VARCHAR NOT NULL,
+            id_field VARCHAR NOT NULL,
+            splits JSON NOT NULL,
+            fields JSON NOT NULL,
+            task JSON NOT NULL,
+            features JSON NOT NULL,
+            preprocessing JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (al_instance_id, dataset_name, version),
+            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
         )
         """
     )
@@ -138,22 +127,15 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_model_paths_instance
-        ON model_paths(al_instance_id)
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_tickets_split
-        ON tickets(split)
-        """
-    )
-
-    conn.execute(
-        """
         CREATE INDEX IF NOT EXISTS idx_al_events_instance
         ON al_events(al_instance_id)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_dataset_configs_name
+        ON dataset_configs(dataset_name)
         """
     )
 

@@ -23,6 +23,18 @@ class DuckDbPersistenceService:
     def __post_init__(self) -> None:
         init_database(self.db_path)
 
+    @staticmethod
+    def _json_dumps(value: Any) -> str:
+        return json.dumps(value)
+
+    @staticmethod
+    def _json_loads(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return json.loads(value)
+        return value
+
     # --- Users ---
     def upsert_user(
         self,
@@ -153,178 +165,113 @@ class DuckDbPersistenceService:
             }
         return instances
 
-    # --- Tickets ---
-    def upsert_tickets_df(
+    # --- Dataset Configs ---
+    def save_dataset_config(
         self,
-        tickets_df: pd.DataFrame,
         *,
-        split: str,
-        dataset_timestamp: Optional[datetime] = None,
-    ) -> int:
-        """Upsert ticket rows from a dataframe.
-
-        Requires column: Ref
-        Optional columns will be mapped to the schema.
-
-        Args:
-            tickets_df: DataFrame with ticket data
-            split: 'train' or 'test'
-            dataset_timestamp: Optional timestamp for the dataset
-        """
-        if tickets_df is None or tickets_df.empty:
-            return 0
-
-        if "Ref" not in tickets_df.columns:
-            raise ValueError("tickets_df must contain 'Ref' column")
-
-        # Map DataFrame columns to schema columns
-        column_mapping = {
-            "Ref": "ref",
-            "Service subcategory->Name": "service_subcategory_name",
-            "Service->Name": "service_name",
-            "Request Type": "request_type",
-            "Last team ID->Name": "last_team_id_name",
-            "Title_anon": "title_anon",
-            "Description_anon": "description_anon",
-            "Public_log_anon": "public_log_anon",
-        }
-
-        df = tickets_df.copy()
-        
-        # Rename columns that exist in the DataFrame
-        df = df.rename(columns=column_mapping)
-
-        # Add split and dataset_timestamp
-        df["split"] = split
-        df["dataset_timestamp"] = dataset_timestamp
-
-        # Ensure all schema columns exist
-        schema_cols = [
-            "ref",
-            "service_subcategory_name",
-            "service_name",
-            "request_type",
-            "last_team_id_name",
-            "title_anon",
-            "description_anon",
-            "public_log_anon",
-            "split",
-            "dataset_timestamp",
-        ]
-
-        for col in schema_cols:
-            if col not in df.columns:
-                df[col] = None
-
-        df = df[schema_cols]
-
+        al_instance_id: int,
+        dataset_name: str,
+        version: str,
+        dataset_format: str,
+        id_field: str,
+        splits: Any,
+        fields: Any,
+        task: Any,
+        features: Any,
+        preprocessing: Optional[Any] = None,
+    ) -> None:
         with connect(self.db_path) as conn:
-            conn.register("_tickets_df", df)
             conn.execute(
                 """
-                INSERT OR REPLACE INTO tickets
-                SELECT * FROM _tickets_df
-                """
+                INSERT OR REPLACE INTO dataset_configs
+                (
+                    al_instance_id,
+                    dataset_name,
+                    version,
+                    dataset_format,
+                    id_field,
+                    splits,
+                    fields,
+                    task,
+                    features,
+                    preprocessing,
+                    config
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    al_instance_id,
+                    dataset_name,
+                    version,
+                    dataset_format,
+                    id_field,
+                    self._json_dumps(splits),
+                    self._json_dumps(fields),
+                    self._json_dumps(task),
+                    self._json_dumps(features),
+                    self._json_dumps(preprocessing) if preprocessing is not None else None,
+                ],
             )
-            conn.unregister("_tickets_df")
 
-        return int(len(df))
-
-    def load_tickets(self, split: str) -> pd.DataFrame:
-        """Load tickets for a given split ('train' or 'test').
-        
-        Args:
-            split: 'train' or 'test'
-            
-        Returns:
-            DataFrame with all tickets for the specified split
-        """
-        if split not in ('train', 'test'):
-            raise ValueError("split must be 'train' or 'test'")
-        
+    def load_dataset_config(
+        self,
+        *,
+        al_instance_id: int,
+        dataset_name: str,
+        version: str = "1.0",
+    ) -> Optional[Dict[str, Any]]:
         with connect(self.db_path) as conn:
-            df = conn.execute(
+            row = conn.execute(
                 """
-                SELECT ref, service_subcategory_name, service_name, request_type, 
-                       last_team_id_name, title_anon, description_anon, public_log_anon, 
-                       split, dataset_timestamp
-                FROM tickets
-                WHERE split = ?
+                SELECT
+                    al_instance_id,
+                    dataset_name,
+                    version,
+                    dataset_format,
+                    id_field,
+                    splits,
+                    fields,
+                    task,
+                    features,
+                    preprocessing,
+                    created_at
+                FROM dataset_configs
+                WHERE al_instance_id = ? AND dataset_name = ? AND version = ?
                 """,
-                [split],
-            ).df()
-        
-        df = df.rename(columns={
-            "ref": "Ref",
-            "service_subcategory_name": "Service subcategory->Name",
-            "service_name": "Service->Name",
-            "request_type": "Request Type",
-            "last_team_id_name": "Last team ID->Name",
-            "title_anon": "Title_anon",
-            "description_anon": "Description_anon",
-            "public_log_anon": "Public_log_anon"})
-        
-        df['Ref'] = df['Ref'].astype(str)
-        
-        return df
-    
-    def load_tickets_by_ref(self, ref_list: list[str]) -> Optional[pd.DataFrame]:
-        """Load tickets for a given list of refs."""
-        if not ref_list:
+                [al_instance_id, dataset_name, version],
+            ).fetchone()
+
+        if not row:
             return None
-        
-        with connect(self.db_path) as conn:
-            df = conn.execute(
-                f"""
-                SELECT ref, service_subcategory_name, service_name, request_type, 
-                       last_team_id_name, title_anon, description_anon, public_log_anon, 
-                       split, dataset_timestamp
-                FROM tickets
-                WHERE ref IN ({','.join(['?']*len(ref_list))})
-                """,
-                ref_list,
-            ).df()
-        
-        df = df.rename(columns={
-            "ref": "Ref",
-            "service_subcategory_name": "Service subcategory->Name",
-            "service_name": "Service->Name",
-            "request_type": "Request Type",
-            "last_team_id_name": "Last team ID->Name",
-            "title_anon": "Title_anon",
-            "description_anon": "Description_anon",
-            "public_log_anon": "Public_log_anon"})
-        
-        df['Ref'] = df['Ref'].astype(str)
 
-        return df
-    
-    def get_ticket_counts_by_split(self) -> Dict[str, int]:
-        """Get counts of tickets by split."""
-        with connect(self.db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT split, COUNT(*) as count
-                FROM tickets
-                GROUP BY split
-                """
-            ).fetchall()
+        return {
+            "al_instance_id": row[0],
+            "dataset_name": row[1],
+            "version": row[2],
+            "dataset_format": row[3],
+            "id_field": row[4],
+            "splits": self._json_loads(row[5]),
+            "fields": self._json_loads(row[6]),
+            "task": self._json_loads(row[7]),
+            "features": self._json_loads(row[8]),
+            "preprocessing": self._json_loads(row[9]),
+            "created_at": row[11],
+        }
 
-        return {row[0]: row[1] for row in rows}
     
-    def get_latest_dataset_timestamp(self, split) -> Optional[str]:
-        """Get the latest dataset timestamp for a given split."""
+
+    def delete_dataset_config(self, *, al_instance_id: int, dataset_name: str, version: str) -> bool:
         with connect(self.db_path) as conn:
             result = conn.execute(
                 """
-                SELECT MAX(dataset_timestamp)
-                FROM tickets
-                WHERE split = ?
+                DELETE FROM dataset_configs
+                WHERE al_instance_id = ? AND dataset_name = ? AND version = ?
                 """,
-                [split],
-            ).fetchone()
+                [al_instance_id, dataset_name, version],
+            )
+        return result.rowcount > 0
 
-        return result[0] if result and result[0] is not None else None
+ 
 
     # --- Labels ---
     def save_labels(self, al_instance_id: int, user_id: str | uuid.UUID, labels_dict: Dict[str, Any], split: str, timestamp: Optional[datetime] = None) -> int:
@@ -413,30 +360,6 @@ class DuckDbPersistenceService:
 
         return pd.DataFrame(rows, columns=["ref", "label"])
 
-    # --- Model paths ---
-    def save_model_path(self, al_instance_id: int, model_id: int, path_to_model: str) -> None:
-        with connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO model_paths (al_instance_id, model_id, path_to_model)
-                VALUES (?, ?, ?)
-                """,
-                [al_instance_id, model_id, path_to_model],
-            )
-
-    def load_model_paths(self, al_instance_id: int) -> Dict[int, str]:
-        with connect(self.db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT model_id, path_to_model
-                FROM model_paths
-                WHERE al_instance_id = ?
-                ORDER BY model_id
-                """,
-                [al_instance_id],
-            ).fetchall()
-
-        return {int(model_id): str(path) for (model_id, path) in rows}
 
     # --- Metrics ---
     def save_metrics(
@@ -562,6 +485,8 @@ class DuckDbPersistenceService:
                 ],
             )
 
+    
+
     # --- Deletes ---
     def delete_instance(self, al_instance_id: int) -> None:
         if al_instance_id==GROUND_TRUTH_AL_INSTANCE_ID:
@@ -569,6 +494,6 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             conn.execute("DELETE FROM al_events WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM model_paths WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM metrics WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM dataset_configs WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM al_instances WHERE al_instance_id = ?", [al_instance_id])
