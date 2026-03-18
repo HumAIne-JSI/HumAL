@@ -6,6 +6,7 @@ from app.services.data_preprocessing import inference
 from sentence_transformers import SentenceTransformer
 from typing import Optional
 from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence.minio_storage import MinioService
 
 class InferenceService:
     def __init__(

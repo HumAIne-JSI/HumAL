@@ -436,7 +436,7 @@ class ActiveLearningService:
         # Save the model path to persistence
         self.duckdb_service.save_model_path(
             al_instance_id=al_instance_id,
-            model_version=model_id,
+            model_id=model_id,
             path_to_model=model_path
         )
 

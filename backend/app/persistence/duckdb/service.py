@@ -562,6 +562,83 @@ class DuckDbPersistenceService:
                 ],
             )
 
+    # --- XAI Jobs ---
+    def create_xai_job(
+            self, 
+            al_instance_id: int, 
+            job_id: uuid.UUID, 
+            model_id: int, 
+            ticket_ref_or_sha: str, 
+            request_ticket_location: str, 
+            request_model_location: str, 
+            request_vectorized_tickets_location: str, 
+            request_raw_tickets_locations: list[str],
+            status: str = "queued"
+            ) -> None:
+
+        """Create a new XAI job entry in the database."""
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO xai_jobs (job_id, al_instance_id, ticket_ref_or_sha, model_id, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [job_id, al_instance_id, ticket_ref_or_sha, model_id, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations],
+            )
+            
+    def update_xai_job_status(self, job_id: uuid.UUID, status: str, result_location: Optional[str] = None) -> None:
+
+        """Update the status and optionally result location of an existing XAI job."""
+        with connect(self.db_path) as conn:
+            if result_location is not None:
+                conn.execute(
+                    """
+                    UPDATE xai_jobs
+                    SET status = ?, result_location = ?, finished_at = CURRENT_TIMESTAMP
+                    WHERE job_id = ?
+                    """,
+                    [status, result_location, job_id],
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE xai_jobs
+                    SET status = ?
+                    WHERE job_id = ?
+                    """,
+                    [status, job_id],
+                )
+
+    def get_xai_job(self, job_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+        """Retrieve XAI job details by job_id."""
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations, result_location, created_at, finished_at
+                FROM xai_jobs
+                WHERE job_id = ?
+                """,
+                [job_id],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "job_id": str(row[0]),
+            "al_instance_id": row[1],
+            "model_id": row[2],
+            "ticket_ref_or_sha": row[3],
+            "status": row[4],
+            "request_ticket_location": row[5],
+            "request_model_location": row[6],
+            "request_vectorized_tickets_location": row[7],
+            "request_raw_tickets_locations": json.loads(row[8]) if row[8] else None,
+            "result_location": row[9],
+            "created_at": row[10],
+            "finished_at": row[11],
+        }
+
     # --- Deletes ---
     def delete_instance(self, al_instance_id: int) -> None:
         if al_instance_id==GROUND_TRUTH_AL_INSTANCE_ID:
@@ -571,4 +648,5 @@ class DuckDbPersistenceService:
             conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM model_paths WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM metrics WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM xai_jobs WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM al_instances WHERE al_instance_id = ?", [al_instance_id])

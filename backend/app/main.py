@@ -1,15 +1,41 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router, resolution_router
 
 from contextlib import asynccontextmanager
-from app.core.dependencies import get_startup_service
+from app.core.dependencies import get_startup_service, get_xai_service, get_rabbitmq_client
+
+rabbitmq_client = get_rabbitmq_client()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_startup_service().load_data_from_minio_into_duckdb()
-    yield
+    use_rabbitmq = os.getenv("USE_RABBITMQ", "0") == "1"
+
+    # Establish connection to RabbitMQ at startup (if enabled)
+    if use_rabbitmq:
+        result_queue = os.getenv("RESULT_QUEUE")
+        if not result_queue:
+            raise RuntimeError("RESULT_QUEUE is not configured")
+
+        try:
+            await rabbitmq_client.connect()
+
+            # Consume the queue for XAI jobs
+            await rabbitmq_client.consume(queue_name=result_queue, callback=get_xai_service().update_xai_job)
+        except Exception:
+            await rabbitmq_client.close()
+            raise
+
+    try:
+        yield
+    finally:
+        # Close RabbitMQ connection on shutdown
+        if use_rabbitmq:
+            await rabbitmq_client.close()
 
 app = FastAPI(
     title="HumAL API",

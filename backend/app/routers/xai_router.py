@@ -3,6 +3,7 @@ from app.core.dependencies import get_xai_service, get_data_service
 from app.data_models.active_learning_dm import Data
 import pandas as pd
 from typing import Optional
+import uuid
 
 router = APIRouter(prefix="/xai", tags=["xai"])
 xai_service = get_xai_service()
@@ -69,4 +70,22 @@ def find_nearest_ticket(
         return xai_service.find_nearest_by_ticket(al_instance_id, ticket_data, model_id)
     else:
         return xai_service.find_nearest_by_query_idx(al_instance_id, query_idx, model_id)
-    
+
+@router.post("/{al_instance_id}/requests")
+async def create_xai_request(
+    al_instance_id: int,
+    ticket_data: Data,
+    model_id: int = 0,
+    ticket_ref: Optional[str] = None
+):
+    """Saves the ticket to MinIO and returns the job_id for tracking the XAI request."""
+    job_id = await xai_service.create_xai_request(al_instance_id=al_instance_id, ticket_data=ticket_data, model_id=model_id, ticket_ref=ticket_ref)
+    return {"job_id": job_id}
+
+@router.get("/jobs/{job_id}")
+def get_xai_job(job_id: uuid.UUID):
+    """Endpoint to retrieve the status and results of an XAI job."""
+    job_info = xai_service.get_xai_job(job_id)
+    if job_info is None:
+        raise HTTPException(status_code=404, detail="XAI job not found")
+    return {"status": job_info['status'], "result_location": job_info['result_location']}

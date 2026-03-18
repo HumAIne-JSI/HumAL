@@ -2,6 +2,7 @@
 Simple MinIO smoke check for MinioService.
 
 Requires MINIO_BASE_URL, MINIO_USERNAME, MINIO_PASSWORD env vars.
+Optional: MINIO_PREFIX to namespace objects (e.g. test/) inside each bucket.
 This script performs real uploads/downloads; verify results in your MinIO UI.
 """
 from dotenv import load_dotenv

@@ -120,6 +120,26 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
+    conn.execute(
+        """ 
+        CREATE TABLE IF NOT EXISTS xai_jobs (
+            job_id UUID PRIMARY KEY,
+            al_instance_id INTEGER NOT NULL,
+            model_id INTEGER NOT NULL,
+            ticket_ref_or_sha VARCHAR NOT NULL,
+            status VARCHAR NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
+            request_ticket_location VARCHAR NOT NULL,
+            request_model_location VARCHAR NOT NULL,
+            request_vectorized_tickets_location VARCHAR NOT NULL,
+            request_raw_tickets_locations VARCHAR[] NOT NULL,
+            result_location VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP,
+            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
+        )
+        """
+    )
+    
 
 def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
@@ -154,6 +174,13 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_al_events_instance
         ON al_events(al_instance_id)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_xai_jobs_instance
+        ON xai_jobs(al_instance_id)
         """
     )
 

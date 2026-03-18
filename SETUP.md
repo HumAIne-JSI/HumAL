@@ -328,6 +328,7 @@ The backend uses:
 - `HOST=0.0.0.0`
 - `PORT=8000`
 - `DEBUG=True`
+- `MINIO_PREFIX=` (optional; e.g. `test` to write to `test/...` inside each MinIO bucket)
 
 ## Troubleshooting
 
