@@ -16,6 +16,20 @@ from datetime import datetime
 from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, TEAM_NAME
 
 
+def _deserialize_varchar_array(value: Any) -> Optional[list[str]]:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else [value]
+        except json.JSONDecodeError:
+            return [value]
+    return [str(value)]
+
+
 @dataclass(frozen=True)
 class DuckDbPersistenceService:
     db_path: Optional[str | Path] = None
@@ -586,18 +600,18 @@ class DuckDbPersistenceService:
                 [job_id, al_instance_id, ticket_ref_or_sha, model_id, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations],
             )
             
-    def update_xai_job_status(self, job_id: uuid.UUID, status: str, result_location: Optional[str] = None) -> None:
+    def update_xai_job_status(self, job_id: uuid.UUID, status: str, result_location: Optional[str] = None, result_file_names: Optional[list[str]] = None) -> None:
 
         """Update the status and optionally result location of an existing XAI job."""
         with connect(self.db_path) as conn:
-            if result_location is not None:
+            if result_location is not None or result_file_names is not None:
                 conn.execute(
                     """
                     UPDATE xai_jobs
-                    SET status = ?, result_location = ?, finished_at = CURRENT_TIMESTAMP
+                    SET status = ?, result_location = ?, result_file_names = ?, finished_at = CURRENT_TIMESTAMP
                     WHERE job_id = ?
                     """,
-                    [status, result_location, job_id],
+                    [status, result_location, result_file_names, job_id],
                 )
             else:
                 conn.execute(
@@ -614,7 +628,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations, result_location, created_at, finished_at
+                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations, result_location, result_file_names, created_at, finished_at
                 FROM xai_jobs
                 WHERE job_id = ?
                 """,
@@ -633,10 +647,11 @@ class DuckDbPersistenceService:
             "request_ticket_location": row[5],
             "request_model_location": row[6],
             "request_vectorized_tickets_location": row[7],
-            "request_raw_tickets_locations": json.loads(row[8]) if row[8] else None,
+            "request_raw_tickets_locations": _deserialize_varchar_array(row[8]),
             "result_location": row[9],
-            "created_at": row[10],
-            "finished_at": row[11],
+            "result_file_names": _deserialize_varchar_array(row[10]),
+            "created_at": row[11],
+            "finished_at": row[12],
         }
 
     # --- Deletes ---

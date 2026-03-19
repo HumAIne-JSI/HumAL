@@ -27,7 +27,8 @@ local_artifacts_store = LocalArtifactsStore(
 )
 minio_client = MinioClient()
 minio_service = MinioService(client=minio_client)
-rabbitmq_client = RabbitMQClient(url=os.getenv("RABBIT_URL", ""))
+if os.getenv("USE_RABBITMQ", "0") == "1":
+    rabbitmq_client = RabbitMQClient(url=os.getenv("RABBIT_URL", ""))
 al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store, minio_service)
 inference_service = InferenceService(storage, local_artifacts_store, minio_service)
 config_service = ConfigService()
@@ -75,8 +76,10 @@ def get_startup_service() -> StartupService:
     return startup_service
 
 def get_rabbitmq_client() -> RabbitMQClient:
-    return rabbitmq_client
-    
+    if os.getenv("USE_RABBITMQ", "0") == "1":
+        return rabbitmq_client
+    return None
+
 # Lazy-loaded resolution service (heavy models)
 _resolution_service_instance = None
 

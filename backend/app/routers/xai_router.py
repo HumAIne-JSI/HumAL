@@ -4,6 +4,7 @@ from app.data_models.active_learning_dm import Data
 import pandas as pd
 from typing import Optional
 import uuid
+import os
 
 router = APIRouter(prefix="/xai", tags=["xai"])
 xai_service = get_xai_service()
@@ -79,13 +80,53 @@ async def create_xai_request(
     ticket_ref: Optional[str] = None
 ):
     """Saves the ticket to MinIO and returns the job_id for tracking the XAI request."""
+
+    # check if rabbitmq is enabled
+    rabbitmq_enabled = os.getenv("USE_RABBITMQ", "0") == "1"
+    if not rabbitmq_enabled:
+        raise HTTPException(status_code=503, detail="XAI request handling is not available because RabbitMQ is not enabled")
+    
+    # check if the instance id is valid
+    if al_instance_id not in xai_service.storage.al_instances_dict:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
     job_id = await xai_service.create_xai_request(al_instance_id=al_instance_id, ticket_data=ticket_data, model_id=model_id, ticket_ref=ticket_ref)
     return {"job_id": job_id}
 
 @router.get("/jobs/{job_id}")
 def get_xai_job(job_id: uuid.UUID):
     """Endpoint to retrieve the status and results of an XAI job."""
+
+    # check if rabbitmq is enabled
+    rabbitmq_enabled = os.getenv("USE_RABBITMQ", "0") == "1"
+    if not rabbitmq_enabled:
+        raise HTTPException(status_code=503, detail="XAI job tracking is not available because RabbitMQ is not enabled")
+    
     job_info = xai_service.get_xai_job(job_id)
     if job_info is None:
         raise HTTPException(status_code=404, detail="XAI job not found")
+    elif job_info['status'] in ['queued', 'processing', 'failed']:
+        return {"status": job_info['status'], "result": None}
+
+    if job_info['status'] == 'completed':
+        result_location = job_info.get('result_location')
+        result_file_names = job_info.get('result_file_names')
+
+        if not result_location or not result_file_names:
+            raise HTTPException(status_code=500, detail="XAI job is completed but result location metadata is missing")
+
+        if xai_service.minio_service is None:
+            raise HTTPException(status_code=500, detail="MinIO service is not configured")
+
+        result_payload = xai_service.minio_service.load_xai_results(
+            result_location=result_location,
+            files=result_file_names,
+        )
+
+        return {
+            "status": job_info['status'],
+            "result": result_payload,
+            "result_location": result_location,
+        }
+
     return {"status": job_info['status'], "result_location": job_info['result_location']}

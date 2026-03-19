@@ -133,6 +133,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             request_vectorized_tickets_location VARCHAR NOT NULL,
             request_raw_tickets_locations VARCHAR[] NOT NULL,
             result_location VARCHAR,
+            result_file_names VARCHAR[],
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             finished_at TIMESTAMP,
             FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)

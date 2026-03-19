@@ -194,7 +194,7 @@ class XaiService:
             task_queue = os.getenv("TASK_QUEUE")
             if not task_queue:
                 raise RuntimeError("TASK_QUEUE is not configured")
-            publish_payload = {**xai_job_payload, "job_id": str(job_id)}
+            publish_payload = {**xai_job_payload, "job_id": str(job_id), "version": os.getenv("MESSAGE_VERSION", "0.1")}
             await self.rabbitmq_client.publish(queue_name=task_queue, message=publish_payload)
 
         self.duckdb_service.create_xai_job(**xai_job_payload)
@@ -221,10 +221,14 @@ class XaiService:
             job_id = data["job_id"]
             if isinstance(job_id, str):
                 job_id = uuid.UUID(job_id)
+            
+            if data["status"] == "completed" and ("result_location" not in data or "result_file_names" not in data):
+                raise ValueError("Missing result_location or result_file_names for completed XAI job")
 
             self.duckdb_service.update_xai_job_status(job_id=job_id,
                                                       status=data["status"],
-                                                      result_location=data.get("result_location"))
+                                                      result_location=data.get("result_location"),
+                                                      result_file_names=data.get("result_file_names"))
         
 
 

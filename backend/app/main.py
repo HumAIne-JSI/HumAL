@@ -8,7 +8,8 @@ from app.routers import inference_router, active_learning_router, config_router,
 from contextlib import asynccontextmanager
 from app.core.dependencies import get_startup_service, get_xai_service, get_rabbitmq_client
 
-rabbitmq_client = get_rabbitmq_client()
+if os.getenv("USE_RABBITMQ", "0") == "1":
+    rabbitmq_client = get_rabbitmq_client()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

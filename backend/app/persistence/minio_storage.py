@@ -15,6 +15,7 @@ import hashlib, json, unicodedata
 # MinIO bucket names
 MODELS_BUCKET = "smart-finance-models"
 DATA_BUCKET = "smart-finance-data"
+RESULTS_BUCKET = "smart-finance-results"
 SHA_FIELDS = ["service_subcategory_name", "service_name", "title_anon", "description_anon", "public_log_anon"]
 
 class MinioService:
@@ -235,6 +236,18 @@ class MinioService:
         tickets_bytes = X.model_dump_json().encode("utf-8")
         self.client.upload_file_bytes(DATA_BUCKET, object_name, tickets_bytes)
         return {"bucket": DATA_BUCKET, "object": object_name, "ticket_sha": ticket_sha}
+    
+    def load_xai_results(self, result_location: str, files: list[str]) -> Dict[str, Any]:
+        """Load XAI results from a given MinIO location."""
+        result = {}
+
+        # Download all of the files in the list
+        for file in files:
+            object_name = result_location.rstrip("/") + "/" + file.lstrip("/")
+            downloaded = self.client.download_object(RESULTS_BUCKET, object_name)
+            # Assume the files are in JSON format and decode them
+            result[file.split(".")[0]] = json.loads(downloaded.decode("utf-8"))
+        return result
 
     
     def delete_instance_objects(self, al_instance_id: int):
