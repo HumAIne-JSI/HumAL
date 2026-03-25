@@ -34,6 +34,7 @@ const DispatchLabeling = () => {
   
   // Track selected team for reassignment
   const [selectedReassignTeam, setSelectedReassignTeam] = useState<string>("");
+  const [xaiEnabled, setXaiEnabled] = useState<boolean>(false);
 
   // Fetch available models from API
   useEffect(() => {
@@ -90,9 +91,7 @@ const DispatchLabeling = () => {
 
     const fetchTeams = async () => {
       try {
-        // Use instance ID 0 with train data path before instance is created
-        const trainDataPath = "data/al_demo_train_data.csv";
-        const teamsResponse = await apiService.getTeams(0, trainDataPath);
+        const teamsResponse = await apiService.getTeams();
         if (teamsResponse.success && teamsResponse.data) {
           setAvailableTeams(teamsResponse.data.teams);
         }
@@ -101,9 +100,138 @@ const DispatchLabeling = () => {
       }
     };
 
+    const fetchCapabilities = async () => {
+      try {
+        const capabilitiesResponse = await apiService.getCapabilities();
+        if (capabilitiesResponse.success && capabilitiesResponse.data) {
+          setXaiEnabled(capabilitiesResponse.data.capabilities.includes("xai"));
+        }
+      } catch (error) {
+        console.error("Failed to load capabilities:", error);
+      }
+    };
+
     fetchModels();
     fetchTeams();
+    fetchCapabilities();
   }, []);
+
+  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const getScalarValue = <T,>(value: T | T[] | undefined): T | undefined => {
+    if (Array.isArray(value)) return value[0];
+    return value;
+  };
+
+  const normalizeTopWords = (topWords: any): [string, number][] | null => {
+    if (!Array.isArray(topWords)) return null;
+
+    const normalized = topWords
+      .map((item: any) => {
+        if (Array.isArray(item) && typeof item[0] === "string" && typeof item[1] === "number") {
+          return [item[0], item[1]] as [string, number];
+        }
+        return null;
+      })
+      .filter((item: [string, number] | null): item is [string, number] => item !== null);
+
+    return normalized.length > 0 ? normalized : null;
+  };
+
+  const extractXaiPayload = (result: any) => {
+    const limePayload = result?.lime ?? result;
+    const nearestPayload = result?.nearest_ticket ?? result;
+
+    return {
+      topWords: normalizeTopWords(limePayload?.top_words),
+      ref: getScalarValue(nearestPayload?.nearest_ticket_ref),
+      label: getScalarValue(nearestPayload?.nearest_ticket_label),
+      similarity: getScalarValue(nearestPayload?.similarity_score),
+    };
+  };
+
+  const applyNearestTicket = async (
+    ref: string,
+    label: string,
+    similarity: number,
+    predictionId: number
+  ) => {
+    try {
+      const nearestTicketResponse = await apiService.getTickets([ref.toString()]);
+      if (predictionId !== currentPredictionIdRef.current) return;
+
+      if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
+        const nearestTicketData = nearestTicketResponse.data.tickets[0];
+        setNearestTicket({
+          ref,
+          label,
+          similarity,
+          title: nearestTicketData.Title_anon || "No title available",
+          description: nearestTicketData.Description_anon || "No description available",
+          service: nearestTicketData['Service->Name'] || "Unknown Service",
+          subcategory: nearestTicketData['Service subcategory->Name'] || "Unknown Subcategory"
+        });
+      } else {
+        setNearestTicket({ ref, label, similarity });
+      }
+    } catch (ticketErr) {
+      console.error("Failed to fetch nearest ticket details", ticketErr);
+      if (predictionId === currentPredictionIdRef.current) {
+        setNearestTicket({ ref, label, similarity });
+      }
+    }
+  };
+
+  const runXaiJobFlow = async (modelId: number, ticketRef: string | undefined, inferenceData: any, predictionId: number) => {
+    const requestResponse = await apiService.createXaiRequest(modelId, {
+      ticket_data: inferenceData,
+      model_id: 0,
+      ticket_ref: ticketRef,
+    });
+
+    if (!requestResponse.success || !requestResponse.data?.job_id) {
+      return;
+    }
+
+    const jobId = requestResponse.data.job_id;
+    const maxPollAttempts = 40;
+
+    for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
+      if (predictionId !== currentPredictionIdRef.current) {
+        return;
+      }
+
+      const jobResponse = await apiService.getXaiJob(jobId);
+      if (jobResponse.success && jobResponse.data) {
+        const { status, result } = jobResponse.data;
+
+        if (status === "failed") {
+          return;
+        }
+
+        if (status === "completed" && result) {
+          const { topWords, ref, label, similarity } = extractXaiPayload(result);
+          if (topWords && predictionId === currentPredictionIdRef.current) {
+            setExplanation(topWords);
+          }
+
+          if (
+            predictionId === currentPredictionIdRef.current &&
+            ref !== undefined &&
+            label !== undefined &&
+            similarity !== undefined
+          ) {
+            await applyNearestTicket(String(ref), String(label), Number(similarity), predictionId);
+          }
+
+          return;
+        }
+      }
+
+      await pause(1500);
+    }
+  };
+
 
 
 
@@ -137,7 +265,7 @@ const DispatchLabeling = () => {
       }
       
       // Call /data/tickets endpoint with the returned index
-      const ticketsResponse = await apiService.getTickets(parseInt(selectedModel), [queryIdx[0].toString()]);
+      const ticketsResponse = await apiService.getTickets([queryIdx[0].toString()]);
       
       if (!ticketsResponse.success || !ticketsResponse.data || ticketsResponse.data.tickets.length === 0) {
         throw new Error("Failed to retrieve ticket data");
@@ -254,81 +382,11 @@ const DispatchLabeling = () => {
         model: currentModel,
         reasoning: `Model ${currentModel?.name} analyzed ticket content and predicted "${predictedTeam}". Based on ${currentModel?.accuracy}% accuracy from training data.`
       });
-      // Fire-and-forget LIME explanation; do not block showing prediction
+      // Fire-and-forget XAI flow; use async job flow when capability is enabled.
       (async () => {
-        try {
-          const explainResponse = await apiService.explainLime(parseInt(selectedModel), {
-            ticket_data: inferenceData,
-            model_id: 0,
-          });
-          
-          // Only update if this is still the current prediction
-          if (thisPredictionId === currentPredictionIdRef.current && explainResponse.success && explainResponse.data && explainResponse.data.length > 0) {
-            const item = explainResponse.data[0];
-            if (item && Array.isArray(item.top_words)) {
-              setExplanation(item.top_words);
-            }
-          }
-        } catch (err) {
-          console.error("Explain LIME failed", err);
-        }
-      })();
-      
-      // Fire-and-forget nearest ticket lookup; do not block showing prediction
-      (async () => {
-        try {
-          const nearestResponse = await apiService.findNearestTicket(parseInt(selectedModel), {
-            query_idx: [ticketData.id],
-            model_id: 0,
-          });
-          
-          // Only update if this is still the current prediction
-          if (thisPredictionId === currentPredictionIdRef.current && nearestResponse.success && nearestResponse.data) {
-            const item = nearestResponse.data;
-            // Handle both single object and array responses
-            const ref = Array.isArray(item.nearest_ticket_ref) ? item.nearest_ticket_ref[0] : item.nearest_ticket_ref;
-            const label = Array.isArray(item.nearest_ticket_label) ? item.nearest_ticket_label[0] : item.nearest_ticket_label;
-            const similarity = Array.isArray(item.similarity_score) ? item.similarity_score[0] : item.similarity_score;
-            
-            if (ref && label !== undefined && similarity !== undefined) {
-              // Fetch the full ticket details for the nearest ticket
-              try {
-                const nearestTicketResponse = await apiService.getTickets(parseInt(selectedModel), [ref.toString()]);
-                
-                if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
-                  const nearestTicketData = nearestTicketResponse.data.tickets[0];
-                  
-                  setNearestTicket({
-                    ref: ref,
-                    label: label,
-                    similarity: similarity,
-                    title: nearestTicketData.Title_anon || "No title available",
-                    description: nearestTicketData.Description_anon || "No description available",
-                    service: nearestTicketData['Service->Name'] || "Unknown Service",
-                    subcategory: nearestTicketData['Service subcategory->Name'] || "Unknown Subcategory"
-                  });
-                } else {
-                  // Fallback if ticket details cannot be fetched
-                  setNearestTicket({
-                    ref: ref,
-                    label: label,
-                    similarity: similarity
-                  });
-                }
-              } catch (ticketErr) {
-                console.error("Failed to fetch nearest ticket details", ticketErr);
-                // Fallback if ticket details cannot be fetched
-                setNearestTicket({
-                  ref: ref,
-                  label: label,
-                  similarity: similarity
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Find nearest ticket failed", err);
-        }
+        const modelId = parseInt(selectedModel);
+        if (!xaiEnabled) return;
+        await runXaiJobFlow(modelId, ticketData.id?.toString(), inferenceData, thisPredictionId);
       })();
       
       // Reset manual assignment flag since we got a successful prediction

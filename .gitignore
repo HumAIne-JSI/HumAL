@@ -171,7 +171,8 @@ backend/app/services/resolution_task.py
 backend/app/services/resolution_task_new.py
 backend/sentence_transformers_cache/
 backend/data_and_model_export
-/backend/storage
+/backend/storage/
+/backend/benchmarking_suite/
 
 # FRONTEND
 # Logs

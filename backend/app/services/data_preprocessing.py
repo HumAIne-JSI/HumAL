@@ -6,16 +6,39 @@ from sentence_transformers import SentenceTransformer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
 
+from app.persistence.duckdb.service import DuckDbPersistenceService
+from app.config.config import TRAIN_SPLIT, TEST_SPLIT, TEAM_NAME, GROUND_TRUTH_AL_INSTANCE_ID
+
 # Data preprocessing for the dispatch team endpoint
-def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):
+def dispatch_team(duckdb_service: DuckDbPersistenceService, test_set: bool = False, le: LabelEncoder = None, oh: OneHotEncoder = None, classes: list[int | str] = None):
     """
     This function preprocesses the data for the dispatch team endpoint.
     It takes the raw tabular text data and returs a dataframe with embeddings
     for the title and description and one-hot encoded service subcategory and service name.
     """
     
-    # Get the labelled data
-    df = pd.read_csv(data_path)
+    # Get the data
+    if not test_set:
+        df = duckdb_service.load_tickets(split=TRAIN_SPLIT)
+    else:
+        df = duckdb_service.load_tickets(split=TEST_SPLIT)
+
+    if df is None or df.empty:
+        raise ValueError("No data found for the specified split.")
+
+    # In DB-backed datasets labels are stored in the labels table.
+    # If Team->Name is not present on tickets, recover it from persisted ground truth labels.
+    if TEAM_NAME not in df.columns:
+        split = TEST_SPLIT if test_set else TRAIN_SPLIT
+        labels = duckdb_service.load_labels(
+            al_instance_id=GROUND_TRUTH_AL_INSTANCE_ID,
+            split=split,
+        )
+        if labels is not None and not labels.empty:
+            df[TEAM_NAME] = labels.reindex(df['Ref']).to_numpy()
+        else:
+            df[TEAM_NAME] = np.nan
+    
     # Keep Ref as stable identifier index
     df.set_index('Ref', inplace=True)
 
@@ -31,7 +54,7 @@ def dispatch_team(data_path: str, test_set: bool = False, le: LabelEncoder = Non
     df['Title+Description'] = df['Title_anon'] + df['Description_anon']
     
     if test_set:
-        # If the data iselete the rows that don't have the 
+        # If the data iselete the rows that don't have the  
         # title and description or Team->Name
         # Test data has to contain all of the categories (also Team->Name)
         df = df.dropna(subset=['Title+Description', 'Team->Name'])

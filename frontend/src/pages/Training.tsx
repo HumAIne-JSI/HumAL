@@ -32,11 +32,10 @@ const Training = () => {
     const fetchConfig = async () => {
       setIsLoadingConfig(true);
       try {
-        const trainDataPath = "data/al_demo_train_data.csv";
         const [modelsResponse, strategiesResponse, teamsResponse] = await Promise.all([
           apiService.getModels(),
           apiService.getQueryStrategies(),
-          apiService.getTeams(0, trainDataPath)
+          apiService.getTeams()
         ]);
 
         if (modelsResponse.success && modelsResponse.data) {

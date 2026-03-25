@@ -11,12 +11,15 @@ import type {
   ApiResponse,
   ConfigModelsResponse,
   ConfigStrategiesResponse,
+  ConfigCapabilitiesResponse,
   TicketsResponse,
   TeamsResponse,
   CategoriesResponse,
   SubcategoriesResponse,
   ExplainLimeResponse,
   NearestTicketResponse,
+  XaiRequestResponse,
+  XaiJobResponse,
   ResolutionProcessRequest,
   ResolutionProcessResponse,
   ResolutionFeedbackRequest,
@@ -41,16 +44,19 @@ export const API_ENDPOINTS = {
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
+  CREATE_XAI_REQUEST: (id: number) => `/xai/${id}/requests`,
+  GET_XAI_JOB: (jobId: string) => `/xai/jobs/${jobId}`,
   
   // Config
   GET_MODELS: '/config/models',
   GET_QUERY_STRATEGIES: '/config/query-strategies',
+  GET_CAPABILITIES: '/config/capabilities',
   
   // Data
-  GET_TICKETS: (id: number) => `/data/${id}/tickets`,
-  GET_TEAMS: (id: number) => `/data/${id}/teams`,
-  GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
-  GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
+  GET_TICKETS: '/data/tickets',
+  GET_TEAMS: '/data/teams',
+  GET_CATEGORIES: '/data/categories',
+  GET_SUBCATEGORIES: '/data/subcategories',
   
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
@@ -179,6 +185,21 @@ export const apiService = {
     });
   },
 
+  createXaiRequest: (id: number, payload: { ticket_data: InferenceData; model_id?: number; ticket_ref?: string }) => {
+    const params = new URLSearchParams();
+    if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
+    if (payload.ticket_ref) params.append('ticket_ref', payload.ticket_ref);
+    const endpoint = `${API_ENDPOINTS.CREATE_XAI_REQUEST(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    return apiCall<XaiRequestResponse>(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload.ticket_data),
+    });
+  },
+
+  getXaiJob: (jobId: string) =>
+    apiCall<XaiJobResponse>(API_ENDPOINTS.GET_XAI_JOB(jobId)),
+
   // Config
   getModels: () => 
     apiCall<ConfigModelsResponse>(API_ENDPOINTS.GET_MODELS),
@@ -186,37 +207,24 @@ export const apiService = {
   getQueryStrategies: () => 
     apiCall<ConfigStrategiesResponse>(API_ENDPOINTS.GET_QUERY_STRATEGIES),
 
+  getCapabilities: () =>
+    apiCall<ConfigCapabilitiesResponse>(API_ENDPOINTS.GET_CAPABILITIES),
+
   // Data
-  getTickets: (instanceId: number, indices: string[], trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_TICKETS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TICKETS(instanceId);
-    return apiCall<TicketsResponse>(url, {
+  getTickets: (indices: string[]) => 
+    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS, {
       method: 'POST',
       body: JSON.stringify(indices),
-    });
-  },
+    }),
 
-  getTeams: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_TEAMS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TEAMS(instanceId);
-    return apiCall<TeamsResponse>(url);
-  },
+  getTeams: () => 
+    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS),
 
-  getCategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_CATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_CATEGORIES(instanceId);
-    return apiCall<CategoriesResponse>(url);
-  },
+  getCategories: () => 
+    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES),
 
-  getSubcategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath 
-      ? `${API_ENDPOINTS.GET_SUBCATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_SUBCATEGORIES(instanceId);
-    return apiCall<SubcategoriesResponse>(url);
-  },
+  getSubcategories: () => 
+    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
 
   // Resolution
   processResolution: (data: ResolutionProcessRequest) => 

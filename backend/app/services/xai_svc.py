@@ -9,12 +9,32 @@ from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
 from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
+from typing import Optional, Dict, Any
+from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence.duckdb.service import DuckDbPersistenceService
+from app.persistence.minio_storage import MinioService
+from app.core.rabbitmq_client import RabbitMQClient
+import uuid
+import app.config.config as config
+import os
 
 class XaiService:
-    def __init__(self, storage: ActiveLearningStorage, inference_service: InferenceService):
+    def __init__(
+            self, 
+            storage: ActiveLearningStorage, 
+            inference_service: InferenceService,
+            local_artifacts_store: Optional[LocalArtifactsStore] = None,
+            minio_service: Optional[MinioService] = None,
+            duckdb_service: Optional[DuckDbPersistenceService] = None,
+            rabbitmq_client: Optional[RabbitMQClient] = None
+            ):
         self.storage = storage
         self.inference_service = inference_service
         self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.local_artifacts_store = local_artifacts_store
+        self.minio_service = minio_service
+        self.duckdb_service = duckdb_service
+        self.rabbitmq_client = rabbitmq_client
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """
@@ -143,6 +163,74 @@ class XaiService:
             "similarity_score": similarity_scores
         }
 
+    async def create_xai_request(self, al_instance_id: int, ticket_data: Data, model_id: int, ticket_ref: Optional[str] = None):
+        """Saves the ticket to MinIO.
+           If ticket_ref is provided, it uses the ticket_ref as the object name in MinIO,
+           otherwise, the minio method generates a sha256 hash.
+           It then generates a job_id and saves the XAI request information to the database for tracking."""
+        if self.minio_service is None or self.duckdb_service is None:
+            raise RuntimeError("XAI request dependencies are not configured")
+
+        ticket_storage_info = self.minio_service.save_ticket_for_xai(
+            al_instance_id=al_instance_id,
+            X=ticket_data,
+            ticket_ref=ticket_ref,
+        )
+
+        job_id = uuid.uuid4()
+        xai_job_payload = {
+            "al_instance_id": al_instance_id,
+            "job_id": job_id,
+            "model_id": model_id,
+            "ticket_ref_or_sha": ticket_storage_info["ticket_sha"],
+            "request_ticket_location": ticket_storage_info["object"],
+            "request_model_location": config.model_location(al_instance_id, model_id),
+            "request_vectorized_tickets_location": config.vectorized_tickets_location(al_instance_id, model_id, config.TEST_SPLIT),
+            "request_raw_tickets_locations": self.minio_service.return_data_names(config.TEST_SPLIT),
+        }
+
+        # Publish the message to RabbitMQ for asynchronous processing
+        if self.rabbitmq_client is not None and os.getenv("USE_RABBITMQ", "0") == "1":
+            task_queue = os.getenv("TASK_QUEUE")
+            if not task_queue:
+                raise RuntimeError("TASK_QUEUE is not configured")
+            publish_payload = {**xai_job_payload, "job_id": str(job_id), "version": os.getenv("MESSAGE_VERSION", "0.1")}
+            await self.rabbitmq_client.publish(queue_name=task_queue, message=publish_payload)
+
+        self.duckdb_service.create_xai_job(**xai_job_payload)
+
+
+        return job_id
+
+    def get_xai_job(self, job_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+        """Retrieve XAI job details by job_id."""
+        if self.duckdb_service is None:
+            raise RuntimeError("DuckDB service is not configured")
+        return self.duckdb_service.get_xai_job(job_id)
+    
+
+    async def update_xai_job(self, data: Dict[str, Any]):
+        """Update XAI job details in the database.
+           This method is called by the worker after processing the XAI request."""
+        if self.duckdb_service is None:
+            raise RuntimeError("DuckDB service is not configured")
+        
+        if not {"job_id", "status"}.issubset(data.keys()):
+            raise ValueError("Invalid data format for updating XAI job")
+        else:
+            job_id = data["job_id"]
+            if isinstance(job_id, str):
+                job_id = uuid.UUID(job_id)
+            
+            if data["status"] == "completed" and ("result_location" not in data or "result_file_names" not in data):
+                raise ValueError("Missing result_location or result_file_names for completed XAI job")
+
+            self.duckdb_service.update_xai_job_status(job_id=job_id,
+                                                      status=data["status"],
+                                                      result_location=data.get("result_location"),
+                                                      result_file_names=data.get("result_file_names"))
+        
+
 
     def _predict_probabilities(self, al_instance_id, texts, ticket, model_id: int = 0):
         """
@@ -150,8 +238,8 @@ class XaiService:
         It adds other features to the texts and then predicts the probabilities.
         """
 
-        model_path = self.storage.model_paths_dict[al_instance_id][model_id]
-        model = joblib.load(model_path)
+        # Load the model
+        model = self.local_artifacts_store.load_model(al_instance_id, model_id)
         
         le = self.storage.dataset_dict[al_instance_id]['le']
         oh = self.storage.dataset_dict[al_instance_id]['oh']

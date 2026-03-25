@@ -20,3 +20,4 @@ faiss-cpu
 transformers
 openai
 duckdb
+aio-pika
