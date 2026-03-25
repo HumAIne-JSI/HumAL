@@ -262,6 +262,9 @@ class MinioService:
                     self._with_prefix(f"vectorized_tickets/{al_instance_id}/"),
                     self._with_prefix(f"labels/{al_instance_id}/"),
                     self._with_prefix(f"xai_tickets/{al_instance_id}/"),
+                ],
+                RESULTS_BUCKET: [
+                    self._with_prefix(f"xai_results/{al_instance_id}/"),
                 ]
         }
 

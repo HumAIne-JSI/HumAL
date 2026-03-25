@@ -11,12 +11,15 @@ import type {
   ApiResponse,
   ConfigModelsResponse,
   ConfigStrategiesResponse,
+  ConfigCapabilitiesResponse,
   TicketsResponse,
   TeamsResponse,
   CategoriesResponse,
   SubcategoriesResponse,
   ExplainLimeResponse,
   NearestTicketResponse,
+  XaiRequestResponse,
+  XaiJobResponse,
   ResolutionProcessRequest,
   ResolutionProcessResponse,
   ResolutionFeedbackRequest,
@@ -41,10 +44,13 @@ export const API_ENDPOINTS = {
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
+  CREATE_XAI_REQUEST: (id: number) => `/xai/${id}/requests`,
+  GET_XAI_JOB: (jobId: string) => `/xai/jobs/${jobId}`,
   
   // Config
   GET_MODELS: '/config/models',
   GET_QUERY_STRATEGIES: '/config/query-strategies',
+  GET_CAPABILITIES: '/config/capabilities',
   
   // Data
   GET_TICKETS: '/data/tickets',
@@ -179,12 +185,30 @@ export const apiService = {
     });
   },
 
+  createXaiRequest: (id: number, payload: { ticket_data: InferenceData; model_id?: number; ticket_ref?: string }) => {
+    const params = new URLSearchParams();
+    if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
+    if (payload.ticket_ref) params.append('ticket_ref', payload.ticket_ref);
+    const endpoint = `${API_ENDPOINTS.CREATE_XAI_REQUEST(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    return apiCall<XaiRequestResponse>(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload.ticket_data),
+    });
+  },
+
+  getXaiJob: (jobId: string) =>
+    apiCall<XaiJobResponse>(API_ENDPOINTS.GET_XAI_JOB(jobId)),
+
   // Config
   getModels: () => 
     apiCall<ConfigModelsResponse>(API_ENDPOINTS.GET_MODELS),
 
   getQueryStrategies: () => 
     apiCall<ConfigStrategiesResponse>(API_ENDPOINTS.GET_QUERY_STRATEGIES),
+
+  getCapabilities: () =>
+    apiCall<ConfigCapabilitiesResponse>(API_ENDPOINTS.GET_CAPABILITIES),
 
   // Data
   getTickets: (indices: string[]) => 

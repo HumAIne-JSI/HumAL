@@ -129,4 +129,4 @@ def get_xai_job(job_id: uuid.UUID):
             "result_location": result_location,
         }
 
-    return {"status": job_info['status'], "result_location": job_info['result_location']}
+    return {"status": job_info['status'], "result": None, "result_location": None}

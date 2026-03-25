@@ -80,6 +80,10 @@ export interface ConfigStrategiesResponse {
   strategies: string[];
 }
 
+export interface ConfigCapabilitiesResponse {
+  capabilities: string[];
+}
+
 // Data Response Types
 export interface Ticket {
   Ref: string;
@@ -121,6 +125,24 @@ export interface NearestTicketResponse {
   nearest_ticket_ref: string | string[];
   nearest_ticket_label: string | string[];
   similarity_score: number | number[];
+}
+
+export interface XaiRequestResponse {
+  job_id: string;
+}
+
+export interface XaiResultPayload {
+  nearest_ticket_ref?: string | string[];
+  nearest_ticket_label?: string | string[];
+  similarity_score?: number | number[];
+  top_words?: [string, number][];
+  error?: string | null;
+}
+
+export interface XaiJobResponse {
+  status: string;
+  result: XaiResultPayload | null;
+  result_location?: string | null;
 }
 
 // Resolution Types

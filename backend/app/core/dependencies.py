@@ -30,7 +30,7 @@ minio_service = MinioService(client=minio_client)
 if os.getenv("USE_RABBITMQ", "0") == "1":
     rabbitmq_client = RabbitMQClient(url=os.getenv("RABBIT_URL", ""))
 al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store, minio_service)
-inference_service = InferenceService(storage, local_artifacts_store, minio_service)
+inference_service = InferenceService(storage, local_artifacts_store)
 config_service = ConfigService()
 data_service = DataService(duckdb_service=duckdb_persistence_service)
 xai_service = XaiService(
@@ -39,7 +39,7 @@ xai_service = XaiService(
     local_artifacts_store,
     minio_service=minio_service,
     duckdb_service=duckdb_persistence_service,
-    rabbitmq_client=rabbitmq_client,
+    rabbitmq_client=rabbitmq_client if os.getenv("USE_RABBITMQ", "0") == "1" else None
 )
 startup_service = StartupService(
     duckdb_service=duckdb_persistence_service,
