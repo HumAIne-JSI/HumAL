@@ -4,13 +4,10 @@ import pandas as pd
 import joblib
 from app.services.data_preprocessing import inference
 from sentence_transformers import SentenceTransformer
-<<<<<<< HEAD
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
-=======
 from typing import Optional
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.persistence.minio_storage import MinioService
->>>>>>> origin/main
 
 class InferenceService:
     def __init__(
@@ -19,16 +16,12 @@ class InferenceService:
             local_artifacts_store: Optional[LocalArtifactsStore] = None
             ):
         self.storage = storage
-<<<<<<< HEAD
         self.sentence_model = SentenceTransformer(
             SENTENCE_TRANSFORMERS_MODEL,
             cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR,
             local_files_only=SENTENCE_TRANSFORMERS_LOCAL_ONLY
         )
-=======
-        self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.local_artifacts_store = local_artifacts_store
->>>>>>> origin/main
 
     # Logic for inference
     def infer(self, al_instance_id: int, X: Data, model_id: int = 0):

@@ -9,9 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
 from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
-<<<<<<< HEAD
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
-=======
 from typing import Optional, Dict, Any
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.persistence.duckdb.service import DuckDbPersistenceService
@@ -20,7 +18,6 @@ from app.core.rabbitmq_client import RabbitMQClient
 import uuid
 import app.config.config as config
 import os
->>>>>>> origin/main
 
 class XaiService:
     def __init__(
@@ -34,19 +31,15 @@ class XaiService:
             ):
         self.storage = storage
         self.inference_service = inference_service
-<<<<<<< HEAD
         self.sentence_model = SentenceTransformer(
             SENTENCE_TRANSFORMERS_MODEL,
             cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR,
             local_files_only=SENTENCE_TRANSFORMERS_LOCAL_ONLY
         )
-=======
-        self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.local_artifacts_store = local_artifacts_store
         self.minio_service = minio_service
         self.duckdb_service = duckdb_service
         self.rabbitmq_client = rabbitmq_client
->>>>>>> origin/main
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """

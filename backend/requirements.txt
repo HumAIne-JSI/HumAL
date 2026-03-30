@@ -17,12 +17,9 @@ lime
 python-dotenv
 torch
 transformers
-<<<<<<< HEAD
-=======
 openai
 duckdb
 aio-pika
 requests
 pyarrow
 openpyxl
->>>>>>> origin/main
