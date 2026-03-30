@@ -177,6 +177,7 @@ backend/data_and_model_export
 /backend/storage/
 
 # FRONTEND
+frontend/.vite/
 # Logs
 logs
 *.log
