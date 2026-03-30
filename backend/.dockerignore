@@ -3,16 +3,20 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
+.pytest_cache/
 
 # Local envs
 .venv/
 venv/
-al_api_venv/
+.env/
+.env
+.env.example
 
 # Caches
-models/
-embeddings_cache/
+/models/
+/embeddings_cache/
 *.npz
+/sentence_transformers_cache/
 
 # Tests (optional)
 tests/
@@ -21,3 +25,9 @@ tests/
 .DS_Store
 .vscode/
 .idea/
+
+# Other
+/benchmarking_suite/
+/data_and_model_export/
+/storage/
+/data/

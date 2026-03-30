@@ -14,13 +14,7 @@ This guide will help you understand and use all features of the platform effecti
 - HumAL installed and running (see [README.md](../README.md) for installation)
 - Backend API running at `http://localhost:8000`
 - Frontend application running at `http://localhost:5173`
-- Sample data loaded in `backend/data/`
-
-### First Time Setup
-1. Ensure the backend and frontend are running
-2. Navigate to `http://localhost:5173` in your browser
-3. You should see the HumAL landing page
-
+- Data loaded in `backend/data/`
 ---
 
 ## Application Overview
@@ -60,27 +54,26 @@ HumAL consists of five main pages:
 
 1. **Model Selection**
    - Choose from available models:
-     - **Logistic Regression**: Fast, interpretable, good for text classification
-     - **Random Forest**: Robust, handles non-linear patterns
-     - **SVM**: Effective for high-dimensional data
-     - **Gradient Boosting**: High accuracy, slower training
-     - **Neural Network**: Best for large datasets
+     - Logistic Regression
+     - Random Forest
+     - SVM
 
 2. **Query Strategy**
-   - **Uncertainty Sampling**: Selects samples the model is most uncertain about (recommended)
-   - **Margin Sampling**: Selects samples with smallest margin between top predictions
-   - **Entropy Sampling**: Selects samples with highest prediction entropy
-   - **Random Sampling**: Random selection (baseline)
+- **Uncertainty Sampling Least Confidence**: Select instances with lowest confidence
+- **Uncertainty Sampling Margin Sampling**: Select instances with smallest margin between top-2 classes
+- **Uncertainty Sampling Entropy**: Select instances with highest prediction entropy
+- **Random Sampling**: Baseline random selection
+- **Query by Committee**: Ensemble disagreement
 
 **Step 2: Create Instance**
 
-Click "Create Active Learning Instance" button. You'll receive an instance ID (e.g., Instance #1).
+Click "Create Active Learning Instance" button. You'll receive an instance ID.
 
 ---
 
 ### 3. Dispatch Labeling Page (`/dispatch-labeling`)
 
-**Purpose**: Interactive interface for labeling tickets with team assignments.
+**Purpose**: Interactive interface for labeling tickets with dispatch teams.
 
 #### Workflow
 
@@ -116,20 +109,65 @@ Each ticket card shows:
 **Step 8: Iterate**
 
 Repeat steps 2-6 until:
-- Accuracy reaches your target (e.g., 90%)
+- Accuracy reaches your target
 - Unlabeled pool is exhausted
 - Model performance plateaus
 
 ---
 
+<<<<<<< HEAD
 ### 4. Inference Page (`/inference`)
+=======
+### 4. Ticket Resolution Page (`/ticket-resolution`)
+
+**Purpose**: Generate automated first-reply responses for IT support tickets using an LLM.
+
+#### How It Works
+
+The system uses **Retrieval-Augmented Generation (RAG)**:
+1. Finds similar tickets from knowledge base
+2. Retrieves their resolutions
+3. Uses GPT to generate contextually appropriate response
+
+#### Using the Resolution Generator
+
+**Step 1: Enter Ticket Information**
+
+1. Ticket Category
+2. Ticket Subcategory
+3. Ticket Title
+4. Ticket Description
+
+**Step 2: Generate Resolution**
+
+Click "Generate Resolution" button.
+
+**Step 3: Review Generated Response**
+
+The system displays:
+
+1. **Generated Resolution**
+
+2. **Similar Tickets**
+   - Top 3 similar past tickets
+   - Their resolutions
+   - Similarity scores
+   - Useful for verification
+
+**Step 4: Evaluate and Edit**
+
+1. Edit if necessary before sending to user
+
+---
+
+### 5. Inference Page (`/inference`)
+>>>>>>> origin/main
 
 **Purpose**: Run predictions on new, unlabeled tickets using trained models.
 
 #### Prerequisites
 
 - At least one trained active learning instance
-- Test tickets ready for classification
 
 #### Running Inference
 
@@ -154,7 +192,6 @@ The system shows:
 
 1. **Predicted Team**
    - Most likely team assignment
-   - Color-coded by confidence
 
 2. **LIME Explanation**
    - Visual representation

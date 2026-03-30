@@ -9,7 +9,15 @@ ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
     SENTENCE_TRANSFORMERS_CACHE_DIR=/app/sentence_transformers_cache \
     SENTENCE_TRANSFORMERS_LOCAL_ONLY=1 \
     HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
+    TRANSFORMERS_OFFLINE=1 \
+    MINIO_DATA_BUCKET=smart-finance-data \
+    MINIO_MODELS_BUCKET=smart-finance-models \
+    MINIO_RESULTS_BUCKET=smart-finance-results \
+    MINIO_BASE_URL=https://humaine-minio-api.euprojects.net \
+    RABBIT_URL=amqp://guest:guest@localhost:5672 \
+    TASK_QUEUE=xai_jobs \
+    RESULT_QUEUE=xai_results
+    
 
 # Install Python dependencies first for better Docker layer caching
 COPY requirements.txt /app/requirements.txt

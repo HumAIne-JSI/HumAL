@@ -130,6 +130,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Copilot
+.copilotignore
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -170,8 +173,8 @@ al_api_venv/
 backend/app/services/resolution_task.py
 backend/app/services/resolution_task_new.py
 backend/sentence_transformers_cache/
-backend/data_and_model_export/
-backend/storage/
+backend/data_and_model_export
+/backend/storage/
 
 # FRONTEND
 # Logs
