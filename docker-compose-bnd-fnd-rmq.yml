@@ -1,0 +1,70 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - humal-network
+
+  xai-simulator:
+    image: rokklancic/xai-simulator:dev-0.2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
+      - TASK_QUEUE=xai_jobs
+      - RESULT_QUEUE=xai_results
+      - MESSAGE_VERSION=0.1
+      - SIMULATOR_DELAY_SEC=0.5
+    restart: on-failure
+    networks:
+      - humal-network
+
+  backend:
+    image: rokklancic/humal-backend:dev-0.2
+    ports:
+      - "8000:8000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      xai-simulator:
+        condition: service_started
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MINIO_PREFIX=DEV_TEST
+      - MINIO_USERNAME=${MINIO_USERNAME}
+      - MINIO_PASSWORD=${MINIO_PASSWORD}
+      - DUCKDB_PATH=storage/db/humal.duckdb
+      - RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
+      - TASK_QUEUE=xai_jobs
+      - RESULT_QUEUE=xai_results
+      - USE_RABBITMQ=1
+      - MESSAGE_VERSION=0.1
+    networks:
+      - humal-network
+
+  frontend:
+    image: rokklancic/humal-frontend:dev-0.2
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      xai-simulator:
+        condition: service_started
+    networks:
+      - humal-network
+
+networks:
+  humal-network:
+    driver: bridge

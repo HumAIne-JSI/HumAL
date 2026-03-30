@@ -178,7 +178,7 @@ class XaiService:
         )
 
         job_id = uuid.uuid4()
-        xai_job_payload = {
+        xai_job_payload_duckdb = {
             "al_instance_id": al_instance_id,
             "job_id": job_id,
             "model_id": model_id,
@@ -189,15 +189,25 @@ class XaiService:
             "request_raw_tickets_locations": self.minio_service.return_data_names(config.TEST_SPLIT),
         }
 
+        # Format the payload for RabbitMQ (artifacts nesting; job_id to string; add version)
+        artifact_keys = ["request_ticket_location", "request_model_location", "request_vectorized_tickets_location", "request_raw_tickets_locations"]
+        xai_job_payload = xai_job_payload_duckdb.copy()
+        xai_job_payload["job_id"] = str(job_id)
+        xai_job_payload["artifacts"] = {key: xai_job_payload_duckdb[key] for key in artifact_keys}
+        for artifact_key in artifact_keys:
+            del xai_job_payload[artifact_key]
+        xai_job_payload["version"] = os.getenv("MESSAGE_VERSION", "0.1")
+
+
         # Publish the message to RabbitMQ for asynchronous processing
         if self.rabbitmq_client is not None and os.getenv("USE_RABBITMQ", "0") == "1":
             task_queue = os.getenv("TASK_QUEUE")
             if not task_queue:
                 raise RuntimeError("TASK_QUEUE is not configured")
-            publish_payload = {**xai_job_payload, "job_id": str(job_id), "version": os.getenv("MESSAGE_VERSION", "0.1")}
+            publish_payload = {**xai_job_payload}
             await self.rabbitmq_client.publish(queue_name=task_queue, message=publish_payload)
 
-        self.duckdb_service.create_xai_job(**xai_job_payload)
+        self.duckdb_service.create_xai_job(**xai_job_payload_duckdb)
 
 
         return job_id

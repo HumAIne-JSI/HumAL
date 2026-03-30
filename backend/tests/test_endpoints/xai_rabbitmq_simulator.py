@@ -80,6 +80,7 @@ async def main() -> None:
                     return
 
                 print(f"[simulator] Received task for job_id={payload.get('job_id')}")
+                print(f"[simulator] Task payload: {payload}")
 
                 await asyncio.sleep(SIMULATOR_DELAY_SEC)
 

@@ -21,3 +21,6 @@ transformers
 openai
 duckdb
 aio-pika
+requests
+pyarrow
+openpyxl
