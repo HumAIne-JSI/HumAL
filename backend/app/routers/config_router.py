@@ -24,3 +24,14 @@ def get_available_query_strategies():
         Dictionary containing query strategy names
     """
     return config_service.get_available_query_strategies()
+
+
+@router.get("/capabilities")
+def get_available_capabilities():
+    """
+    Get all available capabilities.
+    
+    Returns:
+        Dictionary containing capability names
+    """
+    return config_service.get_available_capabilities()

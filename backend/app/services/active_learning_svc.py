@@ -3,17 +3,33 @@ from skactiveml.utils import MISSING_LABEL
 import numpy as np
 import joblib
 import os
-from app.data_models.active_learning_dm import NewInstance, LabelRequest
-from app.services.data_preprocessing import dispatch_team
-from app.config.config import model_dict, qs_dict
+from typing import Optional
 import pandas as pd
 from sklearn.metrics import f1_score
 from scipy.stats import entropy
+from app.config.config import model_dict, qs_dict
 from app.core.storage import ActiveLearningStorage
+from app.data_models.active_learning_dm import NewInstance, LabelRequest
+from app.persistence.duckdb import DuckDbPersistenceService
+from app.persistence.local_artifacts import LocalArtifactsStore
+from app.services.data_preprocessing import dispatch_team
+from app.config.config import SYSTEM_USER_ID
+from app.persistence.minio_storage import MinioService
 
 class ActiveLearningService:
-    def __init__(self, storage: ActiveLearningStorage):
+    def __init__(
+        self,
+        storage: ActiveLearningStorage,
+        duckdb_service: Optional[DuckDbPersistenceService] = None,
+        local_artifacts_store: Optional[LocalArtifactsStore] = None,
+        minio_service: Optional[MinioService] = None
+    ):
         self.storage = storage
+        self.duckdb_service = duckdb_service
+        self.local_artifacts_store = local_artifacts_store
+        self.minio_service = minio_service
+        if self.duckdb_service is not None and self.local_artifacts_store is not None:
+            self._load_from_persistence()
 
     # Logic for creating a new active learning instance
     def create_instance(self, new_instance: NewInstance):
@@ -33,8 +49,8 @@ class ActiveLearningService:
         }
         
         # Preprocess the data (indices stay as Ref)
-        X_train, y_train, le, oh = dispatch_team(new_instance.train_data_path, test_set=False, classes=new_instance.class_list)
-        X_test, y_test, _, _ = dispatch_team(new_instance.test_data_path, test_set=True, le=le, oh=oh)
+        X_train, y_train, le, oh = dispatch_team(duckdb_service=self.duckdb_service, test_set=False, classes=new_instance.class_list)
+        X_test, y_test, _, _ = dispatch_team(duckdb_service=self.duckdb_service, test_set=True, le=le, oh=oh)
         
         # Get the index of np.nan in the LabelEncoder's classes
         empty = le.transform([np.nan])[0]
@@ -52,8 +68,180 @@ class ActiveLearningService:
             'train_data_path': new_instance.train_data_path,
             'test_data_path': new_instance.test_data_path
         }
-        
+
+        # Save the dictionary elements to persistence
+        if self.duckdb_service is not None and self.local_artifacts_store is not None:
+            al_instance_data = self.storage.al_instances_dict[instance_id]
+            al_instance_data["train_data_path"] = new_instance.train_data_path
+            al_instance_data["test_data_path"] = new_instance.test_data_path
+
+            self.duckdb_service.save_al_instance(
+                al_instance_id=instance_id,
+                instance_data = al_instance_data
+            )
+
+            self.local_artifacts_store.save_encoders(
+                al_instance_id=instance_id,
+                label_encoder=le,
+                one_hot_encoder=oh
+            )
+
+            self.local_artifacts_store.save_vectorized_dataset(
+                al_instance_id=instance_id,
+                X=X_train,
+                split="train"
+            )
+            self.local_artifacts_store.save_vectorized_dataset(
+                al_instance_id=instance_id,
+                X=X_test,
+                split="test"
+            )
+
+        # Save the datasets, encoders and labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_label_encoder(
+                al_instance_id=instance_id,
+                encoder=le
+            )
+
+            self.minio_service.save_one_hot_encoder(
+                al_instance_id=instance_id,
+                encoder=oh
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=instance_id,
+                tickets_version=0,
+                split="train",
+                df=X_train
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=instance_id,
+                tickets_version=0,
+                df=X_test,
+                split="test"
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=instance_id,
+                labels_version=0,
+                split="train",
+                df=y_train
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=instance_id,
+                labels_version=0,
+                split="test",
+                df=y_test
+            )
+
+
         return instance_id
+
+    def _load_from_persistence(self) -> None:
+        instances = self.duckdb_service.get_all_instances()
+        if not instances:
+            return
+
+        for instance_id, instance_data in instances.items():
+            model_name = instance_data.get("model_name")
+            qs_name = instance_data.get("qs")
+            classes = instance_data.get("classes")
+            train_data_path = instance_data.get("train_data_path")
+            test_data_path = instance_data.get("test_data_path")
+
+            model = model_dict.get(model_name)
+            if model is None or qs_name not in qs_dict:
+                print(f"Warning: Skipping instance {instance_id} - invalid model '{model_name}' or query strategy '{qs_name}'")
+                continue
+
+            if train_data_path is None or test_data_path is None:
+                print(f"Warning: Skipping instance {instance_id} - missing train or test data path")
+                continue
+
+            try:
+                le, oh = self.local_artifacts_store.load_encoders(instance_id)
+                X_train = self.local_artifacts_store.load_vectorized_dataset(
+                    instance_id,
+                    split="train",
+                )
+                X_test = self.local_artifacts_store.load_vectorized_dataset(
+                    instance_id,
+                    split="test",
+                )
+            except FileNotFoundError:
+                print(f"Warning: Skipping instance {instance_id} - missing encoders or vectorized datasets")
+                continue
+
+            y_train = self.duckdb_service.load_labels(instance_id, split="train")
+            y_train = self._align_labels(y_train, X_train.index, fill_missing=MISSING_LABEL)
+            y_train = self._encode_labels(y_train, le)
+
+            y_test = self.duckdb_service.load_labels(instance_id, split="test")
+            y_test = self._align_labels(y_test, X_test.index, fill_missing=np.nan)
+            #y_test = self._encode_labels(y_test, le)
+
+            self.storage.al_instances_dict[instance_id] = {
+                "model": model,
+                "model_name": model_name,
+                "qs": qs_name,
+                "classes": classes,
+            }
+
+            self.storage.dataset_dict[instance_id] = {
+                "X_train": X_train,
+                "y_train": y_train,
+                "X_test": X_test,
+                "y_test": y_test,
+                "le": le,
+                "oh": oh,
+                "train_data_path": train_data_path,
+                "test_data_path": test_data_path
+            }
+
+            metrics = self.duckdb_service.load_all_metrics(instance_id)
+            self.storage.results_dict[instance_id] = {
+                "mean_entropies": [m["mean_entropy"] for m in metrics],
+                "f1_scores": [m["f1_score"] for m in metrics],
+                "num_labeled": [m["num_labeled"] for m in metrics],
+            }
+
+            model_paths = self.duckdb_service.load_model_paths(instance_id)
+            self.storage.model_paths_dict[instance_id] = model_paths
+
+    def _align_labels(
+        self,
+        labels: pd.Series,
+        index: pd.Index,
+        *,
+        fill_missing: object,
+    ) -> pd.Series:
+        if labels is None or labels.empty:
+            return pd.Series([fill_missing] * len(index), index=index)
+
+        return labels.reindex(index).fillna(fill_missing)
+    
+    def _encode_labels(self, labels: pd.Series, label_encoder) -> pd.Series:
+        """Encode labels using label encoder, preserving NaN as NaN."""
+        if labels is None or labels.empty:
+            return labels
+        
+        encoded = labels.copy()
+        encoded = label_encoder.transform(encoded)
+
+        encoded = pd.Series(encoded, index=labels.index)
+
+        # Get the index of np.nan in the LabelEncoder's classes
+        empty = label_encoder.transform([np.nan])[0]
+        # Replace missing values with MISSING_LABEL in y_train (indexed by Ref)
+        encoded = encoded.replace(empty, MISSING_LABEL)
+        
+        # encoded = labels.copy()
+        # mask = labels.notna()
+        # encoded[mask] = labels[mask].apply(lambda x: label_encoder.transform([x])[0])
+        return encoded
 
     # Logic for getting the next instances
     def get_next_instances(self, al_instance_id: int, batch_size: int = 1):        
@@ -90,10 +278,10 @@ class ActiveLearningService:
     # Logic for labeling instances
     def label_instance(self, al_instance_id: int, label_request: LabelRequest):
         # get the data
-        X = self.storage.dataset_dict[al_instance_id]['X_train']
+        # X = self.storage.dataset_dict[al_instance_id]['X_train']
         y = self.storage.dataset_dict[al_instance_id]['y_train']
-        X_test = self.storage.dataset_dict[al_instance_id]['X_test']
-        y_test = self.storage.dataset_dict[al_instance_id]['y_test']
+        # X_test = self.storage.dataset_dict[al_instance_id]['X_test']
+        # y_test = self.storage.dataset_dict[al_instance_id]['y_test']
         
         # Get the query indices and labels
         query_idx = label_request.query_idx
@@ -103,16 +291,33 @@ class ActiveLearningService:
         
         le = self.storage.dataset_dict[al_instance_id]['le']
         # convert the labels to integers
-        labels = le.transform(labels)
+        labels_encoded = le.transform(labels)
         
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
         
-        instance = self.storage.al_instances_dict[al_instance_id]
+        #instance = self.storage.al_instances_dict[al_instance_id]
         
         # update the labels
         # use Ref-based labels directly against index
-        y.loc[query_idx] = labels
+        y.loc[query_idx] = labels_encoded
+
+        # Save the labels to persistence
+        self.duckdb_service.save_labels(
+            al_instance_id=al_instance_id,
+            user_id=SYSTEM_USER_ID,  # System user ID for now
+            labels_dict=dict(zip(query_idx, labels)),
+            split="train"
+        )
+
+        # Save the labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=0,
+                split="train",
+                df=y
+            )
 
     # Logic for updating the model
     def update_model(self, al_instance_id: int):
@@ -130,17 +335,32 @@ class ActiveLearningService:
         # Train the model
         clf.fit(X, y)
         
-        # create the model directory if it doesn't exist
-        os.makedirs(f'models/{al_instance_id}', exist_ok=True)
-        
         # save the model (the clf object)
-        model_path = f'models/{al_instance_id}/0.pkl'
-        joblib.dump(clf, model_path)
+        model_path = self.local_artifacts_store.save_model(
+            al_instance_id=al_instance_id, 
+            model_id=0, 
+            model=clf)
+        
         
         # save the model path
         if al_instance_id not in self.storage.model_paths_dict:
             self.storage.model_paths_dict[al_instance_id] = {}
         self.storage.model_paths_dict[al_instance_id][0] = model_path
+
+        # Save the model path to persistence
+        self.duckdb_service.save_model_path(
+            al_instance_id=al_instance_id,
+            model_id=0,
+            path_to_model=model_path
+        )
+
+        # Save the model to MinIO (original model, not the clf wrapper (easier integration with outside services))
+        if self.minio_service is not None:
+            self.minio_service.save_model(
+                al_instance_id=al_instance_id,
+                model_version=0,
+                model=clf.estimator_
+            )
 
 
     def calculate_metrics(self, al_instance_id: int):
@@ -153,8 +373,7 @@ class ActiveLearningService:
         le = self.storage.dataset_dict[al_instance_id]['le']
 
         # Get the model
-        model_path = self.storage.model_paths_dict[al_instance_id][0]
-        clf = joblib.load(model_path)
+        clf = self.local_artifacts_store.load_model(al_instance_id, 0)
 
         # calculate the entropy of the model
         mean_entropy = np.mean(entropy(clf.predict_proba(X_test), axis=1))
@@ -187,6 +406,13 @@ class ActiveLearningService:
         f1 = f1_score(y_test, le.inverse_transform(predictions), average='macro')
         self.storage.results_dict[al_instance_id]["f1_scores"].append(f1)
 
+        # Save the metrics to persistence
+        self.duckdb_service.save_metrics(
+            al_instance_id=al_instance_id,
+            f1_score=f1,
+            mean_entropy=mean_entropy,
+            num_labeled=num_labeled
+        )
 
     # Logic for saving the model
     def save_model(self, al_instance_id: int):
@@ -194,15 +420,61 @@ class ActiveLearningService:
             self.storage.model_paths_dict[al_instance_id] = {}
 
         # Get the current model
-        current_model = joblib.load(self.storage.model_paths_dict[al_instance_id][0])
+        current_model = self.local_artifacts_store.load_model(al_instance_id, 0)
         
         # Save the model
         model_id = max(self.storage.model_paths_dict[al_instance_id].keys()) + 1
-        model_path = f'models/{al_instance_id}/{model_id}.pkl'
-        joblib.dump(current_model, model_path)
+        model_path = self.local_artifacts_store.save_model(
+            al_instance_id=al_instance_id, 
+            model_id=model_id, 
+            model=current_model
+            )
         
         # Save the model path
         self.storage.model_paths_dict[al_instance_id][model_id] = model_path
+
+        # Save the model path to persistence
+        self.duckdb_service.save_model_path(
+            al_instance_id=al_instance_id,
+            model_id=model_id,
+            path_to_model=model_path
+        )
+
+        # Save the model, vectorized datasets and labels to MinIO
+        if self.minio_service is not None:
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=al_instance_id,
+                tickets_version=model_id,
+                split="train",
+                df=self.storage.dataset_dict[al_instance_id]['X_train']
+            )
+
+            self.minio_service.save_vectorized_tickets(
+                al_instance_id=al_instance_id,
+                tickets_version=model_id,
+                df=self.storage.dataset_dict[al_instance_id]['X_test'],
+                split="test"
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=model_id,
+                split="train",
+                df=self.storage.dataset_dict[al_instance_id]['y_train']
+            )
+
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=model_id,
+                split="test",
+                df=self.storage.dataset_dict[al_instance_id]['y_test']
+            )
+
+            self.minio_service.save_model(
+                al_instance_id=al_instance_id,
+                model_version=model_id,
+                model=current_model
+            )
 
         return model_id
     
@@ -213,9 +485,14 @@ class ActiveLearningService:
         del self.storage.dataset_dict[al_instance_id]
         del self.storage.results_dict[al_instance_id]
         
-        # delete the saved models
-        for model_id in self.storage.model_paths_dict[al_instance_id].keys():
-            os.remove(self.storage.model_paths_dict[al_instance_id][model_id])
-        
         # delete the model dictionary
         del self.storage.model_paths_dict[al_instance_id]
+
+        # Delete the local artifacts
+        self.local_artifacts_store.delete_instance_artifacts(al_instance_id)
+
+        # Delete the instance from persistence
+        self.duckdb_service.delete_instance(al_instance_id)
+
+        # Delete the instance's objects from MinIO        if self.minio_service is not None:
+        self.minio_service.delete_instance_objects(al_instance_id)

@@ -4,11 +4,19 @@ import pandas as pd
 import joblib
 from app.services.data_preprocessing import inference
 from sentence_transformers import SentenceTransformer
+from typing import Optional
+from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence.minio_storage import MinioService
 
 class InferenceService:
-    def __init__(self, storage: ActiveLearningStorage):
+    def __init__(
+            self, 
+            storage: ActiveLearningStorage,
+            local_artifacts_store: Optional[LocalArtifactsStore] = None
+            ):
         self.storage = storage
         self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.local_artifacts_store = local_artifacts_store
 
     # Logic for inference
     def infer(self, al_instance_id: int, X: Data, model_id: int = 0):
@@ -27,8 +35,8 @@ class InferenceService:
         )
         
         # Load the model
-        model_path = self.storage.model_paths_dict[al_instance_id][model_id]
-        model = joblib.load(model_path)
+        model = self.local_artifacts_store.load_model(al_instance_id, model_id)
+
         # Load the label encoder
         le = self.storage.dataset_dict[al_instance_id]['le']
 

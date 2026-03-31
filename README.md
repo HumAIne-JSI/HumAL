@@ -3,23 +3,8 @@
 HumAIne Active Learning Platform - An integrated system for human-in-the-loop machine learning workflows, featuring automated ticket classification, resolution generation, and active learning capabilities.
 
 ## Architecture
-```mermaid
-  graph TD;
-    Pipeline --> Data_Manager
-    Pipeline --> Model_Manager
-    Pipeline --> Oracle
-    Pipeline --> Selection_Strategy
+![Architecture Diagram](docs/images/smart_ticketing_architecture.svg)
 
-    Model_Manager --> Train
-    Model_Manager --> Predict
-
-    Train --> Retrain
-    Train --> Incremental
-    Train --> Finetuning
-
-    Oracle --> Benchmark
-    Oracle --> Human_User
-```
 
 ## Features
 
@@ -37,18 +22,12 @@ HumAIne Active Learning Platform - An integrated system for human-in-the-loop ma
 - **npm** (for frontend package management)
 - **CUDA Toolkit** (optional, for GPU acceleration - will be auto-detected)
 
-## Quick Start
+## Quick Start (local)
 
 ### 1. Install uv (Optional but Recommended)
 
-**Windows:**
 ```bash
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**Unix/Linux/macOS:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ### 2. Create and Activate Virtual Environment
@@ -60,11 +39,8 @@ uv venv al_api_venv
 # Or with Python's built-in venv
 python -m venv al_api_venv
 
-# Activate (Windows)
+# Activate
 al_api_venv\Scripts\activate
-
-# Activate (Unix/Linux/macOS)
-source al_api_venv/bin/activate
 ```
 
 ### 3. Run Automated Installation
@@ -90,13 +66,8 @@ The installer will:
 
 ```bash
 # Create directories (if they don't exist)
-
-# Windows
 mkdir backend\data 
-mkddir backend\models
-
-# Unix/Linux/macOS
-mkdir -p backend/data backend/models
+mkdir backend\models
 ```
 
 Place the following in `backend/data/`:
@@ -109,14 +80,10 @@ Place pre-trained models in `backend/models/`:
 
 ### 5. Configure Environment
 
- ```bash
- # Copy .env.example to .env (if .env.example exists)
- # Unix/Linux/macOS
- cp .env.example .env
- 
- # Windows PowerShell
- copy .env.example .env
- ```
+```bash
+# Copy .env.example to .env (if .env.example exists)
+copy .env.example .env
+```
  
  Edit `.env` and add your OpenAI API key:
  ```
@@ -125,25 +92,44 @@ Place pre-trained models in `backend/models/`:
 
 ### 6. Run the Application
 
-**Windows:**
 ```bash
 .\start-dev.bat
 ```
 
-**Unix/Linux/macOS:**
-```bash
-chmod +x start-dev.sh  # First time only
-./start-dev.sh
-```
-
-## Access Points
+### Access Points
 
 After starting both services:
 
 - **Frontend Application**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
-- **Interactive API Docs**: http://localhost:8000/redoc
+
+## Quick Start (Docker)
+
+### 1. Configure Environment
+
+```bash
+copy .env.example .env
+```
+
+Edit `.env` and add your OpenAI API key:
+```
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+### 2. Run with Docker
+
+```bash
+docker-compose up
+```
+
+
+### Access Points
+
+The services will be available at:
+- **Frontend Application**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
 
 ## Available Pages
 
@@ -155,7 +141,11 @@ After starting both services:
 
 ## Documentation
 
-For manual installation, troubleshooting, development features, and advanced configuration, see [SETUP.md](SETUP.md).
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, components, data flow, and ML pipeline details
+- **[API.md](docs/API.md)** - REST API endpoint reference with request/response examples
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)** - Step-by-step guide for using all platform features
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, workflows, and contribution guidelines
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Docker deployment and production setup instructions
 
 ## Project Structure
 
@@ -164,7 +154,8 @@ HumAL/
 ├── backend/              
 │   ├── app/              # FastAPI application
 │   ├── data/             # CSV datasets
-│   └── models/           # Saved models
+│   ├── models/           # Saved models
+│   └── tests/            # Backend tests
 ├── frontend/             # React + Vite frontend
 ├── start-dev.bat         # Windows startup script
 ├── start-dev.sh          # Unix/Linux startup script
@@ -172,7 +163,3 @@ HumAL/
 ├── install.py            # Automated dependency installer
 └── SETUP.md              # Detailed setup guide
 ```
-
-## License
-
-See [LICENSE](LICENSE) for details.

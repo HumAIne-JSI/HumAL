@@ -14,13 +14,7 @@ This guide will help you understand and use all features of the platform effecti
 - HumAL installed and running (see [README.md](../README.md) for installation)
 - Backend API running at `http://localhost:8000`
 - Frontend application running at `http://localhost:5173`
-- Sample data loaded in `backend/data/`
-
-### First Time Setup
-1. Ensure the backend and frontend are running
-2. Navigate to `http://localhost:5173` in your browser
-3. You should see the HumAL landing page
-
+- Data loaded in `backend/data/`
 ---
 
 ## Application Overview
@@ -61,27 +55,26 @@ HumAL consists of five main pages:
 
 1. **Model Selection**
    - Choose from available models:
-     - **Logistic Regression**: Fast, interpretable, good for text classification
-     - **Random Forest**: Robust, handles non-linear patterns
-     - **SVM**: Effective for high-dimensional data
-     - **Gradient Boosting**: High accuracy, slower training
-     - **Neural Network**: Best for large datasets
+     - Logistic Regression
+     - Random Forest
+     - SVM
 
 2. **Query Strategy**
-   - **Uncertainty Sampling**: Selects samples the model is most uncertain about (recommended)
-   - **Margin Sampling**: Selects samples with smallest margin between top predictions
-   - **Entropy Sampling**: Selects samples with highest prediction entropy
-   - **Random Sampling**: Random selection (baseline)
+- **Uncertainty Sampling Least Confidence**: Select instances with lowest confidence
+- **Uncertainty Sampling Margin Sampling**: Select instances with smallest margin between top-2 classes
+- **Uncertainty Sampling Entropy**: Select instances with highest prediction entropy
+- **Random Sampling**: Baseline random selection
+- **Query by Committee**: Ensemble disagreement
 
 **Step 2: Create Instance**
 
-Click "Create Active Learning Instance" button. You'll receive an instance ID (e.g., Instance #1).
+Click "Create Active Learning Instance" button. You'll receive an instance ID.
 
 ---
 
 ### 3. Dispatch Labeling Page (`/dispatch-labeling`)
 
-**Purpose**: Interactive interface for labeling tickets with team assignments.
+**Purpose**: Interactive interface for labeling tickets with dispatch teams.
 
 #### Workflow
 
@@ -117,7 +110,7 @@ Each ticket card shows:
 **Step 8: Iterate**
 
 Repeat steps 2-6 until:
-- Accuracy reaches your target (e.g., 90%)
+- Accuracy reaches your target
 - Unlabeled pool is exhausted
 - Model performance plateaus
 
@@ -161,13 +154,7 @@ The system displays:
 
 **Step 4: Evaluate and Edit**
 
-1. Read the generated resolution carefully
-2. Check for:
-   - Technical accuracy
-   - Completeness
-   - Appropriate tone
-   - Relevant troubleshooting steps
-3. Edit if necessary before sending to user
+1. Edit if necessary before sending to user
 
 ---
 
@@ -178,7 +165,6 @@ The system displays:
 #### Prerequisites
 
 - At least one trained active learning instance
-- Test tickets ready for classification
 
 #### Running Inference
 
@@ -203,7 +189,6 @@ The system shows:
 
 1. **Predicted Team**
    - Most likely team assignment
-   - Color-coded by confidence
 
 2. **LIME Explanation**
    - Visual representation

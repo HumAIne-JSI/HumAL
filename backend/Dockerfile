@@ -15,7 +15,19 @@ ENV TEAM_CLASSIFIER_PATH=/app/models/perfect_team_classifier \
     SENTENCE_MODEL=all-MiniLM-L6-v2 \
     EMBEDDING_CACHE_DIR=embeddings_cache \
     DEFAULT_TOP_K=3 \
+<<<<<<< HEAD
     DISABLE_EMBEDDING_CACHE=0
+=======
+    DISABLE_EMBEDDING_CACHE=0 \
+    MINIO_DATA_BUCKET=smart-finance-data \
+    MINIO_MODELS_BUCKET=smart-finance-models \
+    MINIO_RESULTS_BUCKET=smart-finance-results \
+    MINIO_BASE_URL=https://humaine-minio-api.euprojects.net \
+    RABBIT_URL=amqp://guest:guest@localhost:5672 \
+    TASK_QUEUE=xai_jobs \
+    RESULT_QUEUE=xai_results
+    
+>>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba
 
 # Install Python dependencies first for better Docker layer caching
 COPY requirements.txt /app/requirements.txt

@@ -1,60 +1,66 @@
 import pandas as pd
 import numpy as np
-from app.core.storage import ActiveLearningStorage
+from app.persistence.duckdb.service import DuckDbPersistenceService
+
+from app.config.config import TRAIN_SPLIT, TEAM_NAME, GROUND_TRUTH_AL_INSTANCE_ID
 
 class DataService:
-    def __init__(self, storage=ActiveLearningStorage):
-        self.storage = storage
+    def __init__(
+            self, 
+            duckdb_service: DuckDbPersistenceService = None
+            ):
+        self.duckdb_service = duckdb_service or DuckDbPersistenceService()
 
-    def get_tickets(self, al_instance_id: int, indices: list[str], train_data_path: str = None):
+    def get_tickets(self, indices: list[str]):
         """
         Get tickets by their indices.
         """
-        # If the al_instance_id is 0, the train_data_path is provided
-        if al_instance_id != 0:
-            train_data_path = self.storage.dataset_dict[al_instance_id]['train_data_path']
-        
-        df = pd.read_csv(train_data_path)
-        df = df.loc[df['Ref'].isin(indices)]
+        df = self.duckdb_service.load_tickets_by_ref(ref_list=indices)
+
+        if df is None or df.empty:
+            return {"tickets": []}
         
         # Replace NaN with None to be compatible with json
         df = df.replace({np.nan: None})
+        df = df[[col for col in df.columns if col not in ['split', 'dataset_timestamp']]]  # Exclude internal columns from the response
+        
         return {"tickets": df.to_dict(orient='records')}
 
-    def get_teams(self, al_instance_id: int, train_data_path: str = None):
+    def get_teams(self):
         """
         Get teams from the dataset.
         """
-        # If the al_instance_id is 0, the train_data_path is provided
-        if al_instance_id != 0:
-            train_data_path = self.storage.dataset_dict[al_instance_id]['train_data_path']
-        
-        df = pd.read_csv(train_data_path)
+        teams = self.duckdb_service.load_labels(
+            al_instance_id=GROUND_TRUTH_AL_INSTANCE_ID, 
+            split=TRAIN_SPLIT)
+
+        if teams is None or teams.empty:
+            return {"teams": []}
         
         # Extract unique teams that are not NaN
-        teams = df['Team->Name'].dropna().unique().tolist()
+        teams = teams.dropna().unique().tolist()
         return {"teams": teams}
 
-    def get_categories(self, al_instance_id: int, train_data_path: str = None):
+    def get_categories(self):
         """
         Get categories from the dataset.
         """
-        # If the al_instance_id is 0, the train_data_path is provided
-        if al_instance_id != 0:
-            train_data_path = self.storage.dataset_dict[al_instance_id]['train_data_path']
+        df = self.duckdb_service.load_tickets(split=TRAIN_SPLIT)
 
-        df = pd.read_csv(train_data_path)
+        if df is None or df.empty:
+            return {"categories": []}
+        
         categories = df['Service->Name'].dropna().unique().tolist()
         return {"categories": categories}
 
-    def get_subcategories(self, al_instance_id: int, train_data_path: str = None):
+    def get_subcategories(self):
         """
         Get subcategories from the dataset.
         """
-        # If the al_instance_id is 0, the train_data_path is provided
-        if al_instance_id != 0:
-            train_data_path = self.storage.dataset_dict[al_instance_id]['train_data_path']
+        df = self.duckdb_service.load_tickets(split=TRAIN_SPLIT)
 
-        df = pd.read_csv(train_data_path)
+        if df is None or df.empty:
+            return {"subcategories": []}
+        
         subcategories = df['Service subcategory->Name'].dropna().unique().tolist()
         return {"subcategories": subcategories}

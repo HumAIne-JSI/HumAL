@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+.DS_Store
+*.md
+.vscode
+.idea
+npm-debug.log
+yarn-error.log
+bun-error.log
+coverage
+.next
+build
+.turbo
+.cache

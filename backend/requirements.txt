@@ -20,3 +20,10 @@ faiss-cpu
 transformers
 openai
 duckdb
+<<<<<<< HEAD
+=======
+aio-pika
+requests
+pyarrow
+openpyxl
+>>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba

@@ -11,12 +11,12 @@ HumAL/
 │   ├── data/             # CSV datasets (place your data here)
 │   └── models/           # Saved models (joblib .pkl)
 ├── frontend/             # React + Vite frontend
+├── docs/                 # Documentation
+├── tests/                # Test suite
 ├── start-dev.bat         # Windows startup script
-├── start-dev.sh          # Unix/Linux startup script
 ├── requirements.txt      # Backend dependencies
 ├── install.py           # Automated dependency installer
-├── .env                 # Environment configuration (create from .env.example)
-└── SETUP.md             # This file
+└── .env                 # Environment configuration (create from .env.example)
 ```
 
 ## Prerequisites
@@ -35,15 +35,6 @@ The automated installer (`install.py`) can use either `uv` or `pip`. Using `uv` 
 ```bash
 # Using the standalone installer (recommended)
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Or using pip
-pip install uv
-```
-
-**Unix/Linux/macOS:**
-```bash
-# Using the standalone installer (recommended)
-curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Or using pip
 pip install uv
@@ -69,9 +60,6 @@ The automated installer detects your system configuration (CUDA version, package
    
    # Activate (Windows)
    al_api_venv\Scripts\activate
-   
-   # Activate (Unix/Linux/macOS)
-   source al_api_venv/bin/activate
    ```
 
 3. Run the automated installer (from project root):
@@ -97,9 +85,6 @@ The automated installer detects your system configuration (CUDA version, package
 
 4. Prepare data and models (required before using the app):
    ```bash
-   # Unix/Linux/macOS
-   mkdir -p backend/data backend/models
-
    # Windows PowerShell
    mkdir backend\data
    mkdir backend\models
@@ -115,13 +100,7 @@ The automated installer detects your system configuration (CUDA version, package
 5. Configure environment variables:
    ```bash
    # Copy .env.example to .env (if .env.example exists)
-   # Unix/Linux/macOS
-   cp .env.example .env
-   
    # Windows PowerShell
-   copy .env.example .env
-   
-   # Windows CMD
    copy .env.example .env
    ```
    
@@ -129,12 +108,10 @@ The automated installer detects your system configuration (CUDA version, package
    ```
    OPENAI_API_KEY=your-openai-api-key-here
    ```
-   
-   **Note:** If `.env.example` doesn't exist, create a `.env` file in the project root with the `OPENAI_API_KEY` variable.
 
 ### Option 2: Manual Installation
 
-1. Ensure you're in the project root (contains `install.py` and `requirements.txt`).
+1. Ensure you're in the project root.
 
 2. Create and activate virtual environment:
    ```bash
@@ -143,9 +120,6 @@ The automated installer detects your system configuration (CUDA version, package
    
    # Activate (Windows)
    al_api_venv\Scripts\activate
-   
-   # Activate (Unix/Linux/macOS)
-   source al_api_venv/bin/activate
    ```
 
 3. Install backend dependencies:
@@ -175,9 +149,6 @@ The automated installer detects your system configuration (CUDA version, package
 
 6. Prepare data and models (required before using the app):
    ```bash
-   # Unix/Linux/macOS
-   mkdir -p backend/data backend/models
-
    # Windows PowerShell
    mkdir backend\data
    mkdir backend\models
@@ -193,13 +164,7 @@ The automated installer detects your system configuration (CUDA version, package
 7. Configure environment variables:
    ```bash
    # Copy .env.example to .env (if .env.example exists)
-   # Unix/Linux/macOS
-   cp .env.example .env
-   
    # Windows PowerShell
-   copy .env.example .env
-   
-   # Windows CMD
    copy .env.example .env
    ```
    
@@ -207,8 +172,6 @@ The automated installer detects your system configuration (CUDA version, package
    ```
    OPENAI_API_KEY=your-openai-api-key-here
    ```
-   
-   **Note:** If `.env.example` doesn't exist, create a `.env` file in the project root with the `OPENAI_API_KEY` variable.
 
 ## Running the Application
 
@@ -228,14 +191,6 @@ Before starting, ensure:
 .\start-dev.bat
 ```
 
-**Unix/Linux/macOS:**
-```bash
-# Make executable (first time only)
-chmod +x start-dev.sh
-# Run
-./start-dev.sh
-```
-
 ### Option 2: Manual Startup
 
 **Prerequisites:** Complete installation (Option 1 or Option 2) at least once.
@@ -246,9 +201,6 @@ chmod +x start-dev.sh
    ```bash
    # Windows
    al_api_venv\Scripts\activate
-   
-   # Unix/Linux/macOS
-   source al_api_venv/bin/activate
    ```
 
 2. Navigate to the backend directory:
@@ -280,122 +232,3 @@ After starting both services:
 - **Frontend Application**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
-- **API Interactive Docs**: http://localhost:8000/redoc
-
-## Development Features
-
-### CORS Configuration
-The backend is configured to accept requests from:
-- http://localhost:5173 (Vite default)
-- http://localhost:3000 (Alternative React port)
-- http://127.0.0.1:5173
-
-### API Proxy
-The frontend development server proxies API calls from `/api/*` to the backend at `http://localhost:8000`.
-
-### Hot Reload
-Both frontend and backend support hot reload:
-- Frontend: Changes to React components refresh automatically
-- Backend: Changes to Python files restart the FastAPI server
-
-### TypeScript Support
-The frontend includes comprehensive TypeScript types for all API endpoints and data models.
-
-## API Integration
-
-The frontend connects to the backend through:
-
-1. **Typed API Service** (`frontend/src/services/api.ts`)
-   - Handles all HTTP requests
-   - Includes error handling and response typing
-   - Uses environment variables for configuration
-
-2. **TypeScript Types** (`frontend/src/types/api.ts`)
-   - Matches backend Pydantic models
-   - Provides type safety for API calls
-
-## Environment Configuration
-
-### Frontend Environment Variables
-Set in your environment or create `.env.local`:
-```
-VITE_API_BASE_URL=http://localhost:8000
-VITE_APP_TITLE=HumAL - Development
-```
-
-### Backend Environment Variables
-The backend uses:
-- `HOST=0.0.0.0`
-- `PORT=8000`
-- `DEBUG=True`
-
-## Troubleshooting
-
-### PyTorch/CUDA Issues
-
-**No GPU detected after installation:**
-```bash
-# Verify your CUDA installation
-nvidia-smi
-
-# Reinstall PyTorch with CUDA support
-# Ensure you are in the project root
-al_api_venv\Scripts\activate  # Windows
-# or: source al_api_venv/bin/activate  # Unix/Linux/macOS
-python install.py --reinstall-torch
-```
-
-**Force CPU-only installation:**
-```bash
-python install.py --cpu-only
-```
-
-**Switch between CPU and GPU versions:**
-```bash
-# To GPU version (if CUDA is available)
-python install.py --reinstall-torch
-
-# To CPU version
-python install.py --reinstall-torch --cpu-only
-```
-
-### Port Conflicts
-If you encounter port conflicts:
-- Backend: Change port in `backend/app/main.py` (line 14)
-- Frontend: Change port in `frontend/vite.config.ts`
-- Update CORS origins in `backend/app/main.py` if you change frontend port
-
-### Module Not Found
-Make sure virtual environment is activated for backend:
-```bash
-# Windows
-al_api_venv\Scripts\activate
-
-# Unix/Linux/macOS
-source al_api_venv/bin/activate
-```
-
-If packages are missing, reinstall with:
-```bash
-# Using the automated installer (recommended)
-python install.py
-
-# Or manually with uv/pip
-uv pip install -r requirements.txt
-# or: pip install -r requirements.txt
-```
-
-### Network Errors
-Ensure both services are running and check:
-1. Backend is accessible at http://localhost:8000
-2. Frontend proxy configuration in `vite.config.ts`
-3. CORS configuration in `backend/app/main.py`
-
-## Available Pages
-
-The frontend includes these predefined pages:
-- **Home** (`/`) - Landing page
-- **Training** (`/training`) - Model training interface
-- **Dispatch Labeling** (`/dispatch-labeling`) - Label dispatch data
-- **Ticket Resolution** (`/ticket-resolution`) - Generate automated responses
-- **Inference** (`/inference`) - Run model inference

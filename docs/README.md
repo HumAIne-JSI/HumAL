@@ -1,1 +1,0 @@
-# HumAL Documentation
