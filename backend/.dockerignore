@@ -16,7 +16,6 @@ venv/
 /models/
 /embeddings_cache/
 *.npz
-/sentence_transformers_cache/
 
 # Tests (optional)
 tests/
