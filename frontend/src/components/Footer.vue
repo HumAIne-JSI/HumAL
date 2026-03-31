@@ -8,63 +8,60 @@ const currentYear = new Date().getFullYear()
 const navLinks = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/training', label: 'Model Training', icon: Brain },
-  { path: '/dispatch-labeling', label: 'Dispatch Labeling', icon: Target },
+  { path: '/dispatching', label: 'Dispatch Labeling', icon: Target },
   { path: '/ticket-resolution', label: 'Ticket Resolution', icon: MessageSquareText },
   { path: '/inference', label: 'Inference', icon: Zap },
 ]
 </script>
 
 <template>
-  <footer class="bg-card/50 backdrop-blur-sm border-t border-border mt-16">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div class="grid md:grid-cols-4 gap-8">
+  <footer class="footer">
+    <div class="footer__container">
+      <div class="footer__grid">
         <!-- Brand Section -->
-        <div class="md:col-span-2">
-          <div class="flex items-center space-x-3 mb-4">
-            <HumaineLogo :width="150" :height="45" class="text-primary" />
+        <div class="footer__brand">
+          <div class="footer__logo">
+            <HumaineLogo :width="150" :height="45" />
           </div>
-          <p class="text-muted-foreground max-w-md mb-4">
+          <p class="footer__description">
             Advanced machine learning platform for intelligent ticket classification and routing using active learning algorithms.
           </p>
-          <div class="flex space-x-4">
+          <div class="footer__social">
             <a
               href="mailto:contact@humaine.ai"
-              class="text-muted-foreground hover:text-primary transition-colors"
+              class="footer__social-link"
               aria-label="Email"
             >
-              <Mail class="w-5 h-5" />
+              <Mail :size="20" />
             </a>
             <a
               href="https://github.com/humaine"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-muted-foreground hover:text-primary transition-colors"
+              class="footer__social-link"
               aria-label="GitHub"
             >
-              <Github class="w-5 h-5" />
+              <Github :size="20" />
             </a>
             <a
               href="https://humaine.ai"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-muted-foreground hover:text-primary transition-colors"
+              class="footer__social-link"
               aria-label="Website"
             >
-              <ExternalLink class="w-5 h-5" />
+              <ExternalLink :size="20" />
             </a>
           </div>
         </div>
 
         <!-- Navigation Links -->
-        <div>
-          <h4 class="font-semibold mb-4">Platform</h4>
-          <ul class="space-y-2">
+        <div class="footer__nav">
+          <h4 class="footer__heading">Platform</h4>
+          <ul class="footer__list">
             <li v-for="link in navLinks" :key="link.path">
-              <RouterLink
-                :to="link.path"
-                class="text-muted-foreground hover:text-primary transition-colors flex items-center space-x-2 text-sm"
-              >
-                <component :is="link.icon" class="w-4 h-4" />
+              <RouterLink :to="link.path" class="footer__link">
+                <component :is="link.icon" :size="16" />
                 <span>{{ link.label }}</span>
               </RouterLink>
             </li>
@@ -72,56 +69,121 @@ const navLinks = [
         </div>
 
         <!-- Resources -->
-        <div>
-          <h4 class="font-semibold mb-4">Resources</h4>
-          <ul class="space-y-2">
+        <div class="footer__resources">
+          <h4 class="footer__heading">Resources</h4>
+          <ul class="footer__list">
             <li>
-              <a
-                href="#"
-                class="text-muted-foreground hover:text-primary transition-colors text-sm"
-              >
-                Documentation
-              </a>
+              <a href="#" class="footer__link">Documentation</a>
             </li>
             <li>
-              <a
-                href="#"
-                class="text-muted-foreground hover:text-primary transition-colors text-sm"
-              >
-                API Reference
-              </a>
+              <a href="#" class="footer__link">API Reference</a>
             </li>
             <li>
-              <a
-                href="#"
-                class="text-muted-foreground hover:text-primary transition-colors text-sm"
-              >
-                Support
-              </a>
-            </li>
-            <li>
-              <a
-                href="#"
-                class="text-muted-foreground hover:text-primary transition-colors text-sm"
-              >
-                Privacy Policy
-              </a>
+              <a href="#" class="footer__link">Support</a>
             </li>
           </ul>
         </div>
       </div>
 
-      <!-- Bottom Section -->
-      <div class="border-t border-border pt-8 mt-8">
-        <div class="flex flex-col md:flex-row justify-between items-center">
-          <p class="text-sm text-muted-foreground">
-            © {{ currentYear }} HumAIne. All rights reserved.
-          </p>
-          <p class="text-sm text-muted-foreground mt-2 md:mt-0">
-            Built with ❤️ using Active Learning
-          </p>
-        </div>
+      <div class="footer__bottom">
+        <p>&copy; {{ currentYear }} HumAIne. All rights reserved.</p>
       </div>
     </div>
   </footer>
 </template>
+
+<style lang="scss" scoped>
+.footer {
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 4rem;
+  padding: 3rem 0 1.5rem;
+
+  &__container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 2rem;
+
+    @media (max-width: 768px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  &__brand {
+    max-width: 400px;
+  }
+
+  &__logo {
+    margin-bottom: 1rem;
+  }
+
+  &__description {
+    color: #64748b;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+  }
+
+  &__social {
+    display: flex;
+    gap: 1rem;
+  }
+
+  &__social-link {
+    color: #64748b;
+    transition: color 0.2s;
+
+    &:hover {
+      color: #3b82f6;
+    }
+  }
+
+  &__heading {
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    color: #1e293b;
+  }
+
+  &__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #64748b;
+    font-size: 0.875rem;
+    text-decoration: none;
+    transition: color 0.2s;
+
+    &:hover {
+      color: #3b82f6;
+    }
+  }
+
+  &__bottom {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+
+    p {
+      color: #94a3b8;
+      font-size: 0.875rem;
+    }
+  }
+}
+</style>

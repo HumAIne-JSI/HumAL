@@ -7,6 +7,7 @@ from app.services.config_svc import ConfigService
 from app.services.data_service import DataService
 from app.services.xai_svc import XaiService
 from app.services.resolution_svc import ResolutionService
+from app.services.analytics_svc import AnalyticsService
 import os
 
 # Create instances
@@ -16,6 +17,7 @@ inference_service = InferenceService(storage)
 config_service = ConfigService()
 data_service = DataService(storage)
 xai_service = XaiService(storage, inference_service)
+analytics_service = AnalyticsService(storage)
 
 # Dependency functions
 def get_storage():
@@ -35,6 +37,9 @@ def get_data_service():
 
 def get_xai_service():
     return xai_service
+
+def get_analytics_service():
+    return analytics_service
     
 # Lazy-loaded resolution service (heavy models)
 _resolution_service_instance = None

@@ -1,566 +1,855 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import { Zap, Send, Brain } from 'lucide-vue-next'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { apiService } from '@/services/api'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
+import Card from '@/components/ui/Card.vue'
+import Badge from '@/components/ui/Badge.vue'
+import Button from '@/components/ui/Button.vue'
+import Progress from '@/components/ui/Progress.vue'
+import InstanceSelector from '@/components/InstanceSelector.vue'
+import TicketForm from '@/components/TicketForm.vue'
+import PredictionResult from '@/components/PredictionResult.vue'
+import LimeExplanation from '@/components/LimeExplanation.vue'
+import NearestTicket from '@/components/NearestTicket.vue'
+import ExportButton from '@/components/ExportButton.vue'
+import { useInstanceInfo } from '@/composables/api/useActiveLearning'
+import { useInferWithModelCheck } from '@/composables/api/useInference'
+import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
+import { useTickets } from '@/composables/api/useData'
+import { usePredictionHistory } from '@/composables/usePredictionHistory'
+import { useInstanceStore } from '@/stores/useInstanceStore'
+import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse, Ticket } from '@/types/api'
+import {
+  Zap,
+  Brain,
+  Clock,
+  TrendingUp,
+  Cpu,
+  Trash2,
+  AlertCircle,
+  Sparkles,
+} from 'lucide-vue-next'
 
-interface NearestTicketData {
-  ref: string
-  label: string
-  similarity: number
-  title?: string
-  description?: string
-  service?: string
-  subcategory?: string
-}
+const route = useRoute()
+const router = useRouter()
+const instanceStore = useInstanceStore()
 
-const isLoading = ref(false)
-const prediction = ref<any>(null)
-const explanationTopWords = ref<[string, number][] | null>(null)
-const nearestTicket = ref<NearestTicketData | null>(null)
-const selectedModel = ref<string | undefined>(undefined)
-const formData = ref({
-  service: '',
-  subcategory: '',
-  title: '',
-  description: ''
+// Use store's instance ID with computed wrapper
+const selectedInstanceId = computed({
+  get: () => instanceStore.selectedInstanceId,
+  set: (value: number) => instanceStore.setInstance(value)
 })
 
-// Track the current prediction ID to prevent stale LIME explanations
+// Initialize from route query
+onMounted(() => {
+  const instanceParam = route.query.instance
+  if (instanceParam) {
+    instanceStore.setInstance(Number(instanceParam))
+  }
+})
+
+// Sync URL with instance selection
+watch(() => instanceStore.selectedInstanceId, (newId) => {
+  if (newId > 0) {
+    router.replace({ query: { ...route.query, instance: String(newId) } })
+  } else {
+    const { instance: _, ...rest } = route.query
+    router.replace({ query: rest })
+  }
+})
+
+// Instance data
+const { data: instanceInfo } = useInstanceInfo(selectedInstanceId, {
+  enabled: computed(() => selectedInstanceId.value > 0),
+})
+
+// Inference mutation
+const inferMutation = useInferWithModelCheck(selectedInstanceId, {
+  onModelNotTrained: () => {
+    toast.error('Model not trained', {
+      description: 'Please train the model before running inference',
+    })
+  },
+})
+
+// XAI mutations
+const limeMutation = useExplainLimeMutation(selectedInstanceId)
+const nearestMutation = useNearestTicketMutation(selectedInstanceId)
+
+// Prediction history composable
+const { items: predictionHistory, add: addPrediction, clear: clearHistory, todayCount, avgProcessingTime } = usePredictionHistory()
+
+// Ticket input form
+const ticket = ref<InferenceData>({
+  title_anon: '',
+  description_anon: '',
+  service_name: '',
+  service_subcategory_name: '',
+})
+
+// Results
+const currentPrediction = ref<InferenceResponse | null>(null)
+const explanation = ref<ExplainLimeResponse | null>(null)
+const nearestResult = ref<NearestTicketResponse | null>(null)
+const nearestTicketDetails = ref<Ticket | null>(null)
+
+// Processing states
+const isProcessing = ref(false)
+const isLoadingXai = ref(false)
+
+// Prediction ID for preventing stale XAI updates
 let currentPredictionId = 0
 
-// Available models from API
-const availableModels = ref<any[]>([])
+// Computed
+const hasInstance = computed(() => selectedInstanceId.value > 0)
+// Consider trained if has test_accuracy, training_accuracy, or f1_scores (matching old frontend logic)
+const isTrained = computed(() => {
+  if (!instanceInfo.value) return false
+  return (
+    instanceInfo.value.test_accuracy !== undefined ||
+    instanceInfo.value.training_accuracy !== undefined ||
+    (instanceInfo.value.f1_scores && instanceInfo.value.f1_scores.length > 0)
+  )
+})
+const canRunInference = computed(() => hasInstance.value && isTrained.value)
+const hasInput = computed(() => !!(ticket.value.title_anon?.trim() || ticket.value.description_anon?.trim()))
 
-// Available categories and subcategories from API
-const availableCategories = ref<string[]>([])
-const availableSubcategories = ref<string[]>([])
-
-// Fetch available models from API
-onMounted(async () => {
-  try {
-    const instancesResponse = await apiService.getInstances()
-    
-    if (instancesResponse.success && instancesResponse.data) {
-      const instances = instancesResponse.data.instances
-      
-      // Fetch info for each instance to get accuracy
-      const modelPromises = Object.keys(instances).map(async (instanceId) => {
-        const instance = instances[instanceId]
-        
-        // Fetch instance info to get f1_scores
-        const infoResponse = await apiService.getInstanceInfo(parseInt(instanceId))
-        
-        let accuracy = null
-        if (infoResponse.success && infoResponse.data?.f1_scores) {
-          const f1Scores = infoResponse.data.f1_scores
-          if (f1Scores.length > 0) {
-            accuracy = Math.round(f1Scores[f1Scores.length - 1] * 100 * 10) / 10
-          }
-        }
-        
-        // Capitalize model name
-        const capitalizedModelName = instance.model_name
-          ?.split(' ')
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ') || 'Unknown'
-        
-        return {
-          id: instanceId,
-          name: `${capitalizedModelName} v${instanceId}`,
-          accuracy,
-          status: 'active'
-        }
-      })
-      
-      const models = (await Promise.all(modelPromises)).filter(m => m !== null)
-      models.sort((a, b) => parseInt(b.id) - parseInt(a.id)) // Sort newest first
-      
-      availableModels.value = models
-      
-      // Set default to first model
-      if (models.length > 0 && !selectedModel.value) {
-        selectedModel.value = models[0].id
-      }
-    }
-  } catch (error) {
-    console.error('Failed to load models:', error)
-    toast.error('Error', {
-      description: 'Failed to load available models',
-    })
+// Model accuracy for display (matches old frontend logic with f1_scores fallback)
+const modelAccuracy = computed(() => {
+  if (!instanceInfo.value) return 0
+  // Prefer test_accuracy, then training_accuracy, then last f1_score
+  if (instanceInfo.value.test_accuracy !== undefined) {
+    return instanceInfo.value.test_accuracy * 100
   }
-
-  // Fetch categories
-  try {
-    const trainDataPath = 'data/al_demo_train_data.csv'
-    const categoriesResponse = await apiService.getCategories(0, trainDataPath)
-    if (categoriesResponse.success && categoriesResponse.data) {
-      availableCategories.value = categoriesResponse.data.categories
-    }
-  } catch (error) {
-    console.error('Failed to load categories:', error)
+  if (instanceInfo.value.training_accuracy !== undefined) {
+    return instanceInfo.value.training_accuracy * 100
   }
+  if (instanceInfo.value.f1_scores && instanceInfo.value.f1_scores.length > 0) {
+    return instanceInfo.value.f1_scores[instanceInfo.value.f1_scores.length - 1] * 100
+  }
+  return 0
+})
 
-  // Fetch subcategories
-  try {
-    const trainDataPath = 'data/al_demo_train_data.csv'
-    const subcategoriesResponse = await apiService.getSubcategories(0, trainDataPath)
-    if (subcategoriesResponse.success && subcategoriesResponse.data) {
-      availableSubcategories.value = subcategoriesResponse.data.subcategories
-    }
-  } catch (error) {
-    console.error('Failed to load subcategories:', error)
+// Tickets query for fetching nearest ticket details
+const nearestTicketRef = computed(() => {
+  if (!nearestResult.value) return []
+  const ref = Array.isArray(nearestResult.value.nearest_ticket_ref)
+    ? nearestResult.value.nearest_ticket_ref[0]
+    : nearestResult.value.nearest_ticket_ref
+  return ref ? [String(ref)] : []
+})
+
+const { data: nearestTicketsData } = useTickets(
+  selectedInstanceId,
+  nearestTicketRef,
+  undefined, // trainDataPath
+  { enabled: computed(() => nearestTicketRef.value.length > 0) }
+)
+
+// Update nearest ticket details when data arrives
+watch(nearestTicketsData, (data) => {
+  if (data?.tickets && data.tickets.length > 0) {
+    nearestTicketDetails.value = data.tickets[0] ?? null
+  } else {
+    nearestTicketDetails.value = null
   }
 })
 
-// Auto-select first model when models are loaded
-watch(availableModels, (models) => {
-  if (models.length > 0 && !selectedModel.value) {
-    selectedModel.value = models[0].id
-    console.log('Auto-selected model:', models[0].id)
-  }
+// Export data
+const exportData = computed(() => {
+  return predictionHistory.value.map((item) => ({
+    timestamp: item.timestamp.toISOString(),
+    title: item.input.title_anon ?? '',
+    description: item.input.description_anon ?? '',
+    service: item.input.service_name ?? '',
+    subcategory: item.input.service_subcategory_name ?? '',
+    prediction: item.output.prediction,
+    confidence: item.output.confidence,
+    processing_time_ms: item.processingTime,
+  }))
 })
 
-const handleSubmit = async () => {
-  if (!selectedModel.value) {
-    toast.error('Error', {
-      description: 'Please select a model before classifying the ticket',
-    })
+// Methods
+const handleInstanceSelect = (value: string) => {
+  instanceStore.setInstance(Number(value) || 0)
+  // Clear results on instance change
+  currentPrediction.value = null
+  explanation.value = null
+  nearestResult.value = null
+  nearestTicketDetails.value = null
+}
+
+const clearInput = () => {
+  ticket.value = {
+    title_anon: '',
+    description_anon: '',
+    service_name: '',
+    service_subcategory_name: '',
+  }
+  currentPrediction.value = null
+  explanation.value = null
+  nearestResult.value = null
+  nearestTicketDetails.value = null
+}
+
+const runPrediction = async () => {
+  if (!hasInput.value) {
+    toast.error('Empty ticket', { description: 'Please enter title or description' })
     return
   }
-  
-  // Increment prediction ID to invalidate any pending LIME requests
-  currentPredictionId += 1
+
+  // Increment prediction ID to invalidate pending XAI requests
+  currentPredictionId++
   const thisPredictionId = currentPredictionId
-  
-  isLoading.value = true
-  explanationTopWords.value = null
-  nearestTicket.value = null
-  
+
+  isProcessing.value = true
+  currentPrediction.value = null
+  explanation.value = null
+  nearestResult.value = null
+  nearestTicketDetails.value = null
+
+  const startTime = Date.now()
+
   try {
-    // Build inference payload
-    const inferenceData = {
-      service_subcategory_name: formData.value.subcategory,
-      service_name: formData.value.service,
-      title_anon: formData.value.title,
-      description_anon: formData.value.description,
-      team_name: undefined,
-      last_team_id_name: undefined,
-      public_log_anon: undefined
-    }
+    // Run inference
+    const inferRes = await inferMutation.mutateAsync(ticket.value)
+    currentPrediction.value = inferRes
 
-    // Call real inference endpoint
-    const inferRes = await apiService.infer(parseInt(selectedModel.value), inferenceData)
-    if (!inferRes.success || !inferRes.data) {
-      if (inferRes.error?.detail?.includes('not trained yet')) {
-        toast.error('Model not trained', {
-          description: 'Please train the model first.',
-        })
-        return
-      }
-      throw new Error(inferRes.error?.detail || 'Failed to get prediction from model')
-    }
+    const processingTime = Date.now() - startTime
 
-    const selectedModelInfo = availableModels.value.find(m => m.id === selectedModel.value)
-    // Backend returns array of predictions; extract first element
-    const predictedGroup = Array.isArray(inferRes.data) ? inferRes.data[0] : inferRes.data.prediction
-
-    // Set immediate prediction (no confidence shown)
-    prediction.value = {
-      group: String(predictedGroup),
-      explanation: `Prediction generated by ${selectedModelInfo?.name}.`,
-      model: selectedModelInfo
-    }
-
-    toast.success('Prediction Complete', {
-      description: `Ticket classified as: ${String(predictedGroup)}`,
+    // Add to history
+    addPrediction({
+      input: { ...ticket.value },
+      output: inferRes,
+      processingTime,
     })
 
-    // Fire-and-forget LIME explanation
-    ;(async () => {
-      try {
-        const explainRes = await apiService.explainLime(parseInt(selectedModel.value!), {
-          ticket_data: inferenceData,
-          model_id: 0
-        })
-        
-        // Only update if this is still the current prediction
-        if (thisPredictionId === currentPredictionId && explainRes.success && explainRes.data && explainRes.data.length > 0) {
-          const item = explainRes.data[0]
-          if (item && Array.isArray(item.top_words)) {
-            explanationTopWords.value = item.top_words
-          }
-        }
-      } catch (err) {
-        console.error('Explain LIME failed', err)
-      }
-    })()
+    toast.success('Prediction complete', {
+      description: `Category: ${inferRes.prediction} (${((inferRes.confidence ?? 0) * 100).toFixed(1)}%)`,
+    })
+
+    // Fire-and-forget XAI calls
+    isLoadingXai.value = true
     
-    // Fire-and-forget nearest ticket lookup
-    ;(async () => {
-      try {
-        const nearestResponse = await apiService.findNearestTicket(parseInt(selectedModel.value!), {
-          ticket_data: inferenceData,
-          model_id: 0,
-        })
-        
-        // Only update if this is still the current prediction
-        if (thisPredictionId === currentPredictionId && nearestResponse.success && nearestResponse.data) {
-          const item = nearestResponse.data
-          const ref = Array.isArray(item.nearest_ticket_ref) ? item.nearest_ticket_ref[0] : item.nearest_ticket_ref
-          const label = Array.isArray(item.nearest_ticket_label) ? item.nearest_ticket_label[0] : item.nearest_ticket_label
-          const similarity = Array.isArray(item.similarity_score) ? item.similarity_score[0] : item.similarity_score
-          
-          if (ref && label !== undefined && similarity !== undefined) {
-            // Fetch the full ticket details for the nearest ticket
-            try {
-              const nearestTicketResponse = await apiService.getTickets(parseInt(selectedModel.value!), [ref.toString()])
-              
-              if (nearestTicketResponse.success && nearestTicketResponse.data && nearestTicketResponse.data.tickets.length > 0) {
-                const nearestTicketData = nearestTicketResponse.data.tickets[0]
-                
-                nearestTicket.value = {
-                  ref: ref,
-                  label: label,
-                  similarity: similarity,
-                  title: nearestTicketData.Title_anon || 'No title available',
-                  description: nearestTicketData.Description_anon || 'No description available',
-                  service: nearestTicketData['Service->Name'] || 'Unknown Service',
-                  subcategory: nearestTicketData['Service subcategory->Name'] || 'Unknown Subcategory'
-                }
-              } else {
-                nearestTicket.value = { ref, label, similarity }
-              }
-            } catch (ticketErr) {
-              console.error('Failed to fetch nearest ticket details', ticketErr)
-              nearestTicket.value = { ref, label, similarity }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Find nearest ticket failed', err)
+    Promise.all([
+      limeMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+        console.warn('LIME explanation failed:', e)
+        return null
+      }),
+      nearestMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+        console.warn('Nearest ticket failed:', e)
+        return null
+      }),
+    ]).then(([limeRes, nearestRes]) => {
+      // Only update if this is still the current prediction
+      if (thisPredictionId === currentPredictionId) {
+        explanation.value = limeRes
+        nearestResult.value = nearestRes
       }
-    })()
-  } catch (error) {
-    toast.error('Error', {
-      description: 'Failed to get prediction from model',
+    }).finally(() => {
+      if (thisPredictionId === currentPredictionId) {
+        isLoadingXai.value = false
+      }
     })
+
+  } catch (e) {
+    toast.error('Prediction failed', { description: (e as Error).message })
   } finally {
-    isLoading.value = false
+    isProcessing.value = false
   }
 }
 
-const useExample = (title: string, description: string) => {
-  const firstCategory = availableCategories.value[0] || ''
-  const firstSubcategory = availableSubcategories.value[0] || ''
-  formData.value = {
-    ...formData.value,
-    title,
-    description,
-    service: firstCategory,
-    subcategory: firstSubcategory
+// Example tickets
+const exampleTickets: { title: string; description: string }[] = [
+  {
+    title: 'Jira License Request',
+    description: 'I need a Jira license to access the project Agile Transformation and track my development tasks',
+  },
+  {
+    title: 'Laptop Screen Issue',
+    description: "My laptop screen is flickering and sometimes goes black. It's affecting my productivity.",
+  },
+  {
+    title: 'VPN Connection Problem',
+    description: 'Unable to connect to company VPN from home. Getting timeout errors when trying to authenticate.',
+  },
+]
+
+const useExample = (example: { title: string; description: string }) => {
+  ticket.value = {
+    ...ticket.value,
+    title_anon: example.title,
+    description_anon: example.description,
   }
+}
+
+const getPriorityFromConfidence = (confidence: number): string => {
+  if (confidence >= 0.9) return 'Critical'
+  if (confidence >= 0.7) return 'High'
+  if (confidence >= 0.5) return 'Medium'
+  return 'Low'
+}
+
+const getPriorityVariant = (priority: string): 'destructive' | 'warning' | 'info' | 'secondary' => {
+  switch (priority) {
+    case 'Critical': return 'destructive'
+    case 'High': return 'warning'
+    case 'Medium': return 'info'
+    default: return 'secondary'
+  }
+}
+
+const formatTime = (date: Date): string => {
+  return date.toLocaleString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 </script>
 
 <template>
-  <div class="min-h-screen py-8">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-      <!-- Header -->
-      <div class="text-center mb-8 ml-fade-in">
-        <h1 class="text-4xl font-bold mb-4">
-          <span class="ml-hero-text">Ticket Inference Engine</span>
-        </h1>
-        <p class="text-xl text-muted-foreground">
-          Get automatic predictions for ticket classification using your trained models
-        </p>
+  <div class="inference">
+    <!-- Header -->
+    <header class="inference__header">
+      <div class="inference__header-content">
+        <h1 class="inference__title">Inference</h1>
+        <p class="inference__subtitle">Use the trained model to predict ticket classifications</p>
       </div>
+      <Badge variant="outline" class="inference__badge">
+        <Cpu :size="14" />
+        AI Prediction Engine
+      </Badge>
+    </header>
 
-      <!-- Input Form -->
-      <Card class="ml-card mb-8 ml-fade-in">
-        <CardHeader>
-          <CardTitle class="flex items-center space-x-2">
-            <Zap class="w-6 h-6 text-primary" />
-            <span>Ticket Classification</span>
-          </CardTitle>
-          <CardDescription>
-            Enter ticket details to get an automatic classification prediction
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form @submit.prevent="handleSubmit" class="space-y-6">
-            <!-- Model Selection -->
-            <div class="space-y-2">
-              <Label for="model">Select Inference Model</Label>
-              <Select
-                :key="availableModels.length > 0 ? `models-${availableModels[0].id}` : 'no-models'"
-                v-model="selectedModel"
-                :disabled="availableModels.length === 0"
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    :placeholder="availableModels.length === 0 ? 'No models available' : '-- Select a Model --'"
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
-                    <div class="flex items-center justify-between w-full min-w-0">
-                      <div class="flex items-center space-x-2">
-                        <span>{{ model.name }}</span>
-                        <Badge :variant="model.status === 'active' ? 'default' : 'secondary'" class="text-xs">
-                          {{ model.status }}
-                        </Badge>
-                      </div>
-                      <span v-if="model.accuracy !== null" class="text-sm text-muted-foreground ml-2">
-                        {{ model.accuracy }}% acc
-                      </span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              <p v-if="selectedModel" class="text-sm text-muted-foreground">
-                Using: {{ availableModels.find(m => m.id === selectedModel)?.name }}
-                <span v-if="availableModels.find(m => m.id === selectedModel)?.accuracy !== null" class="text-ml-success ml-2">
-                  ({{ availableModels.find(m => m.id === selectedModel)?.accuracy }}% accuracy)
-                </span>
-              </p>
-            </div>
-
-            <!-- Service Selection -->
-            <div class="grid md:grid-cols-2 gap-4">
-              <div class="space-y-2">
-                <Label for="service">Service Category</Label>
-                <Select 
-                  v-model="formData.service"
-                  @update:model-value="formData.subcategory = ''"
-                  :disabled="availableCategories.length === 0"
-                >
-                  <SelectTrigger>
-                    <SelectValue :placeholder="availableCategories.length === 0 ? 'No categories available' : 'Select a service'" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="category in availableCategories" :key="category" :value="category">
-                      {{ category }}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div class="space-y-2">
-                <Label for="subcategory">Service Subcategory</Label>
-                <Select 
-                  v-model="formData.subcategory"
-                  :disabled="!formData.service || availableSubcategories.length === 0"
-                >
-                  <SelectTrigger>
-                    <SelectValue :placeholder="availableSubcategories.length === 0 ? 'No subcategories available' : 'Select a subcategory'" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="subcategory in availableSubcategories" :key="subcategory" :value="subcategory">
-                      {{ subcategory }}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+    <!-- Stats Cards Row -->
+    <div class="inference__stats">
+      <!-- Select Model Card -->
+      <Card class="inference__stat-card">
+        <div class="stat-card">
+          <div class="stat-card__header">
+            <Brain :size="18" class="stat-card__icon" />
+            <span class="stat-card__title">Select Model</span>
+          </div>
+          <div class="stat-card__content">
+            <InstanceSelector
+              :model-value="String(selectedInstanceId || '')"
+              placeholder="Select model..."
+              @update:model-value="handleInstanceSelect"
+            />
+            <div v-if="hasInstance && instanceInfo" class="stat-card__accuracy">
+              <span class="stat-card__accuracy-label">Model Accuracy</span>
+              <div class="stat-card__accuracy-bar">
+                <Progress :value="modelAccuracy" :max="100" color="default" />
+                <span class="stat-card__accuracy-value">{{ modelAccuracy.toFixed(1) }}%</span>
               </div>
             </div>
-
-            <!-- Title and Description -->
-            <div class="space-y-4">
-              <div class="space-y-2">
-                <Label for="title">Ticket Title</Label>
-                <Input
-                  id="title"
-                  v-model="formData.title"
-                  placeholder="Enter ticket title"
-                  required
-                />
-              </div>
-
-              <div class="space-y-2">
-                <Label for="description">Ticket Description</Label>
-                <Textarea
-                  id="description"
-                  v-model="formData.description"
-                  placeholder="Enter detailed ticket description"
-                  class="min-h-[120px]"
-                  required
-                />
-              </div>
-            </div>
-
-            <!-- Submit Button -->
-            <Button 
-              type="submit"
-              :disabled="isLoading"
-              class="ml-button-primary w-full md:w-auto"
-            >
-              <template v-if="isLoading">
-                <div class="ml-pulse w-4 h-4 mr-2 bg-white rounded-full" />
-                Classifying Ticket...
-              </template>
-              <template v-else>
-                <Send class="w-4 h-4 mr-2" />
-                Classify Ticket
-              </template>
-            </Button>
-          </form>
-        </CardContent>
+          </div>
+        </div>
       </Card>
 
-      <!-- Prediction Results -->
-      <Card v-if="prediction" class="ml-card mb-8 ml-scale-in">
-        <CardHeader>
-          <CardTitle class="flex items-center space-x-2">
-            <Brain class="w-6 h-6 text-ml-success" />
-            <span>Classification Result</span>
-          </CardTitle>
-          <CardDescription>
-            Model prediction for the submitted ticket
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-6">
-          <!-- Main Prediction -->
-          <div class="text-center p-6 bg-gradient-to-r from-ml-primary/10 to-ml-secondary/10 rounded-lg">
-            <div v-if="isLoading" class="space-y-3">
-              <div class="ml-pulse w-8 h-8 mx-auto bg-primary rounded-full" />
-              <p class="text-muted-foreground">Analyzing ticket content...</p>
-            </div>
-            <template v-else>
-              <h3 class="text-2xl font-bold mb-2">{{ prediction.group }}</h3>
-              <p class="text-muted-foreground mb-3">Predicted classification</p>
-            </template>
+      <!-- Today's Predictions Card -->
+      <Card class="inference__stat-card">
+        <div class="stat-card">
+          <div class="stat-card__header">
+            <Zap :size="18" class="stat-card__icon" />
+            <span class="stat-card__title">Today's Predictions</span>
           </div>
+          <div class="stat-card__content stat-card__content--center">
+            <span class="stat-card__value">{{ todayCount() }}</span>
+            <span class="stat-card__sublabel">predictions today</span>
+          </div>
+        </div>
+      </Card>
 
-          <template v-if="!isLoading">
-            <!-- Model Info -->
-            <div class="text-center text-sm text-muted-foreground mb-4">
-              Prediction by: <span class="font-semibold">{{ prediction.model?.name }}</span>
-              <Badge v-if="prediction.model?.accuracy !== null" variant="outline" class="ml-2">
-                {{ prediction.model?.accuracy }}% accuracy
-              </Badge>
-            </div>
+      <!-- Avg Processing Time Card -->
+      <Card class="inference__stat-card">
+        <div class="stat-card">
+          <div class="stat-card__header">
+            <Clock :size="18" class="stat-card__icon" />
+            <span class="stat-card__title">Avg Processing Time</span>
+          </div>
+          <div class="stat-card__content stat-card__content--center">
+            <span class="stat-card__value">{{ avgProcessingTime() }}ms</span>
+            <span class="stat-card__sublabel">per prediction</span>
+          </div>
+        </div>
+      </Card>
+    </div>
 
-            <!-- Reasoning appears after explanation arrives -->
-            <div v-if="explanationTopWords || nearestTicket" class="space-y-4">
-              <div v-if="explanationTopWords" class="p-4 bg-muted/30 rounded-lg">
-                <h4 class="font-semibold mb-2">LIME Explanation</h4>
-                <p class="text-sm text-muted-foreground mb-2">{{ prediction.explanation }}</p>
-                <div class="flex flex-wrap gap-2">
-                  <span 
-                    v-for="([word, weight], idx) in explanationTopWords.slice(0, 10)"
-                    :key="`${word}-${idx}`" 
-                    :class="[
-                      'inline-flex items-center rounded border px-2 py-1 text-xs',
-                      weight > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                    ]"
-                  >
-                    <span class="mr-1">{{ word }}</span>
-                    <Badge 
-                      variant="secondary" 
-                      :class="weight > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                    >
-                      {{ weight.toFixed(3) }}
-                    </Badge>
-                  </span>
-                </div>
-              </div>
-              
-              <div v-if="nearestTicket" class="p-4 bg-muted/30 rounded-lg">
-                <h4 class="font-semibold mb-2">Similar Ticket</h4>
-                <p class="text-sm text-muted-foreground mb-3">
-                  Found a previously labeled ticket that is {{ (nearestTicket.similarity * 100).toFixed(1) }}% similar to this one.
-                </p>
-                <div class="space-y-3">
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium">Ticket Reference:</span>
-                    <Badge variant="outline">{{ nearestTicket.ref }}</Badge>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium">Assigned Team:</span>
-                    <Badge variant="secondary">{{ nearestTicket.label }}</Badge>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium">Similarity Score:</span>
-                    <Badge 
-                      variant="outline"
-                      :class="nearestTicket.similarity > 0.8 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-blue-50 border-blue-200 text-blue-700'"
-                    >
-                      {{ (nearestTicket.similarity * 100).toFixed(1) }}%
-                    </Badge>
-                  </div>
-                  <div v-if="nearestTicket.title" class="pt-2 border-t">
-                    <div class="flex items-start space-x-2 mb-2">
-                      <Badge variant="secondary">{{ nearestTicket.service }}</Badge>
-                      <Badge variant="outline">{{ nearestTicket.subcategory }}</Badge>
-                    </div>
-                    <div class="space-y-2">
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">Title:</span>
-                        <p class="text-sm mt-1">{{ nearestTicket.title }}</p>
-                      </div>
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">Description:</span>
-                        <Textarea
-                          :model-value="nearestTicket.description"
-                          readonly
-                          class="mt-1 min-h-[80px] resize-none text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+    <!-- Warning if not trained -->
+    <Card v-if="hasInstance && !isTrained" class="inference__warning" variant="outline" padding="sm">
+      <div class="warning-content">
+        <AlertCircle :size="20" />
+        <span>This instance has not been trained yet. Please complete training first.</span>
+        <Button variant="outline" size="sm" @click="router.push({ path: '/training', query: { instance: String(selectedInstanceId) } })">
+          Go to Training
+        </Button>
+      </div>
+    </Card>
+
+    <!-- Main Content: Two Column Layout -->
+    <div class="inference__main">
+      <!-- Left Column: Input & Results -->
+      <div class="inference__left">
+        <!-- Input Section -->
+        <Card class="inference__input-card">
+          <template #title>Ticket Details</template>
+          <template #description>Enter the ticket to classify</template>
+
+          <TicketForm
+            v-model="ticket"
+            show-categories
+            :disabled="!canRunInference"
+          />
+
+          <template #footer>
+            <div class="input-actions">
+              <Button variant="ghost" size="sm" @click="clearInput" :disabled="isProcessing">
+                Clear
+              </Button>
+              <Button
+                @click="runPrediction"
+                :loading="isProcessing"
+                :disabled="!canRunInference || !hasInput"
+              >
+                <Cpu :size="16" />
+                Run Prediction
+              </Button>
             </div>
           </template>
-        </CardContent>
-      </Card>
+        </Card>
 
-      <!-- Quick Examples -->
-      <Card class="ml-card ml-fade-in">
-        <CardHeader>
-          <CardTitle>Example Tickets</CardTitle>
-          <CardDescription>Try these sample tickets to see the model in action</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="grid md:grid-cols-2 gap-4">
-            <div class="p-4 bg-muted/30 rounded-lg">
-              <h4 class="font-semibold mb-2">IT Access Request</h4>
-              <p class="text-sm text-muted-foreground mb-3">
-                "I need a Jira license to access the project Agile Transformation and track my development tasks"
-              </p>
-              <Button 
-                variant="outline" 
-                size="sm"
-                @click="useExample('Jira License Request', 'I need a Jira license to access the project Agile Transformation and track my development tasks')"
-              >
-                Use This Example
-              </Button>
+        <!-- Results Section -->
+        <div v-if="currentPrediction || isProcessing" class="inference__results">
+          <!-- Prediction Card -->
+          <Card class="results__prediction">
+            <template #title>Prediction Result</template>
+            <template #action v-if="currentPrediction">
+              <Badge variant="success">Complete</Badge>
+            </template>
+
+            <div v-if="isProcessing" class="results__loading">
+              <Progress :value="undefined" />
+              <span>Analyzing ticket...</span>
             </div>
-            
-            <div class="p-4 bg-muted/30 rounded-lg">
-              <h4 class="font-semibold mb-2">Hardware Issue</h4>
-              <p class="text-sm text-muted-foreground mb-3">
-                "My laptop screen is flickering and sometimes goes black. It's affecting my productivity."
-              </p>
-              <Button 
-                variant="outline" 
+
+            <PredictionResult
+              v-else-if="currentPrediction"
+              :prediction="currentPrediction.prediction"
+              :confidence="currentPrediction.confidence"
+              :probabilities="currentPrediction.probabilities"
+              show-details
+            />
+          </Card>
+
+          <!-- XAI Cards -->
+          <Card v-if="currentPrediction" class="results__xai">
+            <LimeExplanation
+              :explanation="explanation"
+              :loading="isLoadingXai && !explanation"
+              collapsible
+              :default-expanded="true"
+            />
+          </Card>
+
+          <Card v-if="currentPrediction" class="results__xai">
+            <NearestTicket
+              :nearest-ticket="nearestResult"
+              :ticket-details="nearestTicketDetails"
+              :loading="isLoadingXai && !nearestResult"
+              show-details
+            />
+          </Card>
+        </div>
+      </div>
+
+      <!-- Right Column: History & Examples -->
+      <div class="inference__right">
+        <!-- Prediction History Section -->
+        <Card class="inference__history-card">
+          <template #title>Prediction History</template>
+          <template #action>
+            <div class="history-actions">
+              <ExportButton
+                v-if="predictionHistory.length > 0"
+                :data="exportData"
+                filename="prediction_history"
                 size="sm"
-                @click="useExample('Laptop Screen Issue', 'My laptop screen is flickering and sometimes goes black. It\'s affecting my productivity.')"
+              />
+              <Button
+                v-if="predictionHistory.length > 0"
+                variant="ghost"
+                size="sm"
+                @click="clearHistory"
               >
-                Use This Example
+                <Trash2 :size="14" />
+              </Button>
+              <TrendingUp :size="18" class="history-icon" />
+            </div>
+          </template>
+
+          <div class="history-section">
+            <div v-if="predictionHistory.length === 0" class="history-section__empty">
+              <p>No predictions yet. Run a prediction to see history.</p>
+            </div>
+
+            <div v-else class="history-section__list">
+              <div
+                v-for="item in predictionHistory.slice(0, 10)"
+                :key="item.id"
+                class="history-item"
+              >
+                <p class="history-item__description">
+                  {{ item.input.title_anon || item.input.description_anon }}
+                </p>
+                <div class="history-item__tags">
+                  <Badge variant="secondary">{{ item.output.prediction }}</Badge>
+                  <Badge :variant="getPriorityVariant(getPriorityFromConfidence(item.output.confidence ?? 0))">
+                    {{ getPriorityFromConfidence(item.output.confidence ?? 0) }}
+                  </Badge>
+                  <span class="history-item__confidence">
+                    {{ ((item.output.confidence ?? 0) * 100).toFixed(1) }}%
+                  </span>
+                </div>
+                <div class="history-item__footer">
+                  <span class="history-item__time">{{ formatTime(item.timestamp) }}</span>
+                  <span class="history-item__processing">{{ item.processingTime }}ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Example Tickets Section -->
+        <Card class="inference__examples-card">
+          <template #title>
+            <Sparkles :size="18" />
+            Example Tickets
+          </template>
+          <template #description>Try these sample tickets</template>
+
+          <div class="examples-section">
+            <div
+              v-for="(example, index) in exampleTickets"
+              :key="index"
+              class="example-item"
+            >
+              <h4 class="example-item__title">{{ example.title }}</h4>
+              <p class="example-item__description">{{ example.description }}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                @click="useExample(example)"
+                :disabled="!canRunInference"
+              >
+                Use Example
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.inference {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  &__header-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  &__subtitle {
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  &__badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--primary);
+  }
+
+  &__stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+
+    @media (max-width: 1024px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  &__stat-card {
+    min-height: 140px;
+  }
+
+  &__warning {
+    margin-bottom: 1.5rem;
+  }
+
+  &__main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+
+    @media (max-width: 1200px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  &__left,
+  &__right {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  &__results {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  &__history-card {
+    min-height: 300px;
+  }
+
+  &__examples-card {
+    :deep(.card__title) {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+  }
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.5rem;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__icon {
+    color: var(--muted-foreground);
+  }
+
+  &__title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--foreground);
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    flex: 1;
+
+    &--center {
+      justify-content: center;
+    }
+  }
+
+  &__value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  &__sublabel {
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+
+  &__accuracy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  &__accuracy-label {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  &__accuracy-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+
+    .progress {
+      flex: 1;
+    }
+  }
+
+  &__accuracy-value {
+    font-size: 0.875rem;
+    font-weight: 600;
+    min-width: 50px;
+    text-align: right;
+  }
+}
+
+.warning-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--warning);
+}
+
+.input-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.results__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.results__xai {
+  padding: 1rem;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.history-icon {
+  color: var(--muted-foreground);
+}
+
+.history-section {
+  margin-top: 0.5rem;
+
+  &__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+    color: var(--muted-foreground);
+    text-align: center;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+}
+
+.history-item {
+  padding: 0.75rem;
+  background: var(--muted);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+
+  &__description {
+    font-size: 0.8125rem;
+    margin: 0;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  &__tags {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  &__confidence {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--success);
+  }
+
+  &__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.6875rem;
+    color: var(--muted-foreground);
+  }
+
+  &__processing {
+    font-family: monospace;
+  }
+}
+
+.examples-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.example-item {
+  padding: 1rem;
+  background: var(--muted);
+  border-radius: var(--radius);
+
+  &__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+  }
+
+  &__description {
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+    margin: 0 0 0.75rem 0;
+    line-height: 1.4;
+  }
+}
+</style>

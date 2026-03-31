@@ -1,15 +1,26 @@
-<script setup lang="ts">
-import { Toaster } from '@/components/ui/sonner'
-import Navigation from '@/components/Navigation.vue'
-import Footer from '@/components/Footer.vue'
-</script>
-
 <template>
-  <div class="min-h-screen flex flex-col">
+  <div class="app-layout">
     <Navigation />
-    <main class="flex-1">
-      <RouterView />
+    <main class="app-layout__main">
+      <router-view />
     </main>
-    <Toaster />
   </div>
 </template>
+
+<script setup lang="ts">
+import Navigation from '@/components/Navigation.vue'
+</script>
+
+<style lang="scss">
+.app-layout {
+  display: flex;
+  height: 100vh;
+  background-color: #f9fafb;
+
+  &__main {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+  }
+}
+</style>

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "humal-analytics"
+version = "0.1.0"
+description = "Analytics tool for HumAL Active Learning sessions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "HumAL Team"}
+]
+keywords = ["active-learning", "analytics", "machine-learning", "dashboard"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "httpx>=0.25.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "plotly>=5.18.0",
+    "dash>=2.14.0",
+    "dash-bootstrap-components>=1.5.0",
+    "scipy>=1.11.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "jupyter>=1.0.0",
+    "jupyterlab>=4.0.0",
+    "nbformat>=5.9.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+humal-analytics = "humal_analytics.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/humane/humal"
+"Documentation" = "https://github.com/humane/humal/docs"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["humal_analytics*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]

@@ -1,80 +1,217 @@
+<template>
+  <div class="sidebar-wrapper">
+    <aside
+      :class="[
+        'sidebar',
+        { 'sidebar--collapsed': !isOpen }
+      ]"
+    >
+      <div class="sidebar__header">
+        <h1 class="sidebar__title">IT Ticket Manager</h1>
+        <p class="sidebar__subtitle">AI-Powered Ticket System</p>
+      </div>
+
+      <div class="sidebar__instance">
+        <label class="sidebar__instance-label">Active Instance</label>
+        <InstanceSelector
+          :model-value="String(instanceStore.selectedInstanceId || '')"
+          placeholder="Select instance..."
+          size="sm"
+          @update:model-value="handleInstanceChange"
+        />
+      </div>
+
+      <nav class="sidebar__nav">
+        <RouterLink
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
+          class="sidebar__link"
+          :class="{ 'sidebar__link--active': isActive(item.path) }"
+        >
+          <component :is="item.icon" class="sidebar__icon" />
+          <span class="sidebar__label">{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+
+      <div class="sidebar__footer">
+        <div class="sidebar__status">
+          <p class="sidebar__status-label">Model Status</p>
+          <p class="sidebar__status-value">● Active</p>
+        </div>
+      </div>
+    </aside>
+
+    <Button
+      variant="ghost"
+      size="icon"
+      class="toggle-btn"
+      @click="toggle"
+    >
+      <X v-if="isOpen" />
+      <Menu v-else />
+    </Button>
+  </div>
+</template>
+
 <script setup lang="ts">
 import { ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import { Home, Brain, Target, MessageSquareText, Zap, Menu } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
+import { Menu, X } from 'lucide-vue-next'
+import { navItems } from '../router'
+import Button from './ui/Button.vue'
+import InstanceSelector from './InstanceSelector.vue'
+import { useInstanceStore } from '@/stores/useInstanceStore'
 
 const route = useRoute()
-const isOpen = ref(false)
+const instanceStore = useInstanceStore()
+const isOpen = ref(true)
 
-const navItems = [
-  { path: '/', label: 'Home', icon: Home },
-  { path: '/training', label: 'Model Training', icon: Brain },
-  { path: '/dispatch-labeling', label: 'Labeling', icon: Target },
-  { path: '/ticket-resolution', label: 'Ticket Resolution', icon: MessageSquareText },
-  { path: '/inference', label: 'Inference', icon: Zap },
-]
+const handleInstanceChange = (value: string) => {
+  instanceStore.setInstance(value)
+}
 
-const isActive = (path: string) => route.path === path
+const isActive = (path: string): boolean => {
+  return route.path === path
+}
+
+const toggle = () => {
+  isOpen.value = !isOpen.value
+}
 </script>
 
-<template>
-  <nav class="ml-nav-gradient shadow-lg sticky top-0 z-50 backdrop-blur-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-16">
-        <!-- Brand -->
-        <RouterLink to="/" class="flex items-center space-x-3">
-          <span class="text-white font-bold text-xl">Smart Ticketing System</span>
-        </RouterLink>
+<style lang="scss" scoped>
+.sidebar-wrapper {
+  position: relative;
+  display: flex;
+  width: 16rem;
+  flex-shrink: 0;
+  transition: width 0.3s ease-in-out;
 
-        <!-- Desktop Navigation -->
-        <div class="hidden md:flex items-center space-x-1">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.path"
-            :to="item.path"
-            :class="[
-              'px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center space-x-2',
-              isActive(item.path)
-                ? 'bg-white/20 text-white shadow-md'
-                : 'text-white/80 hover:text-white hover:bg-white/10'
-            ]"
-          >
-            <component :is="item.icon" class="w-4 h-4" />
-            <span>{{ item.label }}</span>
-          </RouterLink>
-        </div>
+  &:has(.sidebar--collapsed) {
+    width: 0;
+  }
+}
 
-        <!-- Mobile menu button -->
-        <div class="md:hidden">
-          <button
-            @click="isOpen = !isOpen"
-            class="text-white hover:text-white/80 p-2 rounded-md"
-          >
-            <Menu class="w-6 h-6" />
-          </button>
-        </div>
-      </div>
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 16rem;
+  min-width: 16rem;
+  background-color: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+  transform: translateX(0);
+  transition: transform 0.3s ease-in-out;
 
-      <!-- Mobile Navigation -->
-      <div v-if="isOpen" class="md:hidden pb-4">
-        <div class="flex flex-col space-y-1">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.path"
-            :to="item.path"
-            @click="isOpen = false"
-            :class="[
-              'px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center space-x-2',
-              isActive(item.path)
-                ? 'bg-white/20 text-white shadow-md'
-                : 'text-white/80 hover:text-white hover:bg-white/10'
-            ]"
-          >
-            <component :is="item.icon" class="w-4 h-4" />
-            <span>{{ item.label }}</span>
-          </RouterLink>
-        </div>
-      </div>
-    </div>
-  </nav>
-</template>
+  &--collapsed {
+    transform: translateX(-100%);
+  }
+
+  &__header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+
+  &__title {
+    font-size: 1.25rem;
+    font-weight: var(--font-weight-medium);
+    color: var(--sidebar-foreground);
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  &__subtitle {
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+    margin: 0.25rem 0 0;
+    white-space: nowrap;
+  }
+
+  &__instance {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+
+  &__instance-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: var(--font-weight-medium);
+    color: var(--muted-foreground);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  &__nav {
+    flex: 1;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: var(--sidebar-foreground);
+    transition: background-color 0.15s, color 0.15s;
+    white-space: nowrap;
+
+    &:hover {
+      background-color: var(--sidebar-accent);
+    }
+
+    &--active {
+      background-color: var(--sidebar-accent);
+      color: var(--sidebar-primary);
+    }
+  }
+
+  &__icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  &__label {
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-medium);
+  }
+
+  &__footer {
+    padding: 1rem;
+    border-top: 1px solid var(--sidebar-border);
+  }
+
+  &__status {
+    padding: 0.75rem 1rem;
+    background-color: var(--sidebar-accent);
+    border-radius: var(--radius);
+    white-space: nowrap;
+  }
+
+  &__status-label {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  &__status-value {
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-medium);
+    color: var(--chart-2);
+    margin: 0.25rem 0 0;
+  }
+}
+
+.toggle-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: -2.5rem;
+  z-index: 50;
+}
+</style>
