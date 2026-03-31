@@ -185,6 +185,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+frontend/.env
+frontend/.vite
 
 node_modules
 dist
