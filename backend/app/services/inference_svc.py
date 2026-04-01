@@ -1,11 +1,12 @@
 from app.core.storage import ActiveLearningStorage
-from app.data_models.active_learning_dm import Data
+from app.data_models.active_learning_dm import InferenceRequest, InferenceResponse
 import pandas as pd
 import joblib
 from app.services.data_preprocessing import inference
 from sentence_transformers import SentenceTransformer
 from typing import Optional
 from app.persistence.local_artifacts import LocalArtifactsStore
+from backend.app.config.config import DEFAULT_MODEL_ID
 
 class InferenceService:
     def __init__(
@@ -17,9 +18,15 @@ class InferenceService:
         self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.local_artifacts_store = local_artifacts_store
 
-    # Logic for inference
-    def infer(self, al_instance_id: int, X: Data, model_id: int = 0):
-        # Convert Data object to pandas DataFrame with an index
+    def infer(self, al_instance_id: int, X: list[InferenceRequest], model_id: int = DEFAULT_MODEL_ID) -> list[InferenceResponse]:
+        """Perform inference for a given active learning instance and input data."""
+
+        # Extract the components from the InferenceRequest
+        model_id = X.model_id if X.model_id is not None else DEFAULT_MODEL_ID
+        data_dict = X.data_id
+        fields = X.fields
+
+        # Convert InferenceRequest object to pandas DataFrame with an index
         data_dict = X.model_dump()
         
         # Wrap the dictionary in a list to create a single row DataFrame

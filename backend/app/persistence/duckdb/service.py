@@ -165,6 +165,61 @@ class DuckDbPersistenceService:
             }
         return instances
 
+    # --- Models ---
+    def add_model(
+        self,
+        *,
+        model_id: int,
+        al_instance_id: int,
+        metrics: Optional[Any] = None,
+    ) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO models
+                (model_id, al_instance_id, metrics)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    model_id,
+                    al_instance_id,
+                    self._json_dumps(metrics) if metrics is not None else None,
+                ],
+            )
+
+    def remove_model(self, *, model_id: int, al_instance_id: int) -> bool:
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                DELETE FROM models
+                WHERE model_id = ? AND al_instance_id = ?
+                """,
+                [model_id, al_instance_id],
+            )
+        return result.rowcount > 0
+
+    def load_models(self, *, al_instance_id: int) -> list[Dict[str, Any]]:
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT model_id, al_instance_id, metrics, created_at
+                FROM models
+                WHERE al_instance_id = ?
+                ORDER BY created_at DESC, model_id DESC
+                """,
+                [al_instance_id],
+            ).fetchall()
+
+        return [
+            {
+                "model_id": row[0],
+                "al_instance_id": row[1],
+                "metrics": self._json_loads(row[2]),
+                "created_at": row[3],
+            }
+            for row in rows
+        ]
+
     # --- Dataset Configs ---
     def save_dataset_config(
         self,
@@ -216,9 +271,7 @@ class DuckDbPersistenceService:
     def load_dataset_config(
         self,
         *,
-        al_instance_id: int,
-        dataset_name: str,
-        version: str = "1.0",
+        al_instance_id: int
     ) -> Optional[Dict[str, Any]]:
         with connect(self.db_path) as conn:
             row = conn.execute(
@@ -236,9 +289,9 @@ class DuckDbPersistenceService:
                     preprocessing,
                     created_at
                 FROM dataset_configs
-                WHERE al_instance_id = ? AND dataset_name = ? AND version = ?
+                WHERE al_instance_id = ?
                 """,
-                [al_instance_id, dataset_name, version],
+                [al_instance_id],
             ).fetchone()
 
         if not row:
@@ -496,4 +549,5 @@ class DuckDbPersistenceService:
             conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM metrics WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM dataset_configs WHERE al_instance_id = ?", [al_instance_id])
+            conn.execute("DELETE FROM models WHERE al_instance_id = ?", [al_instance_id])
             conn.execute("DELETE FROM al_instances WHERE al_instance_id = ?", [al_instance_id])

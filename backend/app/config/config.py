@@ -31,3 +31,6 @@ GROUND_TRUTH_AL_INSTANCE_ID = 0  # Reserved for global labels
 TEAM_NAME = "Team->Name"
 TEST_SPLIT = "test"
 TRAIN_SPLIT = "train"   
+
+# ============ Models ============
+DEFAULT_MODEL_ID = 0

@@ -61,6 +61,20 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS models (
+            model_id INTEGER NOT NULL,
+            al_instance_id INTEGER NOT NULL,
+            metrics JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (model_id, al_instance_id),
+            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
+        )
+        """
+    )
+
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS metrics (
             al_instance_id INTEGER NOT NULL,
             iteration_id INTEGER NOT NULL,
@@ -92,7 +106,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS dataset_configs (
-            al_instance_id INTEGER NOT NULL,
+            al_instance_id INTEGER PRIMARY KEY,
             dataset_name VARCHAR NOT NULL,
             version VARCHAR NOT NULL,
             dataset_format VARCHAR NOT NULL,
@@ -103,7 +117,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             features JSON NOT NULL,
             preprocessing JSON,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (al_instance_id, dataset_name, version),
             FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
         )
         """
@@ -122,6 +135,13 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_metrics_instance
         ON metrics(al_instance_id)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_models_instance
+        ON models(al_instance_id)
         """
     )
 

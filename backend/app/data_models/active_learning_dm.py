@@ -1,5 +1,7 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any, Dict, Optional, Union
+
+Primitive = Union[str, int, float, bool, None]
 
 # Data model for the new instance
 class NewInstance(BaseModel):
@@ -23,3 +25,13 @@ class Data(BaseModel):
     title_anon: Optional[str] = None
     description_anon: Optional[str] = None
     public_log_anon: Optional[str] = None
+
+# Inference data models
+class InferenceRequest(BaseModel):
+    id: Union[str, int]
+    fields: Dict[str, Primitive] = {}
+
+class InferenceResponse(BaseModel):
+    id: Union[str, int]
+    label: Primitive = None
+
