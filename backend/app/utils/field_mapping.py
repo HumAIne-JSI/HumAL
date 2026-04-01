@@ -1,12 +1,11 @@
 import pandas as pd
 from app.persistence.duckdb.service import DuckDbPersistenceService
+from app.core.dependencies import get_duckdb_persistence_service
 from functools import lru_cache
 
 def normalise_and_validate_dataframe(
     al_instance_id: int,
-    df: pd.DataFrame,
-    *,
-    duckdb_service: DuckDbPersistenceService
+    df: pd.DataFrame
 ) -> pd.DataFrame:
     """
     Normalize dataframe columns based on dataset config fields.
@@ -15,10 +14,7 @@ def normalise_and_validate_dataframe(
     - Ensures all configured columns exist (missing optional columns are added with None).
     - Ensures required columns contain non-empty values.
     """
-    rename_dict, name_required = create_renaming_dictionaries(
-        al_instance_id=al_instance_id,
-        duckdb_service=duckdb_service,
-    )
+    rename_dict, name_required = create_renaming_dictionaries(al_instance_id)
 
     # Remove the columns that are not in the config (alias)
     df = df.copy()
@@ -41,7 +37,7 @@ def normalise_and_validate_dataframe(
             raise ValueError(f"Missing required field: {name}")
 
         values = df[name]
-        empty = values.isna() | (values.astype(str).str.strip() == "")
+        empty = values.isna()
         if empty.any():
             raise ValueError(f"Required field '{name}' contains empty values")
 
@@ -49,8 +45,7 @@ def normalise_and_validate_dataframe(
 
 @lru_cache(maxsize=50)
 def create_renaming_dictionaries(
-        al_instance_id: int, 
-        duckdb_service: DuckDbPersistenceService
+        al_instance_id: int
         ) -> tuple[dict[str, dict[str, str]], dict[str, bool]]:
     """
     Creates 2 dictionaries:
@@ -63,6 +58,7 @@ def create_renaming_dictionaries(
         - frontend_alias_alias (frontend name to data source name)
     - name_required (canonical name to required boolean)
     """
+    duckdb_service = get_duckdb_persistence_service()
     config = duckdb_service.load_dataset_config(al_instance_id=al_instance_id)
 
     if config is None:

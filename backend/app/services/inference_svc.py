@@ -21,10 +21,7 @@ class InferenceService:
     def infer(self, al_instance_id: int, X: list[InferenceRequest], model_id: int = DEFAULT_MODEL_ID) -> list[InferenceResponse]:
         """Perform inference for a given active learning instance and input data."""
 
-        # Extract the components from the InferenceRequest
-        model_id = X.model_id if X.model_id is not None else DEFAULT_MODEL_ID
-        data_dict = X.data_id
-        fields = X.fields
+        # convert the list of InferenceRequest objects to a dataframe
 
         # Convert InferenceRequest object to pandas DataFrame with an index
         data_dict = X.model_dump()
