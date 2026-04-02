@@ -28,18 +28,19 @@ def normalise_and_validate_dataframe(
     # Rename all of the columns from alias to name
     df = df.rename(columns=rename_dict["alias_name"])
 
-    # Check that all required columns are present and contain non-empty values
-    for name, required in name_required.items():
-        if not required:
-            continue
+    # Check required columns exist, then drop rows where any required value is empty
+    required_columns = [name for name, required in name_required.items() if required]
 
+    for name in required_columns:
         if name not in df.columns:
             raise ValueError(f"Missing required field: {name}")
 
-        values = df[name]
-        empty = values.isna()
-        if empty.any():
-            raise ValueError(f"Required field '{name}' contains empty values")
+    if required_columns:
+        empty_required_mask = df[required_columns].isna().any(axis=1)
+        df = df.loc[~empty_required_mask]
+
+    if df.empty:
+        raise ValueError("No valid rows remain after dropping rows with empty required fields")
 
     return df
 
@@ -64,9 +65,9 @@ def create_renaming_dictionaries(
     if config is None:
         raise ValueError(f"Dataset config not found for al_instance_id={al_instance_id}")
 
-    fields = config.get("fields") or []
-    if not isinstance(fields, list) or not fields:
-        raise ValueError("Dataset config 'fields' must be a non-empty list")
+    fields = config.get("fields")
+    if not fields:
+        raise ValueError("Dataset config 'fields' is missing or empty")
 
     rename_dict = {
         'name_alias': {},
@@ -78,15 +79,14 @@ def create_renaming_dictionaries(
     }
     name_required: dict[str, bool] = {}
 
-    for field in fields:
-        name = field.get("name")
+    for name, field in fields.items():
         alias = field.get("alias")
         frontend_alias = field.get("frontend_alias")
         required = field.get("required")
 
         # Check if any is missing
         if not name or not alias or not frontend_alias or required is None:
-            raise ValueError(f"Each field must have 'name', 'alias', 'frontend_alias', and 'required'. Found: {field}")
+            raise ValueError(f"Each field must have key (name), 'alias', 'frontend_alias', and 'required'. Found: {field}")
 
         rename_dict['name_alias'][name] = alias
         rename_dict['alias_name'][alias] = name
