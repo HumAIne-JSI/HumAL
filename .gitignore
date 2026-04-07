@@ -175,6 +175,7 @@ backend/app/services/resolution_task_new.py
 backend/sentence_transformers_cache/
 backend/data_and_model_export
 /backend/storage/
+/backend/artifacts/
 
 # FRONTEND
 # Logs
@@ -203,3 +204,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Misc
+/.github
