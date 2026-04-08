@@ -175,6 +175,8 @@ backend/app/services/resolution_task_new.py
 backend/sentence_transformers_cache/
 backend/data_and_model_export
 /backend/storage/
+/backend/tests/test_xai_integration
+/backend/artifacts/
 
 # FRONTEND
 frontend/.vite/
@@ -192,7 +194,7 @@ dist
 dist-ssr
 *.local
 
-# Editor directories and files
+Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -202,3 +204,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Misc
+/.github
