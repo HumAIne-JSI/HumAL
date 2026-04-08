@@ -1,6 +1,6 @@
 services:
   backend:
-    image: rokklancic/humal-backend:dev-0.3
+    image: rokklancic/humaine-al-api:v0.2.1
     ports:
       - "8000:8000"
     environment:
