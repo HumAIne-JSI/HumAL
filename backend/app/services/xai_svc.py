@@ -1,5 +1,6 @@
 from app.core.storage import ActiveLearningStorage
 from app.services.inference_svc import InferenceService
+from app.services.ticket_vectorizer_svc import TicketVectorizerService
 from lime.lime_text import LimeTextExplainer
 from app.services.data_preprocessing import inference
 import joblib
@@ -27,7 +28,8 @@ class XaiService:
             local_artifacts_store: Optional[LocalArtifactsStore] = None,
             minio_service: Optional[MinioService] = None,
             duckdb_service: Optional[DuckDbPersistenceService] = None,
-            rabbitmq_client: Optional[RabbitMQClient] = None
+            rabbitmq_client: Optional[RabbitMQClient] = None,
+            ticket_vectorizer_service: Optional[TicketVectorizerService] = None
             ):
         self.storage = storage
         self.inference_service = inference_service
@@ -40,6 +42,7 @@ class XaiService:
         self.minio_service = minio_service
         self.duckdb_service = duckdb_service
         self.rabbitmq_client = rabbitmq_client
+        self.ticket_vectorizer_service = ticket_vectorizer_service
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """
@@ -169,7 +172,7 @@ class XaiService:
         }
 
     async def create_xai_request(self, al_instance_id: int, ticket_data: Data, model_id: int, ticket_ref: Optional[str] = None):
-        """Saves the ticket to MinIO.
+        """Saves the ticket and vectorizer to MinIO.
            If ticket_ref is provided, it uses the ticket_ref as the object name in MinIO,
            otherwise, the minio method generates a sha256 hash.
            It then generates a job_id and saves the XAI request information to the database for tracking."""
@@ -182,27 +185,47 @@ class XaiService:
             ticket_ref=ticket_ref,
         )
 
+        # Create and save the ticket vectorizer
+        vectorizer_path = None
+        if self.ticket_vectorizer_service is not None:
+            one_hot_encoder = self.storage.dataset_dict[al_instance_id]['oh']
+            vectorizer = self.ticket_vectorizer_service.create_vectorizer(
+                one_hot_encoder=one_hot_encoder,
+            )
+            vectorizer_storage_info = self.ticket_vectorizer_service.save_vectorizer(
+                al_instance_id=al_instance_id,
+                vectorizer=vectorizer,
+            )
+            vectorizer_path = vectorizer_storage_info["object"]
+
         job_id = uuid.uuid4()
-        xai_job_payload_duckdb = {
+        
+        # Payload for DuckDB (follows schema column names)
+        xai_job_duckdb_args = {
             "al_instance_id": al_instance_id,
             "job_id": job_id,
             "model_id": model_id,
             "ticket_ref_or_sha": ticket_storage_info["ticket_sha"],
             "request_ticket_location": ticket_storage_info["object"],
             "request_model_location": config.model_location(al_instance_id, model_id),
-            "request_vectorized_tickets_location": config.vectorized_tickets_location(al_instance_id, model_id, config.TEST_SPLIT),
+            "request_preprocessor_location": vectorizer_path,
             "request_raw_tickets_locations": self.minio_service.return_data_names(config.TEST_SPLIT),
         }
 
-        # Format the payload for RabbitMQ (artifacts nesting; job_id to string; add version)
-        artifact_keys = ["request_ticket_location", "request_model_location", "request_vectorized_tickets_location", "request_raw_tickets_locations"]
-        xai_job_payload = xai_job_payload_duckdb.copy()
-        xai_job_payload["job_id"] = str(job_id)
-        xai_job_payload["artifacts"] = {key: xai_job_payload_duckdb[key] for key in artifact_keys}
-        for artifact_key in artifact_keys:
-            del xai_job_payload[artifact_key]
-        xai_job_payload["version"] = os.getenv("MESSAGE_VERSION", "0.1")
-
+        # Format the payload for RabbitMQ (artifacts nesting; job_id to string; friendly names)
+        xai_job_payload = {
+            "version": os.getenv("MESSAGE_VERSION", "0.1"),
+            "job_id": str(job_id),
+            "al_instance_id": al_instance_id,
+            "model_id": model_id,
+            "ticket_sha": ticket_storage_info["ticket_sha"],
+            "artifacts": {
+                "ticket": ticket_storage_info["object"],
+                "model": config.model_location(al_instance_id, model_id),
+                "preprocessor": vectorizer_path,
+                "raw_tickets": self.minio_service.return_data_names(config.TEST_SPLIT),
+            }
+        }
 
         # Publish the message to RabbitMQ for asynchronous processing
         if self.rabbitmq_client is not None and os.getenv("USE_RABBITMQ", "0") == "1":
@@ -212,7 +235,7 @@ class XaiService:
             publish_payload = {**xai_job_payload}
             await self.rabbitmq_client.publish(queue_name=task_queue, message=publish_payload)
 
-        self.duckdb_service.create_xai_job(**xai_job_payload_duckdb)
+        self.duckdb_service.create_xai_job(**xai_job_duckdb_args)
 
 
         return job_id

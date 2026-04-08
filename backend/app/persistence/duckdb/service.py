@@ -585,7 +585,7 @@ class DuckDbPersistenceService:
             ticket_ref_or_sha: str, 
             request_ticket_location: str, 
             request_model_location: str, 
-            request_vectorized_tickets_location: str, 
+            request_preprocessor_location: Optional[str],
             request_raw_tickets_locations: list[str],
             status: str = "queued"
             ) -> None:
@@ -594,10 +594,13 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO xai_jobs (job_id, al_instance_id, ticket_ref_or_sha, model_id, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations)
+                INSERT INTO xai_jobs 
+                (job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, 
+                 request_model_location, request_preprocessor_location, request_raw_tickets_locations)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [job_id, al_instance_id, ticket_ref_or_sha, model_id, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations],
+                [str(job_id), al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location,
+                 request_model_location, request_preprocessor_location, request_raw_tickets_locations]
             )
             
     def update_xai_job_status(self, job_id: uuid.UUID, status: str, result_location: Optional[str] = None, result_file_names: Optional[list[str]] = None) -> None:
@@ -628,7 +631,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_vectorized_tickets_location, request_raw_tickets_locations, result_location, result_file_names, created_at, finished_at
+                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_preprocessor_location, request_raw_tickets_locations, result_location, result_file_names, created_at, finished_at
                 FROM xai_jobs
                 WHERE job_id = ?
                 """,
@@ -646,7 +649,7 @@ class DuckDbPersistenceService:
             "status": row[4],
             "request_ticket_location": row[5],
             "request_model_location": row[6],
-            "request_vectorized_tickets_location": row[7],
+            "request_preprocessor_location": row[7],
             "request_raw_tickets_locations": _deserialize_varchar_array(row[8]),
             "result_location": row[9],
             "result_file_names": _deserialize_varchar_array(row[10]),

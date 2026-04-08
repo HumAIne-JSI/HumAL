@@ -225,6 +225,28 @@ class MinioService:
         downloaded = self.client.download_object(DATA_BUCKET, object_name)
         return joblib.load(BytesIO(downloaded))
 
+    def save_ticket_vectorizer(
+        self,
+        *,
+        al_instance_id: int,
+        vectorizer,
+    ):
+        """Upload a TicketVectorizer (fitted OneHotEncoder + SentenceTransformer config) as joblib format."""
+        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.joblib")
+        vectorizer_bytes = self._to_joblib(vectorizer)
+        self.client.upload_file_bytes(MODELS_BUCKET, object_name, vectorizer_bytes)
+        return {"bucket": MODELS_BUCKET, "object": object_name}
+
+    def load_ticket_vectorizer(
+        self,
+        *,
+        al_instance_id: int,
+    ):
+        """Download and deserialize a TicketVectorizer from MinIO."""
+        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.joblib")
+        downloaded = self.client.download_object(MODELS_BUCKET, object_name)
+        return joblib.load(BytesIO(downloaded))
+
     def save_ticket_for_xai(self, al_instance_id: int, X: Data, ticket_ref: Optional[str] = None) -> Dict[str, str]:
         """
         Save the original tickets for XAI purposes.
@@ -257,6 +279,7 @@ class MinioService:
                 MODELS_BUCKET: [
                     self._with_prefix(f"models/{al_instance_id}/"),
                     self._with_prefix(f"encoders/{al_instance_id}/"),
+                    self._with_prefix(f"vectorizers/{al_instance_id}/"),
                 ],
                 DATA_BUCKET: [ 
                     self._with_prefix(f"vectorized_tickets/{al_instance_id}/"),
