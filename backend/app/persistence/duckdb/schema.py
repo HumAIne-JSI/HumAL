@@ -130,7 +130,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             status VARCHAR NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
             request_ticket_location VARCHAR NOT NULL,
             request_model_location VARCHAR NOT NULL,
-            request_vectorized_tickets_location VARCHAR NOT NULL,
+            request_preprocessor_location VARCHAR,
             request_raw_tickets_locations VARCHAR[] NOT NULL,
             result_location VARCHAR,
             result_file_names VARCHAR[],

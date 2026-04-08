@@ -6,6 +6,7 @@ from app.services.inference_svc import InferenceService
 from app.services.config_svc import ConfigService
 from app.services.data_service import DataService
 from app.services.xai_svc import XaiService
+from app.services.ticket_vectorizer_svc import TicketVectorizerService
 from app.services.resolution_svc import ResolutionService
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
@@ -33,13 +34,15 @@ al_service = ActiveLearningService(storage, duckdb_persistence_service, local_ar
 inference_service = InferenceService(storage, local_artifacts_store)
 config_service = ConfigService()
 data_service = DataService(duckdb_service=duckdb_persistence_service)
+ticket_vectorizer_service = TicketVectorizerService(minio_service=minio_service)
 xai_service = XaiService(
     storage,
     inference_service,
     local_artifacts_store,
     minio_service=minio_service,
     duckdb_service=duckdb_persistence_service,
-    rabbitmq_client=rabbitmq_client if os.getenv("USE_RABBITMQ", "0") == "1" else None
+    rabbitmq_client=rabbitmq_client if os.getenv("USE_RABBITMQ", "0") == "1" else None,
+    ticket_vectorizer_service=ticket_vectorizer_service
 )
 startup_service = StartupService(
     duckdb_service=duckdb_persistence_service,
@@ -62,6 +65,9 @@ def get_config_service():
 
 def get_data_service():
     return data_service
+
+def get_ticket_vectorizer_service():
+    return ticket_vectorizer_service
 
 def get_xai_service():
     return xai_service

@@ -22,7 +22,7 @@ services:
       - RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
       - TASK_QUEUE=xai_jobs
       - RESULT_QUEUE=xai_results
-      - MESSAGE_VERSION=0.1
+      - MESSAGE_VERSION=0.2
       - SIMULATOR_DELAY_SEC=0.5
     restart: on-failure
     networks:
@@ -47,7 +47,7 @@ services:
       - TASK_QUEUE=xai_jobs
       - RESULT_QUEUE=xai_results
       - USE_RABBITMQ=1
-      - MESSAGE_VERSION=0.1
+      - MESSAGE_VERSION=0.2
     networks:
       - humal-network
 
