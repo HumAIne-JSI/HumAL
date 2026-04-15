@@ -29,7 +29,7 @@ services:
       - humal-network
 
   backend:
-    image: rokklancic/humaine-al-api:v0.2.1
+    image: rokklancic/humaine-al-api:v0.3.0
     ports:
       - "8000:8000"
     depends_on:
@@ -39,7 +39,7 @@ services:
         condition: service_started
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - MINIO_PREFIX=DEV_TEST
+      - MINIO_PREFIX=PROD_TEST
       - MINIO_USERNAME=${MINIO_USERNAME}
       - MINIO_PASSWORD=${MINIO_PASSWORD}
       - DUCKDB_PATH=storage/db/humal.duckdb
