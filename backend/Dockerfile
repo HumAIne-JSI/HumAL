@@ -3,7 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 # Keep backend paths predictable inside the container
 ENV TEAM_CLASSIFIER_PATH=/app/models/perfect_team_classifier \
@@ -42,6 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Copy backend code + bundled artifacts
 COPY app /app/app
+COPY humal_vectorizer /app/humal_vectorizer
 COPY models /app/models
 COPY data /app/data
 

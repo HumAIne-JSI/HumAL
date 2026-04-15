@@ -2,11 +2,13 @@
 Manual integration test: Vectorizer + Model + LIME simulation
 
 Tests all three vectorizer modes (simple/full/stateful) with model predictions.
+Vectorizer is loaded from cloudpickle (.pkl format).
 No pytest required - run directly: python test_vectorizer_model_integration.py
 """
 
 import json
 import joblib
+import cloudpickle
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -16,16 +18,14 @@ import sys
 backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
-from app.services.ticket_vectorizer_svc import TicketVectorizer
-
 
 def load_artifacts(test_dir: Path):
-    """Load all artifacts from test folder."""
+    """Load all artifacts from test folder using cloudpickle."""
     print("=" * 80)
     print("LOADING ARTIFACTS")
     print("=" * 80)
     
-    vectorizer_path = test_dir / "ticket_vectorizer.joblib"
+    vectorizer_path = test_dir / "ticket_vectorizer.pkl"
     model_path = test_dir / "0.joblib"
     ticket_path = test_dir / "8f9fe95282d8b1ef92b266bca33b3fb64762fccb719c4181a152f5ff21f48113.json"
     
@@ -37,14 +37,14 @@ def load_artifacts(test_dir: Path):
     if not ticket_path.exists():
         raise FileNotFoundError(f"Ticket not found: {ticket_path}")
     
-    # Load artifacts
-    vectorizer = joblib.load(vectorizer_path)
+    # Load artifacts (vectorizer from cloudpickle, model from joblib)
+    vectorizer = cloudpickle.load(open(vectorizer_path, 'rb'))
     model = joblib.load(model_path)
     
     with open(ticket_path, 'r') as f:
         ticket_data = json.load(f)
     
-    print(f"✓ Vectorizer loaded: {type(vectorizer).__name__}")
+    print(f"✓ Vectorizer loaded (from cloudpickle): {type(vectorizer).__name__}")
     print(f"✓ Model loaded: {type(model).__name__}")
     print(f"✓ Ticket loaded with fields: {list(ticket_data.keys())}")
     print()

@@ -586,26 +586,39 @@ class DuckDbPersistenceService:
             request_ticket_location: str, 
             request_model_location: str, 
             request_preprocessor_location: Optional[str],
+            request_one_hot_encoder_location: Optional[str],
             request_raw_tickets_locations: list[str],
             status: str = "queued"
             ) -> None:
 
         """Create a new XAI job entry in the database."""
+        import json
+        
+        # Convert Python list to JSON string for DuckDB (arrays stored as JSON strings)
+        request_raw_tickets_locations_serialized = json.dumps(request_raw_tickets_locations)
+        
         with connect(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO xai_jobs 
                 (job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, 
-                 request_model_location, request_preprocessor_location, request_raw_tickets_locations)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 request_model_location, request_preprocessor_location, request_one_hot_encoder_location, request_raw_tickets_locations)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [str(job_id), al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location,
-                 request_model_location, request_preprocessor_location, request_raw_tickets_locations]
+                 request_model_location, request_preprocessor_location, request_one_hot_encoder_location, request_raw_tickets_locations_serialized]
             )
             
     def update_xai_job_status(self, job_id: uuid.UUID, status: str, result_location: Optional[str] = None, result_file_names: Optional[list[str]] = None) -> None:
 
         """Update the status and optionally result location of an existing XAI job."""
+        import json
+        
+        # Convert Python list to JSON string for DuckDB (arrays stored as JSON strings)
+        result_file_names_serialized = None
+        if result_file_names is not None:
+            result_file_names_serialized = json.dumps(result_file_names)
+        
         with connect(self.db_path) as conn:
             if result_location is not None or result_file_names is not None:
                 conn.execute(
@@ -614,7 +627,7 @@ class DuckDbPersistenceService:
                     SET status = ?, result_location = ?, result_file_names = ?, finished_at = CURRENT_TIMESTAMP
                     WHERE job_id = ?
                     """,
-                    [status, result_location, result_file_names, job_id],
+                    [status, result_location, result_file_names_serialized, job_id],
                 )
             else:
                 conn.execute(
