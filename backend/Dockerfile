@@ -3,7 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
     SENTENCE_TRANSFORMERS_CACHE_DIR=/app/storage/sentence_transformers_cache \
@@ -37,6 +38,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy backend code + bundled artifacts
 COPY app /app/app
 COPY sentence_transformers_cache /app/storage/sentence_transformers_cache
+COPY humal_vectorizer /app/humal_vectorizer
 
 EXPOSE 8000
 

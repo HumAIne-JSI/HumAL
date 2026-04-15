@@ -7,10 +7,12 @@ import os
 import re
 from typing import Any, Dict, Optional
 import joblib
+import cloudpickle
 import pandas as pd
 from app.core.minio_client import MinioClient
 from app.data_models.active_learning_dm import Data
 import hashlib, json, unicodedata
+import humal_vectorizer
 
 # MinIO bucket names
 MODELS_BUCKET = "smart-finance-models"
@@ -231,9 +233,33 @@ class MinioService:
         al_instance_id: int,
         vectorizer,
     ):
-        """Upload a TicketVectorizer (fitted OneHotEncoder + SentenceTransformer config) as joblib format."""
-        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.joblib")
-        vectorizer_bytes = self._to_joblib(vectorizer)
+        """
+        Upload a TicketVectorizer as a portable cloudpickle file.
+        
+        Registers the humal_vectorizer module to serialize the TicketVectorizer class as bytecode.
+        Safe because SentenceTransformer is imported inside _get_sentence_model() (not at module level),
+        so cloudpickle won't include environment-specific module paths in the serialization.
+        
+        External machines only need: cloudpickle, pandas, scikit-learn, sentence-transformers
+        
+        IMPORTANT: The vectorizer must have one_hot_encoder=None before calling this method.
+        The encoder is saved separately via save_one_hot_encoder().
+        
+        Raises:
+            RuntimeError: If vectorizer.one_hot_encoder is not None
+        """
+        if vectorizer.one_hot_encoder is not None:
+            raise RuntimeError(
+                "Cannot save vectorizer with one_hot_encoder attached. "
+                "Set vectorizer.one_hot_encoder = None before saving. "
+                "The encoder will be saved separately via save_one_hot_encoder()."
+            )
+        
+        # Register humal_vectorizer module to be serialized as bytecode
+        cloudpickle.register_pickle_by_value(humal_vectorizer)
+        
+        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.pkl")
+        vectorizer_bytes = self._to_cloudpickle(vectorizer)
         self.client.upload_file_bytes(MODELS_BUCKET, object_name, vectorizer_bytes)
         return {"bucket": MODELS_BUCKET, "object": object_name}
 
@@ -242,10 +268,15 @@ class MinioService:
         *,
         al_instance_id: int,
     ):
-        """Download and deserialize a TicketVectorizer from MinIO."""
-        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.joblib")
+        """
+        Download and deserialize a TicketVectorizer from MinIO.
+        
+        Uses cloudpickle to load the complete vectorizer with all dependencies.
+        Works on any machine with cloudpickle installed, no source code needed.
+        """
+        object_name = self._with_prefix(f"vectorizers/{al_instance_id}/ticket_vectorizer.pkl")
         downloaded = self.client.download_object(MODELS_BUCKET, object_name)
-        return joblib.load(BytesIO(downloaded))
+        return cloudpickle.loads(downloaded)
 
     def save_ticket_for_xai(self, al_instance_id: int, X: Data, ticket_ref: Optional[str] = None) -> Dict[str, str]:
         """
@@ -304,6 +335,15 @@ class MinioService:
         joblib.dump(obj, buffer)
         buffer.seek(0)
         return buffer.read()
+
+    def _to_cloudpickle(self, obj: Any) -> bytes:
+        """
+        Serialize a Python object to cloudpickle bytes.
+        
+        Cloudpickle serializes the entire object including class definitions and closures,
+        making it fully portable. Unlike joblib, it doesn't require class paths to be importable.
+        """
+        return cloudpickle.dumps(obj)
 
     def _get_minio_prefix(self) -> str:
         """Get an optional object-key prefix used to namespace MinIO paths."""

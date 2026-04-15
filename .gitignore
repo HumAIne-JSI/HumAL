@@ -211,3 +211,4 @@ Editor directories and files
 
 # Misc
 /.github
+/tests/

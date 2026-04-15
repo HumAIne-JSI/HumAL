@@ -131,6 +131,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             request_ticket_location VARCHAR NOT NULL,
             request_model_location VARCHAR NOT NULL,
             request_preprocessor_location VARCHAR,
+            request_one_hot_encoder_location VARCHAR,
             request_raw_tickets_locations VARCHAR[] NOT NULL,
             result_location VARCHAR,
             result_file_names VARCHAR[],

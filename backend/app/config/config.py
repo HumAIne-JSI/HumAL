@@ -53,6 +53,14 @@ def vectorized_tickets_location(al_instance_id: int, model_id: int, split: str) 
         return f"{minio_prefix}/vectorized_tickets/{al_instance_id}/{model_id}_{split}.joblib"
     return f"vectorized_tickets/{al_instance_id}/{model_id}_{split}.joblib"
 
+def encoder_location(al_instance_id: int, encoder_type: str) -> str:
+    minio_prefix = _get_minio_prefix()
+    if encoder_type not in ['one_hot', 'label']:
+        raise ValueError(f"Invalid encoder type: {encoder_type}. Must be 'one_hot' or 'label'.")
+    if minio_prefix:
+        return f"{minio_prefix}/encoders/{al_instance_id}/{encoder_type}_encoder.joblib"
+    return f"encoders/{al_instance_id}/{encoder_type}_encoder.joblib"
+
 
 def _get_minio_prefix() -> str:
     """Get an optional object-key prefix used to namespace MinIO paths."""

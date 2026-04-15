@@ -1,7 +1,10 @@
 import asyncio
 import aio_pika
 import json
+import logging
 from aio_pika import Message
+
+logger = logging.getLogger(__name__)
 
 
 class RabbitMQClient:
@@ -65,7 +68,11 @@ class RabbitMQClient:
 
         async def wrapped_callback(message):
             async with message.process():
-                data = json.loads(message.body)
-                await callback(data)
+                try:
+                    data = json.loads(message.body)
+                    await callback(data)
+                except Exception as e:
+                    logger.error(f"Error processing RabbitMQ message from '{queue_name}': {type(e).__name__}: {str(e)}", exc_info=True)
+                    # Don't re-raise - keep the consumer alive for subsequent messages
 
         return await queue.consume(wrapped_callback)

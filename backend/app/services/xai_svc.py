@@ -19,6 +19,9 @@ from app.core.rabbitmq_client import RabbitMQClient
 import uuid
 import app.config.config as config
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class XaiService:
     def __init__(
@@ -188,15 +191,13 @@ class XaiService:
         # Create and save the ticket vectorizer
         vectorizer_path = None
         if self.ticket_vectorizer_service is not None:
-            one_hot_encoder = self.storage.dataset_dict[al_instance_id]['oh']
-            vectorizer = self.ticket_vectorizer_service.create_vectorizer(
-                one_hot_encoder=one_hot_encoder,
-            )
+            vectorizer = self.ticket_vectorizer_service.create_vectorizer()
             vectorizer_storage_info = self.ticket_vectorizer_service.save_vectorizer(
                 al_instance_id=al_instance_id,
                 vectorizer=vectorizer,
             )
             vectorizer_path = vectorizer_storage_info["object"]
+
 
         job_id = uuid.uuid4()
         
@@ -209,6 +210,7 @@ class XaiService:
             "request_ticket_location": ticket_storage_info["object"],
             "request_model_location": config.model_location(al_instance_id, model_id),
             "request_preprocessor_location": vectorizer_path,
+            "request_one_hot_encoder_location": config.encoder_location(al_instance_id, "one_hot"),
             "request_raw_tickets_locations": self.minio_service.return_data_names(config.TEST_SPLIT),
         }
 
@@ -223,6 +225,7 @@ class XaiService:
                 "ticket": ticket_storage_info["object"],
                 "model": config.model_location(al_instance_id, model_id),
                 "preprocessor": vectorizer_path,
+                "one_hot_encoder": config.encoder_location(al_instance_id, "one_hot"),
                 "raw_tickets": self.minio_service.return_data_names(config.TEST_SPLIT),
             }
         }
@@ -250,23 +253,35 @@ class XaiService:
     async def update_xai_job(self, data: Dict[str, Any]):
         """Update XAI job details in the database.
            This method is called by the worker after processing the XAI request."""
+        logger.info(f"Received XAI job update message: {data}")
+        
         if self.duckdb_service is None:
+            logger.error("DuckDB service is not configured")
             raise RuntimeError("DuckDB service is not configured")
         
         if not {"job_id", "status"}.issubset(data.keys()):
+            logger.error(f"Invalid data format - missing required fields. Data: {data}")
             raise ValueError("Invalid data format for updating XAI job")
         else:
             job_id = data["job_id"]
             if isinstance(job_id, str):
-                job_id = uuid.UUID(job_id)
+                try:
+                    job_id = uuid.UUID(job_id)
+                except ValueError as e:
+                    logger.error(f"Failed to parse job_id '{job_id}' as UUID: {e}")
+                    raise
             
             if data["status"] == "completed" and ("result_location" not in data or "result_file_names" not in data):
+                logger.error(f"Status is 'completed' but missing result_location or result_file_names. Data: {data}")
                 raise ValueError("Missing result_location or result_file_names for completed XAI job")
 
+            logger.info(f"Updating XAI job {job_id} with status={data['status']}")
             self.duckdb_service.update_xai_job_status(job_id=job_id,
                                                       status=data["status"],
                                                       result_location=data.get("result_location"),
                                                       result_file_names=data.get("result_file_names"))
+            logger.info(f"Successfully updated XAI job {job_id}")
+        
         
 
 

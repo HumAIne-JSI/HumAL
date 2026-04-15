@@ -47,7 +47,7 @@ services:
       - TASK_QUEUE=xai_jobs
       - RESULT_QUEUE=xai_results
       - USE_RABBITMQ=1
-      - MESSAGE_VERSION=0.2
+      - MESSAGE_VERSION=0.3
     networks:
       - humal-network
 
