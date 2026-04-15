@@ -179,7 +179,6 @@ backend/data_and_model_export
 /backend/tests/test_xai_integration/0.joblib
 /backend/tests/test_xai_integration/8f9fe95282d8b1ef92b266bca33b3fb64762fccb719c4181a152f5ff21f48113.json
 /backend/tests/test_xai_integration/ticket_vectorizer.joblib
-backend/humal_vectorizer/
 
 # FRONTEND
 # Logs
