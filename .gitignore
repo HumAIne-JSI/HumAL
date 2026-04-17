@@ -182,6 +182,8 @@ backend/data_and_model_export
 
 # FRONTEND
 frontend/.vite/
+/frontend/
+
 # Logs
 logs
 *.log
