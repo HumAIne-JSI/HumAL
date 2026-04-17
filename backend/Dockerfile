@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
-    SENTENCE_TRANSFORMERS_CACHE_DIR=/app/storage/sentence_transformers_cache \
+    SENTENCE_TRANSFORMERS_CACHE_DIR=/app/cache/sentence_transformers \
     SENTENCE_TRANSFORMERS_LOCAL_ONLY=1 \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Copy backend code + bundled artifacts
 COPY app /app/app
-COPY sentence_transformers_cache /app/storage/sentence_transformers_cache
+COPY sentence_transformers_cache /app/cache/sentence_transformers
 COPY humal_vectorizer /app/humal_vectorizer
 
 EXPOSE 8000
