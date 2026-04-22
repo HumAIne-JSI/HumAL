@@ -10,12 +10,14 @@ export interface TicketListItemProps {
   selected?: boolean
   bulkSelected?: boolean
   showBulkCheckbox?: boolean
+  recentlyLabeled?: boolean
 }
 
 const props = withDefaults(defineProps<TicketListItemProps>(), {
   selected: false,
   bulkSelected: false,
   showBulkCheckbox: false,
+  recentlyLabeled: false,
 })
 
 const emit = defineEmits<{
@@ -82,6 +84,7 @@ function truncate(text: string, maxLength: number): string {
       {
         'ticket-item--selected': selected,
         'ticket-item--bulk-selected': bulkSelected,
+        'ticket-item--just-labeled': recentlyLabeled,
       },
     ]"
     role="button"
@@ -164,6 +167,10 @@ function truncate(text: string, maxLength: number): string {
     background: color-mix(in srgb, var(--info) 8%, var(--card));
   }
 
+  &--just-labeled {
+    animation: label-flash 0.8s ease-out;
+  }
+
   &__checkbox {
     display: flex;
     align-items: flex-start;
@@ -216,6 +223,15 @@ function truncate(text: string, maxLength: number): string {
   &__time {
     display: flex;
     align-items: center;
+  }
+}
+
+@keyframes label-flash {
+  0% {
+    background: color-mix(in srgb, var(--success, #22c55e) 25%, var(--card));
+  }
+  100% {
+    background: var(--card);
   }
 }
 </style>

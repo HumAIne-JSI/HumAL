@@ -46,6 +46,7 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
   const tickets = ref<QueueTicket[]>([])
   const selectedTicketId = ref<string | null>(null)
   const bulkSelection = ref<Set<string>>(new Set())
+  const recentlyLabeled = ref<Set<string>>(new Set())
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -203,7 +204,19 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
     const ticket = tickets.value.find((t) => t.id === id)
     if (ticket) {
       ticket.status = status
+      if (status === 'resolved') {
+        markRecentlyLabeled(id)
+      }
     }
+  }
+
+  function markRecentlyLabeled(id: string) {
+    recentlyLabeled.value.add(id)
+    recentlyLabeled.value = new Set(recentlyLabeled.value)
+    setTimeout(() => {
+      recentlyLabeled.value.delete(id)
+      recentlyLabeled.value = new Set(recentlyLabeled.value)
+    }, 1000)
   }
 
   function updateTicketPrediction(id: string, prediction: string, confidence: number) {
@@ -245,6 +258,7 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
     tickets,
     selectedTicketId,
     bulkSelection,
+    recentlyLabeled,
     filters,
     isLoading,
     error,

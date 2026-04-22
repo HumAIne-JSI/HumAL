@@ -14,6 +14,7 @@ import {
   X,
   FileText,
   Check,
+  CheckCircle,
   ChevronRight,
   RefreshCw,
 } from 'lucide-vue-next'
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   (e: 'confirm', team: string): void
   (e: 'reassign', team: string): void
   (e: 'next'): void
+  (e: 'labeled'): void
 }>()
 
 // Prediction state
@@ -41,6 +43,8 @@ const prediction = ref<InferenceResponse | null>(null)
 const explanation = ref<ExplainLimeResponse | null>(null)
 const nearestTickets = ref<NearestTicketResponse | null>(null)
 const selectedReassignTeam = ref<string>('')
+const showLabeledFlash = ref(false)
+const labeledTeamName = ref('')
 
 // Inference mutation
 const {
@@ -136,13 +140,19 @@ function handlePredict() {
 // Confirm prediction as label
 function handleConfirm() {
   if (!prediction.value) return
-  emit('confirm', String(prediction.value.prediction))
+  const team = String(prediction.value.prediction)
+  labeledTeamName.value = team
+  showLabeledFlash.value = true
+  emit('confirm', team)
 }
 
 // Reassign to different team
 function handleReassign() {
   if (!selectedReassignTeam.value) return
-  emit('reassign', selectedReassignTeam.value)
+  const team = selectedReassignTeam.value
+  labeledTeamName.value = team
+  showLabeledFlash.value = true
+  emit('reassign', team)
   selectedReassignTeam.value = ''
 }
 
@@ -167,6 +177,8 @@ watch(
       explanation.value = null
       nearestTickets.value = null
       selectedReassignTeam.value = ''
+      showLabeledFlash.value = false
+      labeledTeamName.value = ''
       resetInference()
 
       // Auto-predict for unlabeled tickets
@@ -180,7 +192,16 @@ watch(
 </script>
 
 <template>
-  <div class="detail-panel" v-if="ticket">
+  <Transition name="detail-fade" mode="out-in">
+  <div class="detail-panel" v-if="ticket" :key="ticket.id">
+    <!-- Labeled Flash Overlay -->
+    <Transition name="flash-fade">
+      <div v-if="showLabeledFlash" class="detail-panel__labeled-flash">
+        <CheckCircle :size="20" />
+        <span>Labeled &mdash; {{ labeledTeamName }}</span>
+      </div>
+    </Transition>
+
     <!-- Header -->
     <header class="detail-panel__header">
       <div class="detail-panel__header-row">
@@ -210,29 +231,32 @@ watch(
 
       <!-- Prediction Section -->
       <section class="detail-panel__prediction">
+        <Transition name="prediction-fade" mode="out-in">
         <!-- Loading -->
-        <div v-if="isInferring" class="detail-panel__loading">
+        <div v-if="isInferring" key="loading" class="detail-panel__loading">
           <Progress :value="undefined" />
           <span>Analyzing ticket...</span>
         </div>
 
         <!-- Prediction Result -->
-        <template v-else-if="prediction">
+        <div v-else-if="prediction" key="result" class="detail-panel__prediction-inner">
           <PredictionResult
             :prediction="prediction.prediction"
             :confidence="prediction.confidence"
             :probabilities="prediction.probabilities"
             show-details
             compact
-          />
+          >
+            <template #actions>
+              <Button variant="outline" size="sm" @click="handleConfirm">
+                <Check :size="14" />
+                Confirm
+              </Button>
+            </template>
+          </PredictionResult>
 
-          <!-- Actions row: Confirm + Reassign inline -->
+          <!-- Actions row: Reassign + Re-analyze -->
           <div class="detail-panel__actions">
-            <Button variant="outline" @click="handleConfirm">
-              <Check :size="14" />
-              Confirm
-            </Button>
-
             <div class="detail-panel__reassign">
               <Select
                 v-model="selectedReassignTeam"
@@ -260,14 +284,15 @@ watch(
               <RefreshCw :size="14" :class="{ 'animate-spin': isInferring }" />
             </Button>
           </div>
-        </template>
+        </div>
 
         <!-- Empty state -->
-        <div v-else class="detail-panel__empty">
+        <div v-else key="empty" class="detail-panel__empty">
           <Button variant="default" size="sm" @click="handlePredict">
             Analyze Ticket
           </Button>
         </div>
+        </Transition>
       </section>
 
       <!-- XAI Tabs -->
@@ -282,12 +307,13 @@ watch(
   </div>
 
   <!-- Empty State -->
-  <div v-else class="detail-panel detail-panel--empty">
+  <div v-else key="empty" class="detail-panel detail-panel--empty">
     <div class="detail-panel__empty-state">
       <FileText :size="40" class="detail-panel__empty-icon" />
       <p>Select a ticket to view details</p>
     </div>
   </div>
+  </Transition>
 </template>
 
 <style scoped lang="scss">
@@ -359,6 +385,7 @@ watch(
 
   &__content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 0.75rem 1rem;
     display: flex;
@@ -380,6 +407,25 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  &__prediction-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__labeled-flash {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: color-mix(in srgb, var(--success, #22c55e) 12%, var(--card));
+    color: var(--success, #22c55e);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-bottom: 1px solid color-mix(in srgb, var(--success, #22c55e) 20%, var(--border));
   }
 
   &__loading {
@@ -441,5 +487,48 @@ watch(
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+// Detail panel transition
+.detail-fade-enter-active,
+.detail-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.detail-fade-enter-from {
+  opacity: 0;
+  transform: translateX(12px);
+}
+.detail-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+// Prediction section transition
+.prediction-fade-enter-active,
+.prediction-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.prediction-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.prediction-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+// Flash overlay transition
+.flash-fade-enter-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.flash-fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.flash-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-100%);
+}
+.flash-fade-leave-to {
+  opacity: 0;
 }
 </style>

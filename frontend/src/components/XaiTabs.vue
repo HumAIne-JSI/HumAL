@@ -55,7 +55,7 @@ const activeTab = ref<'keywords' | 'similar'>('keywords')
 .xai-tabs {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  // overflow: hidden;
 
   &__bar {
     display: flex;

@@ -43,7 +43,7 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
 </script>
 
 <template>
-  <Card :variant="compact ? 'outline' : 'default'" :padding="compact ? 'sm' : 'default'">
+  <Card :variant="compact ? 'elevated' : 'default'" :padding="compact ? 'sm' : 'default'">
     <template #title>
       <div class="prediction-result__header">
         <span class="prediction-result__label">Prediction</span>
@@ -54,6 +54,10 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
           {{ confidencePercent }}%
         </span>
       </div>
+    </template>
+
+    <template v-if="$slots.actions" #action>
+      <slot name="actions" />
     </template>
 
     <div class="prediction-result__content">

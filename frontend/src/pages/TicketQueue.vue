@@ -19,6 +19,7 @@ import {
   Inbox,
   RefreshCw,
   CheckSquare,
+  CheckCircle,
   X,
   Keyboard,
   AlertCircle,
@@ -140,10 +141,7 @@ function handleConfirm(team: string) {
     { ticketId: selectedTicket.value.id, label: team },
     {
       onSuccess: () => {
-        toast.success('Ticket labeled', {
-          description: `Assigned to ${team}`,
-        })
-        selectNext()
+        setTimeout(() => selectNext(), 600)
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -160,10 +158,7 @@ function handleReassign(team: string) {
     { ticketId: selectedTicket.value.id, label: team },
     {
       onSuccess: () => {
-        toast.success('Ticket reassigned', {
-          description: `Assigned to ${team}`,
-        })
-        selectNext()
+        setTimeout(() => selectNext(), 600)
       },
       onError: () => {
         toast.error('Failed to reassign ticket')
@@ -172,21 +167,26 @@ function handleReassign(team: string) {
   )
 }
 
+// Bulk action inline feedback
+const bulkFeedback = ref<string | null>(null)
+let bulkFeedbackTimer: ReturnType<typeof setTimeout> | undefined
+
 // Handle bulk approve
 function handleBulkApprove() {
   if (!hasBulkSelection.value) return
 
   const ticketIds = bulkSelectedTickets.value.map((t) => t.id)
-  // Use first team as default for bulk (in real app, would prompt)
   const defaultTeam = teams.value[0] || 'Default Team'
 
   bulkLabel(
     { ticketIds, label: defaultTeam },
     {
       onSuccess: () => {
-        toast.success('Bulk action completed', {
-          description: `${ticketIds.length} tickets assigned to ${defaultTeam}`,
-        })
+        bulkFeedback.value = `${ticketIds.length} tickets assigned to ${defaultTeam}`
+        clearTimeout(bulkFeedbackTimer)
+        bulkFeedbackTimer = setTimeout(() => {
+          bulkFeedback.value = null
+        }, 2500)
       },
       onError: () => {
         toast.error('Bulk action failed')
@@ -272,6 +272,7 @@ const groupedShortcuts = computed(() => {
         />
 
         <!-- Bulk Actions Bar -->
+        <Transition name="bulk-bar">
         <div v-if="hasBulkSelection" class="ticket-queue__bulk-bar">
           <span class="ticket-queue__bulk-count">
             <CheckSquare :size="14" />
@@ -287,6 +288,15 @@ const groupedShortcuts = computed(() => {
             </Button>
           </div>
         </div>
+        </Transition>
+
+        <!-- Bulk Feedback Banner -->
+        <Transition name="bulk-bar">
+          <div v-if="bulkFeedback" class="ticket-queue__bulk-feedback">
+            <CheckCircle :size="14" />
+            {{ bulkFeedback }}
+          </div>
+        </Transition>
 
         <!-- Loading State -->
         <div v-if="isLoading" class="ticket-queue__loading">
@@ -308,16 +318,19 @@ const groupedShortcuts = computed(() => {
 
         <!-- Ticket List -->
         <div v-else class="ticket-queue__list">
-          <TicketListItem
-            v-for="ticket in tickets"
-            :key="ticket.id"
-            :ticket="ticket"
-            :selected="selectedTicket?.id === ticket.id"
-            :bulk-selected="store.bulkSelection.has(ticket.id)"
-            :show-bulk-checkbox="hasBulkSelection"
-            @select="selectTicket(ticket.id)"
-            @toggle-bulk="toggleBulkSelect(ticket.id)"
-          />
+          <TransitionGroup name="ticket-list" tag="div">
+            <TicketListItem
+              v-for="ticket in tickets"
+              :key="ticket.id"
+              :ticket="ticket"
+              :selected="selectedTicket?.id === ticket.id"
+              :bulk-selected="store.bulkSelection.has(ticket.id)"
+              :show-bulk-checkbox="hasBulkSelection"
+              :recently-labeled="store.recentlyLabeled.has(ticket.id)"
+              @select="selectTicket(ticket.id)"
+              @toggle-bulk="toggleBulkSelect(ticket.id)"
+            />
+          </TransitionGroup>
         </div>
       </div>
 
@@ -454,6 +467,19 @@ const groupedShortcuts = computed(() => {
     gap: 0.5rem;
   }
 
+  &__bulk-feedback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    background: color-mix(in srgb, var(--success, #22c55e) 10%, var(--card));
+    color: var(--success, #22c55e);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+
   &__loading {
     display: flex;
     flex-direction: column;
@@ -495,6 +521,7 @@ const groupedShortcuts = computed(() => {
   &__list {
     flex: 1;
     overflow-y: auto;
+    position: relative;
   }
 
   &__detail-panel {
@@ -628,5 +655,44 @@ const groupedShortcuts = computed(() => {
       flex: 1;
     }
   }
+}
+
+// Ticket list TransitionGroup
+.ticket-list-enter-active,
+.ticket-list-leave-active {
+  transition: all 0.3s ease;
+}
+.ticket-list-enter-from {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+.ticket-list-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.ticket-list-leave-active {
+  position: absolute;
+  width: 100%;
+}
+.ticket-list-move {
+  transition: transform 0.3s ease;
+}
+
+// Bulk bar transition
+.bulk-bar-enter-active,
+.bulk-bar-leave-active {
+  transition: all 0.25s ease;
+  overflow: hidden;
+}
+.bulk-bar-enter-from,
+.bulk-bar-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.bulk-bar-enter-to,
+.bulk-bar-leave-from {
+  max-height: 60px;
 }
 </style>
