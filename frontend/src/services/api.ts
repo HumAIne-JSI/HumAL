@@ -68,10 +68,10 @@ export const API_ENDPOINTS = {
   GET_CAPABILITIES: '/config/capabilities',
   
   // Data
-  GET_TICKETS: '/data/tickets',
-  GET_TEAMS: '/data/teams',
-  GET_CATEGORIES: '/data/categories',
-  GET_SUBCATEGORIES: '/data/subcategories',
+  GET_TICKETS: (id: number) => `/data/${id}/tickets`,
+  GET_TEAMS: (id: number) => `/data/${id}/teams`,
+  GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
+  GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
   
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
@@ -241,20 +241,20 @@ export const apiService = {
     apiCall<ConfigCapabilitiesResponse>(API_ENDPOINTS.GET_CAPABILITIES),
 
   // Data
-  getTickets: (indices: string[]) => 
-    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS, {
+  getTickets: (instanceId: number, indices: string[], _trainDataPath?: string) => 
+    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS(instanceId), {
       method: 'POST',
       body: JSON.stringify(indices),
     }),
 
-  getTeams: () => 
-    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS),
+  getTeams: (instanceId?: number, _trainDataPath?: string) => 
+    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS(instanceId ?? 0)),
 
-  getCategories: () => 
-    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES),
+  getCategories: (instanceId?: number, _trainDataPath?: string) => 
+    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES(instanceId ?? 0)),
 
-  getSubcategories: () => 
-    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
+  getSubcategories: (instanceId?: number, _trainDataPath?: string) => 
+    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES(instanceId ?? 0)),
 
   // Resolution
   processResolution: (data: ResolutionProcessRequest) =>

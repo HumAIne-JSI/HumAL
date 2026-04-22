@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Checkbox from '@/components/ui/Checkbox.vue'
-import { Clock, Users, Sparkles } from 'lucide-vue-next'
+import { Clock } from 'lucide-vue-next'
 import type { QueueTicket, TicketStatus } from '@/stores/useTicketQueueStore'
 
 export interface TicketListItemProps {
@@ -117,31 +117,13 @@ function truncate(text: string, maxLength: number): string {
         {{ truncate(ticket.title, 80) }}
       </h4>
 
-      <!-- Description Preview -->
-      <p class="ticket-item__description">
-        {{ truncate(ticket.description, 120) }}
-      </p>
-
       <!-- Meta Row -->
       <div class="ticket-item__meta">
-        <!-- Team -->
         <span v-if="ticket.team" class="ticket-item__team">
-          <Users :size="12" />
           {{ ticket.team }}
         </span>
 
-        <!-- Prediction with Confidence -->
-        <span v-if="ticket.prediction && confidencePercent !== null" class="ticket-item__prediction">
-          <Sparkles :size="12" />
-          {{ ticket.prediction }}
-          <Badge :variant="confidenceVariant" size="sm">
-            {{ confidencePercent }}%
-          </Badge>
-        </span>
-
-        <!-- Timestamp -->
         <span class="ticket-item__time">
-          <Clock :size="12" />
           {{ timeAgo }}
         </span>
       </div>
@@ -152,8 +134,8 @@ function truncate(text: string, maxLength: number): string {
 <style scoped lang="scss">
 .ticket-item {
   display: flex;
-  gap: 0.75rem;
-  padding: 0.875rem 1rem;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
@@ -171,7 +153,7 @@ function truncate(text: string, maxLength: number): string {
   &--selected {
     background: color-mix(in srgb, var(--primary) 10%, var(--card));
     border-left: 3px solid var(--primary);
-    padding-left: calc(1rem - 3px);
+    padding-left: calc(0.75rem - 3px);
 
     &:hover {
       background: color-mix(in srgb, var(--primary) 15%, var(--card));
@@ -193,7 +175,7 @@ function truncate(text: string, maxLength: number): string {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.25rem;
   }
 
   &__header {
@@ -204,7 +186,7 @@ function truncate(text: string, maxLength: number): string {
   }
 
   &__ref {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     color: var(--muted-foreground);
     text-transform: uppercase;
@@ -212,39 +194,28 @@ function truncate(text: string, maxLength: number): string {
 
   &__title {
     margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 600;
+    font-size: 0.875rem;
+    font-weight: 500;
     color: var(--foreground);
     line-height: 1.3;
-  }
-
-  &__description {
-    margin: 0;
-    font-size: 0.8125rem;
-    color: var(--muted-foreground);
-    line-height: 1.4;
   }
 
   &__meta {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-top: 0.25rem;
+    gap: 0.5rem;
     font-size: 0.75rem;
     color: var(--muted-foreground);
   }
 
-  &__team,
-  &__prediction,
+  &__team {
+    display: flex;
+    align-items: center;
+  }
+
   &__time {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-  }
-
-  &__prediction {
-    gap: 0.375rem;
   }
 }
 </style>

@@ -28,6 +28,8 @@ const KNOWN_ERROR_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /model not trained/i, message: 'Model not trained yet. Please train the model first.' },
   { pattern: /instance not found/i, message: 'Instance not found. It may have been deleted.' },
   { pattern: /no classes/i, message: 'No classes defined. Please configure classes first.' },
+  { pattern: /unseen labels/i, message: 'Some teams in the training data are not in your class list. Ensure all teams are included.' },
+  { pattern: /KeyError/i, message: 'Invalid model or strategy name. Please select valid options from the dropdowns.' },
 ];
 
 /**

@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
-import Progress from '@/components/ui/Progress.vue'
 import Button from '@/components/ui/Button.vue'
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 
@@ -51,18 +50,13 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
         <Badge variant="default" class="prediction-result__value">
           {{ prediction }}
         </Badge>
+        <span v-if="confidencePercent !== null" :class="['prediction-result__confidence-inline', `prediction-result__confidence-inline--${confidenceColor}`]">
+          {{ confidencePercent }}%
+        </span>
       </div>
     </template>
 
     <div class="prediction-result__content">
-      <div v-if="confidencePercent !== null" class="prediction-result__confidence">
-        <div class="prediction-result__confidence-header">
-          <span class="prediction-result__confidence-label">Confidence</span>
-          <span class="prediction-result__confidence-value">{{ confidencePercent }}%</span>
-        </div>
-        <Progress :value="confidencePercent" :max="100" :color="confidenceColor" />
-      </div>
-
       <template v-if="showDetails && hasProbabilities">
         <Button
           variant="ghost"
@@ -113,41 +107,43 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
   }
 
   &__label {
-    font-weight: 500;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
     color: var(--muted-foreground);
   }
 
   &__value {
-    font-size: 1rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  &__confidence-inline {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-foreground);
+    margin-left: auto;
+
+    &--success {
+      color: var(--success);
+    }
+
+    &--warning {
+      color: var(--warning);
+    }
+
+    &--danger {
+      color: var(--destructive);
+    }
   }
 
   &__content {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    margin-top: 0.75rem;
-  }
-
-  &__confidence {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  &__confidence-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  &__confidence-label {
-    font-size: 0.875rem;
-    color: var(--muted-foreground);
-  }
-
-  &__confidence-value {
-    font-size: 0.875rem;
-    font-weight: 600;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
   }
 
   &__toggle {

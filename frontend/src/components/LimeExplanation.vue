@@ -64,14 +64,14 @@ const toggleExpanded = () => {
 
 <template>
   <div class="lime-explanation">
-    <!-- Header -->
-    <div class="lime-explanation__header">
+    <!-- Header (only shown when standalone/collapsible) -->
+    <div v-if="collapsible" class="lime-explanation__header">
       <div class="lime-explanation__title">
         <Lightbulb :size="18" />
         <span>Why this prediction?</span>
       </div>
       <Button
-        v-if="collapsible && hasExplanation"
+        v-if="hasExplanation"
         variant="ghost"
         size="sm"
         @click="toggleExpanded"

@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
 import Select from '@/components/ui/Select.vue'
-import Accordion from '@/components/ui/Accordion.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
-import LimeExplanation from '@/components/LimeExplanation.vue'
-import NearestTicket from '@/components/NearestTicket.vue'
+import XaiTabs from '@/components/XaiTabs.vue'
 import { useInferWithModelCheck } from '@/composables/api/useInference'
 import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
@@ -16,15 +13,8 @@ import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTick
 import {
   X,
   FileText,
-  Target,
-  Lightbulb,
-  Search,
-  MessageSquare,
   Check,
   ChevronRight,
-  Users,
-  Clock,
-  Tag,
   RefreshCw,
 } from 'lucide-vue-next'
 
@@ -51,9 +41,6 @@ const prediction = ref<InferenceResponse | null>(null)
 const explanation = ref<ExplainLimeResponse | null>(null)
 const nearestTickets = ref<NearestTicketResponse | null>(null)
 const selectedReassignTeam = ref<string>('')
-
-// Active tab for accordion
-const activeSection = ref<string[]>(['prediction'])
 
 // Inference mutation
 const {
@@ -196,70 +183,33 @@ watch(
   <div class="detail-panel" v-if="ticket">
     <!-- Header -->
     <header class="detail-panel__header">
-      <div class="detail-panel__header-content">
-        <div class="detail-panel__ref">
-          <FileText :size="16" />
-          {{ ticket.ref }}
+      <div class="detail-panel__header-row">
+        <div class="detail-panel__header-left">
+          <span class="detail-panel__ref">{{ ticket.ref }}</span>
+          <span class="detail-panel__ref-sep">&middot;</span>
+          <Badge v-if="ticket.team" variant="secondary">{{ ticket.team }}</Badge>
+          <Badge v-if="ticket.category" variant="outline">{{ ticket.category }}</Badge>
+          <span class="detail-panel__time">{{ formatDate(ticket.timestamp) }}</span>
         </div>
-        <Button variant="ghost" size="icon" @click="$emit('close')">
-          <X :size="18" />
-        </Button>
+        <div class="detail-panel__header-right">
+          <Button variant="ghost" size="icon" @click="$emit('next')" title="Next ticket">
+            <ChevronRight :size="16" />
+          </Button>
+          <Button variant="ghost" size="icon" @click="$emit('close')">
+            <X :size="16" />
+          </Button>
+        </div>
       </div>
       <h2 class="detail-panel__title">{{ ticket.title }}</h2>
-      <div class="detail-panel__meta">
-        <Badge v-if="ticket.team" variant="secondary">
-          <Users :size="12" />
-          {{ ticket.team }}
-        </Badge>
-        <Badge v-if="ticket.category" variant="outline">
-          <Tag :size="12" />
-          {{ ticket.category }}
-        </Badge>
-        <span class="detail-panel__time">
-          <Clock :size="12" />
-          {{ formatDate(ticket.timestamp) }}
-        </span>
-      </div>
     </header>
 
     <!-- Content -->
     <div class="detail-panel__content">
-      <!-- Description -->
-      <Card class="detail-panel__description">
-        <template #title>
-          <FileText :size="16" />
-          Description
-        </template>
-        <p class="detail-panel__description-text">{{ ticket.description }}</p>
-      </Card>
+      <!-- Description (plain paragraph, no card wrapper) -->
+      <p class="detail-panel__description">{{ ticket.description }}</p>
 
       <!-- Prediction Section -->
-      <Card class="detail-panel__prediction">
-        <template #title>
-          <Target :size="16" />
-          AI Prediction
-        </template>
-        <template #action>
-          <Button
-            v-if="!prediction && !isInferring"
-            variant="default"
-            size="sm"
-            @click="handlePredict"
-          >
-            Analyze
-          </Button>
-          <Button
-            v-else-if="prediction"
-            variant="ghost"
-            size="sm"
-            @click="handlePredict"
-            :disabled="isInferring"
-          >
-            <RefreshCw :size="14" :class="{ 'animate-spin': isInferring }" />
-            Re-analyze
-          </Button>
-        </template>
-
+      <section class="detail-panel__prediction">
         <!-- Loading -->
         <div v-if="isInferring" class="detail-panel__loading">
           <Progress :value="undefined" />
@@ -273,16 +223,14 @@ watch(
             :confidence="prediction.confidence"
             :probabilities="prediction.probabilities"
             show-details
+            compact
           />
 
-          <!-- Actions -->
+          <!-- Actions row: Confirm + Reassign inline -->
           <div class="detail-panel__actions">
-            <Button
-              variant="default"
-              @click="handleConfirm"
-            >
-              <Check :size="16" />
-              Confirm Prediction
+            <Button variant="outline" @click="handleConfirm">
+              <Check :size="14" />
+              Confirm
             </Button>
 
             <div class="detail-panel__reassign">
@@ -290,65 +238,54 @@ watch(
                 v-model="selectedReassignTeam"
                 placeholder="Reassign to..."
                 :options="teamOptions"
+                size="sm"
               />
               <Button
-                variant="outline"
+                variant="ghost"
+                size="sm"
                 :disabled="!selectedReassignTeam"
                 @click="handleReassign"
               >
                 Reassign
               </Button>
             </div>
-          </div>
 
-          <!-- Next button -->
-          <Button
-            variant="ghost"
-            class="detail-panel__next"
-            @click="$emit('next')"
-          >
-            Next Ticket
-            <ChevronRight :size="16" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="handlePredict"
+              :disabled="isInferring"
+              title="Re-analyze"
+            >
+              <RefreshCw :size="14" :class="{ 'animate-spin': isInferring }" />
+            </Button>
+          </div>
         </template>
 
         <!-- Empty state -->
         <div v-else class="detail-panel__empty">
-          <Target :size="32" class="detail-panel__empty-icon" />
-          <p>Click "Analyze" to get AI predictions for this ticket</p>
+          <Button variant="default" size="sm" @click="handlePredict">
+            Analyze Ticket
+          </Button>
         </div>
-      </Card>
+      </section>
 
-      <!-- XAI Section (collapsible) -->
-      <template v-if="showXai && prediction">
-        <!-- LIME Explanation -->
-        <Card class="detail-panel__xai">
-          <LimeExplanation
-            :explanation="explanation"
-            :loading="isExplainingLime"
-            collapsible
-            :default-expanded="confidenceLevel === 'low'"
-          />
-        </Card>
-
-        <!-- Similar Tickets -->
-        <Card class="detail-panel__xai">
-          <NearestTicket
-            :nearest-ticket="nearestTickets"
-            :loading="isFindingNearest"
-            show-details
-          />
-        </Card>
-      </template>
+      <!-- XAI Tabs -->
+      <XaiTabs
+        v-if="showXai && prediction"
+        :explanation="explanation"
+        :nearest-tickets="nearestTickets"
+        :loading-lime="isExplainingLime"
+        :loading-nearest="isFindingNearest"
+      />
     </div>
   </div>
 
   <!-- Empty State -->
   <div v-else class="detail-panel detail-panel--empty">
     <div class="detail-panel__empty-state">
-      <FileText :size="48" class="detail-panel__empty-icon" />
-      <h3>No Ticket Selected</h3>
-      <p>Select a ticket from the list to view details and AI predictions</p>
+      <FileText :size="40" class="detail-panel__empty-icon" />
+      <p>Select a ticket to view details</p>
     </div>
   </div>
 </template>
@@ -368,120 +305,116 @@ watch(
   }
 
   &__header {
-    padding: 1rem 1.25rem;
+    padding: 0.625rem 1rem;
     background: var(--card);
     border-bottom: 1px solid var(--border);
   }
 
-  &__header-content {
+  &__header-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.375rem;
+  }
+
+  &__header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  &__header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    flex-shrink: 0;
   }
 
   &__ref {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--muted-foreground);
     text-transform: uppercase;
   }
 
-  &__title {
-    margin: 0 0 0.75rem;
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--foreground);
-    line-height: 1.3;
-  }
-
-  &__meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+  &__ref-sep {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
   }
 
   &__time {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
     font-size: 0.75rem;
     color: var(--muted-foreground);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--foreground);
+    line-height: 1.35;
   }
 
   &__content {
     flex: 1;
     overflow-y: auto;
-    padding: 1rem;
+    padding: 0.75rem 1rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   &__description {
-    &-text {
-      margin: 0;
-      font-size: 0.9375rem;
-      line-height: 1.6;
-      color: var(--foreground);
-      white-space: pre-wrap;
-    }
+    margin: 0;
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    color: var(--foreground);
+    white-space: pre-wrap;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  &__prediction {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   &__loading {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
-    padding: 2rem 1rem;
+    gap: 0.5rem;
+    padding: 1.5rem 1rem;
     text-align: center;
     color: var(--muted-foreground);
+    font-size: 0.875rem;
   }
 
   &__actions {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding-top: 0.5rem;
   }
 
   &__reassign {
     display: flex;
-    gap: 0.5rem;
-  }
-
-  &__next {
-    margin-top: 0.5rem;
-    justify-content: center;
-  }
-
-  &__xai {
-    // Specific styling if needed
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
   }
 
   &__empty {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 2rem 1rem;
-    text-align: center;
-    color: var(--muted-foreground);
+    justify-content: center;
+    padding: 1.5rem 1rem;
 
     &-icon {
-      opacity: 0.5;
-      margin-bottom: 0.5rem;
-    }
-
-    p {
-      margin: 0;
-      font-size: 0.875rem;
+      opacity: 0.4;
     }
   }
 
@@ -489,17 +422,10 @@ watch(
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     padding: 2rem;
     text-align: center;
     color: var(--muted-foreground);
-
-    h3 {
-      margin: 0;
-      font-size: 1.125rem;
-      font-weight: 600;
-      color: var(--foreground);
-    }
 
     p {
       margin: 0;
@@ -513,11 +439,7 @@ watch(
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Input from '@/components/ui/Input.vue'
 import Select from '@/components/ui/Select.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -54,6 +54,8 @@ const hasActiveFilters = computed(() => {
   )
 })
 
+const showFiltersPanel = ref(false)
+
 function handleSearchInput(event: Event) {
   const target = event.target as HTMLInputElement
   emit('update:search', target.value)
@@ -78,13 +80,12 @@ function clearSearch() {
         @click="$emit('update:status', tab.value)"
       >
         <span class="filter-bar__tab-label">{{ tab.label }}</span>
-        <Badge
+        <span
           v-if="statusCounts[tab.value] > 0"
-          :variant="filters.status === tab.value ? 'default' : 'secondary'"
-          size="sm"
+          class="filter-bar__tab-count"
         >
           {{ statusCounts[tab.value] }}
-        </Badge>
+        </span>
       </button>
     </div>
 
@@ -92,7 +93,7 @@ function clearSearch() {
     <div class="filter-bar__controls">
       <!-- Search -->
       <div class="filter-bar__search">
-        <Search :size="16" class="filter-bar__search-icon" />
+        <Search :size="14" class="filter-bar__search-icon" />
         <input
           type="text"
           :value="filters.search"
@@ -109,23 +110,16 @@ function clearSearch() {
         </button>
       </div>
 
-      <!-- Team Filter -->
-      <Select
-        v-if="teams && teams.length > 0"
-        :model-value="filters.team || ''"
-        :options="teamOptions"
-        placeholder="All Teams"
-        class="filter-bar__team-select"
-        @update:model-value="$emit('update:team', $event || null)"
-      />
-
-      <!-- Sort -->
-      <Select
-        :model-value="filters.sortOrder"
-        :options="sortOptions"
-        class="filter-bar__sort-select"
-        @update:model-value="$emit('update:sortOrder', $event as SortOrder)"
-      />
+      <!-- Filters toggle -->
+      <Button
+        variant="ghost"
+        size="sm"
+        @click="showFiltersPanel = !showFiltersPanel"
+        :class="{ 'filter-bar__filters-active': hasActiveFilters }"
+      >
+        <SlidersHorizontal :size="14" />
+        Filters
+      </Button>
 
       <!-- Reset Button -->
       <Button
@@ -135,8 +129,26 @@ function clearSearch() {
         @click="$emit('reset')"
       >
         <X :size="14" />
-        Clear Filters
+        Clear
       </Button>
+    </div>
+
+    <!-- Collapsible Filters -->
+    <div v-if="showFiltersPanel" class="filter-bar__panel">
+      <Select
+        v-if="teams && teams.length > 0"
+        :model-value="filters.team || ''"
+        :options="teamOptions"
+        placeholder="All Teams"
+        class="filter-bar__panel-select"
+        @update:model-value="$emit('update:team', $event || null)"
+      />
+      <Select
+        :model-value="filters.sortOrder"
+        :options="sortOptions"
+        class="filter-bar__panel-select"
+        @update:model-value="$emit('update:sortOrder', $event as SortOrder)"
+      />
     </div>
   </div>
 </template>
@@ -145,14 +157,14 @@ function clearSearch() {
 .filter-bar {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
 
   &__tabs {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.125rem;
     overflow-x: auto;
     scrollbar-width: thin;
 
@@ -164,12 +176,12 @@ function clearSearch() {
   &__tab {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
     border: none;
     background: transparent;
     color: var(--muted-foreground);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -189,26 +201,35 @@ function clearSearch() {
         background: var(--primary);
         opacity: 0.9;
       }
+
+      .filter-bar__tab-count {
+        opacity: 0.8;
+      }
     }
+  }
+
+  &__tab-count {
+    font-size: 0.75rem;
+    opacity: 0.6;
+    font-variant-numeric: tabular-nums;
   }
 
   &__controls {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    gap: 0.375rem;
   }
 
   &__search {
     position: relative;
     flex: 1;
-    min-width: 200px;
-    max-width: 320px;
+    min-width: 160px;
+    max-width: 280px;
   }
 
   &__search-icon {
     position: absolute;
-    left: 0.75rem;
+    left: 0.625rem;
     top: 50%;
     transform: translateY(-50%);
     color: var(--muted-foreground);
@@ -217,11 +238,11 @@ function clearSearch() {
 
   &__search-input {
     width: 100%;
-    padding: 0.5rem 2rem 0.5rem 2.25rem;
+    padding: 0.375rem 1.75rem 0.375rem 2rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--background);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: var(--foreground);
 
     &::placeholder {
@@ -237,14 +258,14 @@ function clearSearch() {
 
   &__search-clear {
     position: absolute;
-    right: 0.5rem;
+    right: 0.375rem;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.125rem;
+    height: 1.125rem;
     border: none;
     background: var(--muted);
     border-radius: 50%;
@@ -258,8 +279,17 @@ function clearSearch() {
     }
   }
 
-  &__team-select,
-  &__sort-select {
+  &__filters-active {
+    color: var(--primary);
+  }
+
+  &__panel {
+    display: flex;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+  }
+
+  &__panel-select {
     min-width: 140px;
   }
 }
