@@ -140,14 +140,20 @@
 
 ---
 
-## Running the Demo
+## Running Locally
+
+### Prerequisites
+
+- **Node.js 18+** / npm
+
+### Setup
 
 ```bash
-# Start both frontend and backend
-.\start-dev.bat   # Windows
-./start-dev.sh    # Linux/Mac
-
-# Access points
-# Frontend: http://localhost:5173
-# API Docs: http://localhost:8000/docs
+cd frontend
+npm install
+npm run dev
 ```
+
+The app will be available at http://localhost:5173.
+
+The backend API URL is configured in `src/.env` (`VITE_API_BASE_URL`, defaults to `http://localhost:8000/api`).
