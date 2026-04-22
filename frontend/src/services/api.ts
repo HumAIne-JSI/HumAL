@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import {
   ApiError,
   type NewInstanceRequest,
@@ -34,34 +33,9 @@ import {
   type SessionComparison,
   type ExportRequest,
   type ExportResponse,
-=======
-import type {
-  NewInstanceRequest,
-  LabelRequest,
-  InferenceData,
-  CreateInstanceResponse,
-  NextInstancesResponse,
-  LabelInstanceResponse,
-  InstanceInfo,
-  InstancesListResponse,
-  InferenceResponse,
-  ApiResponse,
-  ConfigModelsResponse,
-  ConfigStrategiesResponse,
-  ConfigCapabilitiesResponse,
-  TicketsResponse,
-  TeamsResponse,
-  CategoriesResponse,
-  SubcategoriesResponse,
-  ExplainLimeResponse,
-  NearestTicketResponse,
-  XaiRequestResponse,
-  XaiJobResponse,
-  ResolutionProcessRequest,
-  ResolutionProcessResponse,
-  ResolutionFeedbackRequest,
-  ResolutionFeedbackResponse
->>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba
+  type XaiRequestResponse,
+  type XaiJobResponse,
+  type ConfigCapabilitiesResponse,
 } from '@/types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -83,19 +57,8 @@ export const API_ENDPOINTS = {
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
-<<<<<<< HEAD
 
-  // Config
-  GET_MODELS: '/config/models',
-  GET_QUERY_STRATEGIES: '/config/query-strategies',
-
-  // Data
-  GET_TICKETS: (id: number) => `/data/${id}/tickets`,
-  GET_TEAMS: (id: number) => `/data/${id}/teams`,
-  GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
-  GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
-
-=======
+  // XAI
   CREATE_XAI_REQUEST: (id: number) => `/xai/${id}/requests`,
   GET_XAI_JOB: (jobId: string) => `/xai/jobs/${jobId}`,
   
@@ -110,7 +73,6 @@ export const API_ENDPOINTS = {
   GET_CATEGORIES: '/data/categories',
   GET_SUBCATEGORIES: '/data/subcategories',
   
->>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
   RESOLUTION_FEEDBACK: '/resolution/feedback',
@@ -279,49 +241,12 @@ export const apiService = {
     apiCall<ConfigCapabilitiesResponse>(API_ENDPOINTS.GET_CAPABILITIES),
 
   // Data
-<<<<<<< HEAD
-  getTickets: (instanceId: number, indices: string[], trainDataPath?: string) => {
-    const url = trainDataPath
-      ? `${API_ENDPOINTS.GET_TICKETS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TICKETS(instanceId);
-    return apiCall<TicketsResponse>(url, {
-=======
   getTickets: (indices: string[]) => 
     apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS, {
->>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba
       method: 'POST',
       body: JSON.stringify(indices),
     }),
 
-<<<<<<< HEAD
-  getTeams: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath
-      ? `${API_ENDPOINTS.GET_TEAMS(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_TEAMS(instanceId);
-    return apiCall<TeamsResponse>(url);
-  },
-
-  getCategories: (instanceId: number = 0, trainDataPath?: string) => {
-    const url = trainDataPath
-      ? `${API_ENDPOINTS.GET_CATEGORIES(instanceId)}?train_data_path=${encodeURIComponent(trainDataPath)}`
-      : API_ENDPOINTS.GET_CATEGORIES(instanceId);
-    return apiCall<CategoriesResponse>(url);
-  },
-
-  getSubcategories: (instanceId: number = 0, trainDataPath?: string, category?: string) => {
-    const params = new URLSearchParams();
-    if (trainDataPath) {
-      params.append('train_data_path', trainDataPath);
-    }
-    if (category) {
-      params.append('category', category);
-    }
-    const url = params.toString()
-      ? `${API_ENDPOINTS.GET_SUBCATEGORIES(instanceId)}?${params.toString()}`
-      : API_ENDPOINTS.GET_SUBCATEGORIES(instanceId);
-    return apiCall<SubcategoriesResponse>(url);
-  },
-=======
   getTeams: () => 
     apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS),
 
@@ -330,7 +255,6 @@ export const apiService = {
 
   getSubcategories: () => 
     apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
->>>>>>> 775514ca01a4df18b25f0b5ecbdea126e4b79bba
 
   // Resolution
   processResolution: (data: ResolutionProcessRequest) =>
@@ -389,4 +313,4 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify(request),
     }),
-};
+}

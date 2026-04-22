@@ -70,6 +70,17 @@ const { models, strategies, isLoading: configLoading } = useConfig()
 
 // Instance data
 const { data: instancesData, refetch: refetchInstances } = useInstances()
+
+// Reset selected instance if it no longer exists in the instances list
+watch(instancesData, (data) => {
+  if (data?.instances && selectedInstanceId.value > 0) {
+    const exists = String(selectedInstanceId.value) in data.instances
+    if (!exists) {
+      instanceStore.clearInstance()
+    }
+  }
+})
+
 const {
   data: instanceInfo,
   isLoading: instanceInfoLoading,
@@ -194,7 +205,11 @@ const labelOptions = computed(() =>
 const selectedLabelsCount = computed(() => Object.keys(selectedLabels.value).length)
 
 // Computed for instance info
-const hasInstance = computed(() => selectedInstanceId.value > 0)
+const hasInstances = computed(() => {
+  const instances = instancesData.value?.instances
+  return instances != null && Object.keys(instances).length > 0
+})
+const hasInstance = computed(() => selectedInstanceId.value > 0 && hasInstances.value)
 
 // Get instance metadata from the instances list (has model_name, qs)
 const selectedInstanceMeta = computed(() => {
@@ -338,6 +353,7 @@ const handleInstanceSelect = (value: string) => {
       </div>
       <div class="training__header-actions">
         <InstanceSelector
+          v-if="hasInstances"
           :model-value="String(selectedInstanceId || '')"
           placeholder="Select instance..."
           @update:model-value="handleInstanceSelect"
@@ -429,7 +445,7 @@ const handleInstanceSelect = (value: string) => {
     </Card>
 
     <!-- No Instance Selected -->
-    <div v-else-if="!hasInstance" class="training__empty">
+    <div v-else-if="!hasInstances || !hasInstance" class="training__empty">
       <div class="training__empty-card">
         <AlertCircle :size="64" class="training__empty-icon" />
         <h2>Get Started with Active Learning</h2>

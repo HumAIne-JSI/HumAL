@@ -32,9 +32,9 @@ import {
   sampleClassDistributionMetrics,
 } from '@/data/sampleAnalytics';
 
-// ============================================================================
+// ======
 // Configuration
-// ============================================================================
+// ======
 
 /** Toggle to use sample data instead of API calls */
 export const useSampleData = ref(true);
@@ -44,9 +44,9 @@ export function setUseSampleData(value: boolean) {
   useSampleData.value = value;
 }
 
-// ============================================================================
+// ======
 // Query Keys
-// ============================================================================
+// ======
 
 export const analyticsKeys = {
   all: ['analytics'] as const,
@@ -61,18 +61,18 @@ export const analyticsKeys = {
   comparison: (ids: string[]) => [...analyticsKeys.all, 'comparison', ids.join(',')] as const,
 };
 
-// ============================================================================
+// ======
 // Query Options Interface
-// ============================================================================
+// ======
 
 export interface UseAnalyticsOptions {
   meta?: QueryMeta;
   enabled?: MaybeRef<boolean>;
 }
 
-// ============================================================================
+// ======
 // Query Hooks
-// ============================================================================
+// ======
 
 /**
  * Fetch analytics overview (aggregated stats across all sessions).
@@ -271,9 +271,9 @@ export function useSessionDistribution(
   });
 }
 
-// ============================================================================
+// ======
 // Mutation Hooks
-// ============================================================================
+// ======
 
 /**
  * Compare multiple sessions.
@@ -343,9 +343,9 @@ export function useExportSessions(options?: {
   });
 }
 
-// ============================================================================
+// ======
 // Convenience Hook - All Session Data
-// ============================================================================
+// ======
 
 /**
  * Fetch all metrics for a session at once.

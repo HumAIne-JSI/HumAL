@@ -228,9 +228,9 @@ export interface EmbeddingsRebuildResponse {
   cache_saved: boolean;
 }
 
-// ============================================================================
+// ======
 // Analytics Types (matching backend/app/data_models/analytics_dm.py)
-// ============================================================================
+// ======
 
 /** Actor types for decision logging */
 export type ActorType = 'system' | 'ai' | 'human';
@@ -375,9 +375,9 @@ export interface ExportResponse {
   format: string;
 }
 
-// ============================================================================
+// ======
 // Simulation Environment Types (for JSON import)
-// ============================================================================
+// ======
 
 /** Agent definition in simulation environment */
 export interface SimAgent {

@@ -1,9 +1,9 @@
 @use "sass:color";
 @use "sass:map";
 
-// ============================================
+// ==
 // SCSS Variables - Light Theme
-// ============================================
+// ==
 $font-size: 16px;
 $font-weight-medium: 500;
 $font-weight-normal: 400;
@@ -111,18 +111,18 @@ $dark: (
   sidebar-ring: oklch(0.439 0 0),
 );
 
-// ============================================
+// ==
 // Mixin to generate CSS custom properties
-// ============================================
+// ==
 @mixin generate-css-vars($theme-map) {
   @each $key, $value in $theme-map {
     --#{$key}: #{$value};
   }
 }
 
-// ============================================
+// ==
 // Root & Dark Theme CSS Custom Properties
-// ============================================
+// ==
 :root {
   --font-size: #{$font-size};
   --font-weight-medium: #{$font-weight-medium};
@@ -139,9 +139,9 @@ $dark: (
   @include generate-css-vars($dark);
 }
 
-// ============================================
+// ==
 // Base Styles
-// ============================================
+// ==
 * {
   border-color: var(--border);
   outline-color: rgba(var(--ring), 0.5);

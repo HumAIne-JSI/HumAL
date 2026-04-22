@@ -91,9 +91,9 @@ const classes = computed(() => [
     outline-offset: 2px;
   }
 
-  // ============================================
+  // ==
   // Variants (btn-v-*)
-  // ============================================
+  // ==
   &-v-default {
     background-color: var(--primary);
     color: var(--primary-foreground);
@@ -180,9 +180,9 @@ const classes = computed(() => [
     }
   }
 
-  // ============================================
+  // ==
   // Sizes (btn-s-*)
-  // ============================================
+  // ==
   &-s-default {
     height: 2.25rem;
     padding: 0.5rem 1rem;
@@ -206,9 +206,9 @@ const classes = computed(() => [
     padding: 0;
   }
 
-  // ============================================
+  // ==
   // Loading State
-  // ============================================
+  // ==
   &-loading {
     position: relative;
     pointer-events: none;
