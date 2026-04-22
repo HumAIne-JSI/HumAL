@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 # Load project-root .env before importing modules that read os.getenv at import time
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env.al_api")
 
 import logging
 logging.basicConfig(
