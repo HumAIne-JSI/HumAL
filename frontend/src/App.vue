@@ -11,6 +11,10 @@
 <script setup lang="ts">
 import Navigation from '@/components/Navigation.vue'
 import { Toaster } from 'vue-sonner'
+import { useMockModeStore } from '@/stores/useMockModeStore'
+
+// Initialize mock mode store early to sync all mock flags
+useMockModeStore()
 </script>
 
 <style lang="scss">

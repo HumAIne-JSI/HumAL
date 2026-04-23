@@ -3,17 +3,14 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import Card from '@/components/ui/Card.vue'
-import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
-import InstanceSelector from '@/components/InstanceSelector.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
-import { useMockData, setUseMockData } from '@/composables/useMockTickets'
 import type { TicketStatus, SortOrder } from '@/stores/useTicketQueueStore'
 import {
   Inbox,
@@ -22,8 +19,6 @@ import {
   CheckCircle,
   X,
   Keyboard,
-  AlertCircle,
-  Sparkles,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -195,12 +190,6 @@ function handleBulkApprove() {
   )
 }
 
-// Toggle mock data mode
-function toggleMockData() {
-  setUseMockData(!useMockData.value)
-  refresh()
-}
-
 // Grouped shortcuts by category for help modal
 const groupedShortcuts = computed(() => {
   const groups: Record<string, typeof shortcuts.value> = {
@@ -227,23 +216,9 @@ const groupedShortcuts = computed(() => {
           <Inbox :size="24" />
           Ticket Queue
         </h1>
-        <Badge v-if="isMockMode" variant="warning">
-          <Sparkles :size="12" />
-          Mock Data
-        </Badge>
       </div>
 
       <div class="ticket-queue__header-actions">
-        <InstanceSelector
-          :model-value="String(selectedInstanceId || '')"
-          placeholder="Select instance..."
-          @update:model-value="(v) => instanceStore.setInstance(v)"
-        />
-
-        <Button variant="ghost" size="sm" @click="toggleMockData">
-          {{ isMockMode ? 'Use API' : 'Use Mock' }}
-        </Button>
-
         <Button variant="outline" size="sm" @click="refresh" :disabled="isLoading">
           <RefreshCw :size="14" :class="{ 'animate-spin': isLoading }" />
           Refresh

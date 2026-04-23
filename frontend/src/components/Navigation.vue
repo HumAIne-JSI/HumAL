@@ -1,11 +1,6 @@
 <template>
   <div class="sidebar-wrapper">
-    <aside
-      :class="[
-        'sidebar',
-        { 'sidebar--collapsed': !isOpen }
-      ]"
-    >
+    <aside class="sidebar">
       <div class="sidebar__header">
         <h1 class="sidebar__title">IT Ticket Manager</h1>
         <p class="sidebar__subtitle">AI-Powered Ticket System</p>
@@ -35,37 +30,21 @@
       </nav>
 
       <div class="sidebar__footer">
-        <div class="sidebar__status">
-          <p class="sidebar__status-label">Model Status</p>
-          <p class="sidebar__status-value">● Active</p>
-        </div>
+        <MockToggle />
       </div>
     </aside>
-
-    <Button
-      variant="ghost"
-      size="icon"
-      class="toggle-btn"
-      @click="toggle"
-    >
-      <X v-if="isOpen" />
-      <Menu v-else />
-    </Button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, X } from 'lucide-vue-next'
 import { navItems } from '../router'
-import Button from './ui/Button.vue'
 import InstanceSelector from './InstanceSelector.vue'
+import MockToggle from './MockToggle.vue'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 
 const route = useRoute()
 const instanceStore = useInstanceStore()
-const isOpen = ref(true)
 
 const handleInstanceChange = (value: string) => {
   instanceStore.setInstance(value)
@@ -73,10 +52,6 @@ const handleInstanceChange = (value: string) => {
 
 const isActive = (path: string): boolean => {
   return route.path === path
-}
-
-const toggle = () => {
-  isOpen.value = !isOpen.value
 }
 </script>
 
@@ -86,11 +61,6 @@ const toggle = () => {
   display: flex;
   width: 16rem;
   flex-shrink: 0;
-  transition: width 0.3s ease-in-out;
-
-  &:has(.sidebar--collapsed) {
-    width: 0;
-  }
 }
 
 .sidebar {
@@ -100,13 +70,6 @@ const toggle = () => {
   min-width: 16rem;
   background-color: var(--sidebar);
   border-right: 1px solid var(--sidebar-border);
-  transform: translateX(0);
-  transition: transform 0.3s ease-in-out;
-
-  &--collapsed {
-    transform: translateX(-100%);
-  }
-
   &__header {
     padding: 1.5rem;
     border-bottom: 1px solid var(--sidebar-border);
@@ -186,32 +149,5 @@ const toggle = () => {
     padding: 1rem;
     border-top: 1px solid var(--sidebar-border);
   }
-
-  &__status {
-    padding: 0.75rem 1rem;
-    background-color: var(--sidebar-accent);
-    border-radius: var(--radius);
-    white-space: nowrap;
-  }
-
-  &__status-label {
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
-    margin: 0;
-  }
-
-  &__status-value {
-    font-size: 0.875rem;
-    font-weight: var(--font-weight-medium);
-    color: var(--chart-2);
-    margin: 0.25rem 0 0;
-  }
-}
-
-.toggle-btn {
-  position: absolute;
-  top: 0.75rem;
-  right: -2.5rem;
-  z-index: 50;
 }
 </style>
