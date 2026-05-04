@@ -441,7 +441,7 @@ class MinioService:
 
     
     def delete_instance_objects(self, al_instance_id: int):
-        """Delete all objects related to a given AL instance."""
+        """Delete all objects related to a given AL instance. Continues even if some deletes fail."""
         logger.info(f"Deleting all MinIO objects for instance: {al_instance_id}")
         
         # Define prefixes for all object types related to the instance
@@ -462,21 +462,25 @@ class MinioService:
         }
 
         deleted_count = 0
-        try:
-            for bucket, prefixes in prefixes_by_bucket.items():
-                for prefix in prefixes:
+        failed_count = 0
+        for bucket, prefixes in prefixes_by_bucket.items():
+            for prefix in prefixes:
+                try:
                     logger.debug(f"Listing objects with prefix: {prefix}")
                     listing = self.client.list_objects(bucket, prefix=prefix, filter_type="exact")
                     if listing and listing.get("matches"):
                         for obj_name in listing["matches"]:
-                            logger.debug(f"Deleting {bucket}/{obj_name}")
-                            self.client.delete_object(bucket, str(obj_name))
-                            deleted_count += 1
-            
-            logger.info(f"Successfully deleted {deleted_count} objects for instance {al_instance_id}")
-        except Exception as e:
-            logger.error(f"Failed to delete objects for instance {al_instance_id}: {e}", exc_info=True)
-            raise
+                            try:
+                                logger.debug(f"Deleting {bucket}/{obj_name}")
+                                self.client.delete_object(bucket, str(obj_name))
+                                deleted_count += 1
+                            except Exception as e:
+                                logger.warning(f"Failed to delete {bucket}/{obj_name}: {e}")
+                                failed_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to list objects with prefix {prefix} in {bucket}: {e}")
+        
+        logger.info(f"Deleted {deleted_count} objects for instance {al_instance_id} ({failed_count} failures)")
 
     def _to_joblib(self, obj: Any) -> bytes:
         """Serialize a Python object to joblib bytes."""

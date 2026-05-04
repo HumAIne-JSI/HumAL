@@ -74,12 +74,16 @@ class LocalArtifactsStore:
         return joblib.load(data_path)
 
     def delete_instance_artifacts(self, al_instance_id: int) -> None:
+        """Delete all artifacts for an instance. Continues even if some files are missing."""
         # Delete encoders
         encoder_dir = self.encoders_dir / str(al_instance_id)
         if encoder_dir.exists():
             for child in encoder_dir.iterdir():
                 if child.is_file():
-                    child.unlink()
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
             try:
                 encoder_dir.rmdir()
             except OSError:
@@ -90,7 +94,10 @@ class LocalArtifactsStore:
         if model_dir.exists():
             for child in model_dir.rglob("*"):
                 if child.is_file():
-                    child.unlink()
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
             for child in sorted(model_dir.rglob("*"), reverse=True):
                 if child.is_dir():
                     try:
@@ -107,7 +114,10 @@ class LocalArtifactsStore:
         if data_dir.exists():
             for child in data_dir.iterdir():
                 if child.is_file():
-                    child.unlink()
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
             try:
                 data_dir.rmdir()
             except OSError:

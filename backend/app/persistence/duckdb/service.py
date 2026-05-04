@@ -672,12 +672,26 @@ class DuckDbPersistenceService:
 
     # --- Deletes ---
     def delete_instance(self, al_instance_id: int) -> None:
-        if al_instance_id==GROUND_TRUTH_AL_INSTANCE_ID:
+        """Delete all database records for an instance. Continues even if some deletes fail."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if al_instance_id == GROUND_TRUTH_AL_INSTANCE_ID:
             raise ValueError("Cannot delete ground truth AL instance")
-        with connect(self.db_path) as conn:
-            conn.execute("DELETE FROM al_events WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM labels WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM model_paths WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM metrics WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM xai_jobs WHERE al_instance_id = ?", [al_instance_id])
-            conn.execute("DELETE FROM al_instances WHERE al_instance_id = ?", [al_instance_id])
+        
+        # Attempt each delete independently so partial deletions don't block cleanup
+        tables_and_queries = [
+            ("al_events", "DELETE FROM al_events WHERE al_instance_id = ?"),
+            ("labels", "DELETE FROM labels WHERE al_instance_id = ?"),
+            ("model_paths", "DELETE FROM model_paths WHERE al_instance_id = ?"),
+            ("metrics", "DELETE FROM metrics WHERE al_instance_id = ?"),
+            ("xai_jobs", "DELETE FROM xai_jobs WHERE al_instance_id = ?"),
+            ("al_instances", "DELETE FROM al_instances WHERE al_instance_id = ?"),
+        ]
+        
+        for table_name, query in tables_and_queries:
+            try:
+                with connect(self.db_path) as conn:
+                    conn.execute(query, [al_instance_id])
+            except Exception as e:
+                logger.warning(f"Failed to delete instance {al_instance_id} from {table_name}: {e}")

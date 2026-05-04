@@ -5,6 +5,7 @@ Minimal MinIO client.
 import logging
 import mimetypes
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import quote
@@ -73,12 +74,24 @@ class MinioClient:
         logger.debug("Token expired, attempting to re-authenticate with MinIO")
         return self.login(self._username, self._password)
 
+    def _is_token_expired_error(self, response) -> bool:
+        """Check if 500 error indicates token expiry (STS API failure)."""
+        if response.status_code == 500:
+            try:
+                detail = response.json().get("detail", "")
+                # MinIO returns "STS API request failed: 400 Client Error" when token is invalid
+                if "STS API request failed" in detail:
+                    return True
+            except Exception:
+                pass
+        return False
+
     def _request(self, method, path, *, auth=True, retry_on_unauth=True, **kwargs):
         """
         Execute a single HTTP request.
 
         Pattern:
-        attempt request -> if 401/403 -> re-auth -> retry once
+        attempt request -> if 401/403 or token expired -> re-auth -> retry once
         """
         url = self._url(path)
         logger.debug(f"MinIO {method} request to {path}")
@@ -99,11 +112,13 @@ class MinioClient:
 
         try:
             r = do_request()
-            if (auth and retry_on_unauth and r.status_code in (401, 403) and self._auto_reauth and self._username and self._password):
-                logger.warning(f"Received {r.status_code} response, attempting to re-authenticate")
-                self._reauth()
-                headers.update(self.headers())
-                r = do_request()
+            # Re-auth on 401/403 or on 500 with STS API failure (token expired)
+            if (auth and retry_on_unauth and self._auto_reauth and self._username and self._password):
+                if (r.status_code in (401, 403) or self._is_token_expired_error(r)):
+                    logger.warning(f"Received {r.status_code}, re-authenticating and retrying")
+                    self._reauth()
+                    headers.update(self.headers())
+                    r = do_request()
 
             r.raise_for_status()
             logger.debug(f"MinIO {method} {path} completed with status {r.status_code}")
@@ -156,7 +171,8 @@ class MinioClient:
                     return requests.post(url, headers=self.headers(), files=files, timeout=self.timeout_s)
 
                 r = do_post()
-                if r.status_code in (401, 403) and self._auto_reauth:
+                # Re-auth on 401/403 or on 500 with STS API failure (token expired)
+                if self._auto_reauth and (r.status_code in (401, 403) or self._is_token_expired_error(r)):
                     logger.warning(f"Received {r.status_code}, re-authenticating and retrying upload")
                     self._reauth()
                     r = do_post()
@@ -200,7 +216,8 @@ class MinioClient:
                 return requests.post(url, headers=self.headers(), files=files, timeout=self.timeout_s)
 
             r = do_post()
-            if r.status_code in (401, 403) and self._auto_reauth:
+            # Re-auth on 401/403 or on 500 with STS API failure (token expired)
+            if self._auto_reauth and (r.status_code in (401, 403) or self._is_token_expired_error(r)):
                 logger.warning(f"Received {r.status_code}, re-authenticating and retrying bytes upload")
                 self._reauth()
                 r = do_post()

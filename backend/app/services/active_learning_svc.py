@@ -480,19 +480,46 @@ class ActiveLearningService:
     
     # Logic for deleting an active learning instance
     def delete_instance(self, al_instance_id: int):
-        # delete the instance from the dictionaries
-        del self.storage.al_instances_dict[al_instance_id]
-        del self.storage.dataset_dict[al_instance_id]
-        del self.storage.results_dict[al_instance_id]
+        """Delete an instance and all its artifacts. Continues on partial failures."""
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # delete the model dictionary
-        del self.storage.model_paths_dict[al_instance_id]
+        # Delete from in-memory storage (non-critical if missing)
+        try:
+            del self.storage.al_instances_dict[al_instance_id]
+        except KeyError:
+            logger.warning(f"Instance {al_instance_id} not in al_instances_dict")
+        
+        try:
+            del self.storage.dataset_dict[al_instance_id]
+        except KeyError:
+            logger.warning(f"Instance {al_instance_id} not in dataset_dict")
+        
+        try:
+            del self.storage.results_dict[al_instance_id]
+        except KeyError:
+            logger.warning(f"Instance {al_instance_id} not in results_dict")
+        
+        try:
+            del self.storage.model_paths_dict[al_instance_id]
+        except KeyError:
+            logger.warning(f"Instance {al_instance_id} not in model_paths_dict")
 
-        # Delete the local artifacts
-        self.local_artifacts_store.delete_instance_artifacts(al_instance_id)
+        # Delete local artifacts (non-critical if missing)
+        try:
+            self.local_artifacts_store.delete_instance_artifacts(al_instance_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete local artifacts for instance {al_instance_id}: {e}")
 
-        # Delete the instance from persistence
-        self.duckdb_service.delete_instance(al_instance_id)
+        # Delete from DuckDB (non-critical if missing)
+        try:
+            self.duckdb_service.delete_instance(al_instance_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete instance from DuckDB: {e}")
 
-        # Delete the instance's objects from MinIO        if self.minio_service is not None:
-        self.minio_service.delete_instance_objects(al_instance_id)
+        # Delete from MinIO (non-critical if missing or unavailable)
+        if self.minio_service is not None:
+            try:
+                self.minio_service.delete_instance_objects(al_instance_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete instance objects from MinIO: {e}")
