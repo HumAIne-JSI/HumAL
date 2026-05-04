@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Tuple
+import logging
 
 import joblib
+
+logger = logging.getLogger(__name__)
 
 # Top-level constants
 MODELS_BASE_DIR = Path("storage/models")
@@ -75,50 +78,81 @@ class LocalArtifactsStore:
 
     def delete_instance_artifacts(self, al_instance_id: int) -> None:
         """Delete all artifacts for an instance. Continues even if some files are missing."""
+        logger.info(f"Starting deletion of artifacts for instance {al_instance_id}")
+        
+        deleted_count = 0
+        failed_count = 0
+        
         # Delete encoders
         encoder_dir = self.encoders_dir / str(al_instance_id)
         if encoder_dir.exists():
+            logger.debug(f"Deleting encoder directory: {encoder_dir}")
             for child in encoder_dir.iterdir():
                 if child.is_file():
                     try:
                         child.unlink()
-                    except OSError:
-                        pass
+                        logger.debug(f"Deleted encoder file: {child}")
+                        deleted_count += 1
+                    except OSError as e:
+                        logger.warning(f"Failed to delete encoder file {child}: {e}")
+                        failed_count += 1
             try:
                 encoder_dir.rmdir()
-            except OSError:
-                pass
+                logger.debug(f"Deleted encoder directory: {encoder_dir}")
+                deleted_count += 1
+            except OSError as e:
+                logger.warning(f"Failed to delete encoder directory {encoder_dir}: {e}")
+                failed_count += 1
 
         # Delete models
         model_dir = self.models_dir / str(al_instance_id)
         if model_dir.exists():
+            logger.debug(f"Deleting model directory: {model_dir}")
             for child in model_dir.rglob("*"):
                 if child.is_file():
                     try:
                         child.unlink()
-                    except OSError:
-                        pass
+                        logger.debug(f"Deleted model file: {child}")
+                        deleted_count += 1
+                    except OSError as e:
+                        logger.warning(f"Failed to delete model file {child}: {e}")
+                        failed_count += 1
             for child in sorted(model_dir.rglob("*"), reverse=True):
                 if child.is_dir():
                     try:
                         child.rmdir()
-                    except OSError:
-                        pass
+                        logger.debug(f"Deleted model subdirectory: {child}")
+                        deleted_count += 1
+                    except OSError as e:
+                        logger.warning(f"Failed to delete model subdirectory {child}: {e}")
+                        failed_count += 1
             try:
                 model_dir.rmdir()
-            except OSError:
-                pass
+                logger.debug(f"Deleted model directory: {model_dir}")
+                deleted_count += 1
+            except OSError as e:
+                logger.warning(f"Failed to delete model directory {model_dir}: {e}")
+                failed_count += 1
 
         # Delete vectorized data
         data_dir = self.vectorized_data_dir / str(al_instance_id)
         if data_dir.exists():
+            logger.debug(f"Deleting vectorized data directory: {data_dir}")
             for child in data_dir.iterdir():
                 if child.is_file():
                     try:
                         child.unlink()
-                    except OSError:
-                        pass
+                        logger.debug(f"Deleted vectorized data file: {child}")
+                        deleted_count += 1
+                    except OSError as e:
+                        logger.warning(f"Failed to delete vectorized data file {child}: {e}")
+                        failed_count += 1
             try:
                 data_dir.rmdir()
-            except OSError:
-                pass
+                logger.debug(f"Deleted vectorized data directory: {data_dir}")
+                deleted_count += 1
+            except OSError as e:
+                logger.warning(f"Failed to delete vectorized data directory {data_dir}: {e}")
+                failed_count += 1
+        
+        logger.info(f"Completed deletion of artifacts for instance {al_instance_id}: {deleted_count} deleted, {failed_count} failed")
