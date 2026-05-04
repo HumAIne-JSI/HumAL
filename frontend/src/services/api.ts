@@ -22,17 +22,11 @@ import {
   type ResolutionFeedbackRequest,
   type ResolutionFeedbackResponse,
   type EmbeddingsRebuildResponse,
-  // Analytics types
-  type AnalyticsOverview,
-  type SessionSummary,
-  type SessionLog,
-  type LabelingMetrics,
-  type ModelPerformanceMetrics,
-  type ALEffectivenessMetrics,
-  type ClassDistributionMetrics,
-  type SessionComparison,
-  type ExportRequest,
-  type ExportResponse,
+  // Benchmark / analytics types
+  type BenchmarkOverview,
+  type BenchmarkSession,
+  type BenchmarkSessionSummary,
+  type TelemetryEventRequest,
   type XaiRequestResponse,
   type XaiJobResponse,
   type ConfigCapabilitiesResponse,
@@ -78,18 +72,14 @@ export const API_ENDPOINTS = {
   RESOLUTION_FEEDBACK: '/resolution/feedback',
   RESOLUTION_REBUILD_EMBEDDINGS: '/resolution/rebuild-embeddings',
 
-  // Analytics
+  // Analytics / benchmark suite
   GET_ANALYTICS_OVERVIEW: '/analytics/overview',
   GET_SESSIONS: '/analytics/sessions',
-  GET_SESSION: (sessionId: string) => `/analytics/sessions/${sessionId}`,
-  GET_SESSION_DECISIONS: (sessionId: string) => `/analytics/sessions/${sessionId}/decisions`,
-  GET_SESSION_LABELING: (sessionId: string) => `/analytics/sessions/${sessionId}/labeling`,
-  GET_SESSION_PERFORMANCE: (sessionId: string) => `/analytics/sessions/${sessionId}/performance`,
-  GET_SESSION_EFFECTIVENESS: (sessionId: string) => `/analytics/sessions/${sessionId}/effectiveness`,
-  GET_SESSION_DISTRIBUTION: (sessionId: string) => `/analytics/sessions/${sessionId}/distribution`,
-  GET_SESSION_EXPORT: (sessionId: string) => `/analytics/sessions/${sessionId}/export`,
-  COMPARE_SESSIONS: '/analytics/compare',
-  EXPORT_SESSIONS: '/analytics/export-bulk',
+  GET_SESSION: (simId: string) => `/analytics/sessions/${simId}`,
+  GET_SESSION_SCRIPT: (simId: string) => `/analytics/sessions/${simId}/script`,
+  GET_SESSION_EXPORT: (simId: string) => `/analytics/sessions/${simId}/export`,
+  POST_TELEMETRY_EVENT: '/analytics/event',
+  END_SESSION: (simId: string) => `/analytics/sessions/${simId}/end`,
 } as const;
 
 /**
@@ -274,43 +264,35 @@ export const apiService = {
       method: 'POST',
     }),
 
-  // Analytics
+  // Analytics / benchmark suite
   getAnalyticsOverview: () =>
-    apiCall<AnalyticsOverview>(API_ENDPOINTS.GET_ANALYTICS_OVERVIEW),
+    apiCall<BenchmarkOverview>(API_ENDPOINTS.GET_ANALYTICS_OVERVIEW),
 
   getSessions: () =>
-    apiCall<SessionSummary[]>(API_ENDPOINTS.GET_SESSIONS),
+    apiCall<BenchmarkSessionSummary[]>(API_ENDPOINTS.GET_SESSIONS),
 
-  getSession: (sessionId: string) =>
-    apiCall<SessionSummary>(API_ENDPOINTS.GET_SESSION(sessionId)),
+  getSession: (simId: string) =>
+    apiCall<BenchmarkSession>(API_ENDPOINTS.GET_SESSION(simId)),
 
-  getSessionDecisions: (sessionId: string) =>
-    apiCall<SessionLog>(API_ENDPOINTS.GET_SESSION_DECISIONS(sessionId)),
+  getSessionScript: (simId: string) =>
+    apiCall<{ sim_id: string; script: BenchmarkSession['script'] }>(
+      API_ENDPOINTS.GET_SESSION_SCRIPT(simId),
+    ),
 
-  getSessionLabeling: (sessionId: string) =>
-    apiCall<LabelingMetrics>(API_ENDPOINTS.GET_SESSION_LABELING(sessionId)),
+  getSessionExport: (simId: string) =>
+    apiCall<BenchmarkSession>(API_ENDPOINTS.GET_SESSION_EXPORT(simId)),
 
-  getSessionPerformance: (sessionId: string) =>
-    apiCall<ModelPerformanceMetrics>(API_ENDPOINTS.GET_SESSION_PERFORMANCE(sessionId)),
+  postTelemetryEvent: (event: TelemetryEventRequest) =>
+    apiCall<{ recorded: boolean; t?: number; sim_id?: string; reason?: string }>(
+      API_ENDPOINTS.POST_TELEMETRY_EVENT,
+      {
+        method: 'POST',
+        body: JSON.stringify(event),
+      },
+    ),
 
-  getSessionEffectiveness: (sessionId: string) =>
-    apiCall<ALEffectivenessMetrics>(API_ENDPOINTS.GET_SESSION_EFFECTIVENESS(sessionId)),
-
-  getSessionDistribution: (sessionId: string) =>
-    apiCall<ClassDistributionMetrics>(API_ENDPOINTS.GET_SESSION_DISTRIBUTION(sessionId)),
-
-  getSessionExport: (sessionId: string) =>
-    apiCall<Record<string, unknown>>(API_ENDPOINTS.GET_SESSION_EXPORT(sessionId)),
-
-  compareSessions: (sessionIds: string[]) =>
-    apiCall<SessionComparison>(API_ENDPOINTS.COMPARE_SESSIONS, {
+  endSession: (simId: string) =>
+    apiCall<{ sim_id: string; file: string }>(API_ENDPOINTS.END_SESSION(simId), {
       method: 'POST',
-      body: JSON.stringify({ session_ids: sessionIds }),
-    }),
-
-  exportSessions: (request: ExportRequest) =>
-    apiCall<ExportResponse>(API_ENDPOINTS.EXPORT_SESSIONS, {
-      method: 'POST',
-      body: JSON.stringify(request),
     }),
 }

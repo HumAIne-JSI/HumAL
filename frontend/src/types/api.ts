@@ -229,197 +229,89 @@ export interface EmbeddingsRebuildResponse {
 }
 
 // ======
-// Analytics Types (matching backend/app/data_models/analytics_dm.py)
+// Benchmark Suite Types (matching backend/app/data_models/benchmark_dm.py)
 // ======
 
-/** Actor types for decision logging */
-export type ActorType = 'system' | 'ai' | 'human';
+/** The five canonical agent kinds */
+export type AgentId = 'ORCH' | 'AL' | 'LAB' | 'MOD' | 'XAI';
 
-/** Single decision/event in an active learning session */
-export interface Decision {
-  t: number;                          // Timestamp in seconds from session start
-  actor_type: ActorType;
-  action: string;
-  payload: Record<string, unknown>;
-  interaction_id?: string;
-  latency_ms?: number;
-  duration_s?: number;
-}
+/** Agent execution model */
+export type AgentModel = 'system' | 'ai' | 'human';
 
-/** Metadata for an active learning session */
-export interface SessionMeta {
-  task_parameters: Record<string, unknown>;
-}
+/** The canonical object registry */
+export type ObjectId = 'Pool' | 'Sel' | 'Ticket' | 'Lbl' | 'Mdl' | 'Snap' | 'KB';
 
-/** Complete decision log for an active learning session */
-export interface SessionLog {
-  sim_id: string;
-  session_id: string;
-  pilot_tag?: string;
-  user_id?: string;
-  app_version?: string;
-  ai_model_version?: string;
-  meta: SessionMeta;
-  decisions: Decision[];
-}
-
-/** Aggregated summary statistics for a session */
-export interface SessionSummary {
-  session_id: string;
-  instance_id: number;
-  model_name: string;
-  qs_strategy: string;
-  
-  // Labeling metrics
-  total_labeled: number;
-  labeling_iterations: number;
-  avg_labeling_duration_s?: number;
-  
-  // Model performance
-  latest_f1?: number;
-  f1_improvement?: number;
-  latest_accuracy?: number;
-  
-  // AL effectiveness
-  latest_mean_entropy?: number;
-  entropy_reduction?: number;
-  
-  // Timestamps
-  created_at: string;
-  last_updated: string;
-}
-
-/** Detailed labeling efficiency metrics */
-export interface LabelingMetrics {
-  total_labels: number;
-  labels_per_iteration: number[];
-  avg_duration_per_label_s?: number;
-  min_duration_s?: number;
-  max_duration_s?: number;
-  throughput_per_hour?: number;
-}
-
-/** Model performance trend metrics */
-export interface ModelPerformanceMetrics {
-  f1_scores: number[];
-  mean_entropies: number[];
-  num_labeled: number[];
-  f1_trend?: 'improving' | 'stable' | 'declining';
-  convergence_iteration?: number;
-}
-
-/** Active learning strategy effectiveness metrics */
-export interface ALEffectivenessMetrics {
-  strategy: string;
-  uncertainty_reduction_rate?: number;
-  samples_to_target_f1?: number;
-  efficiency_score?: number;
-}
-
-/** Class distribution and balance metrics */
-export interface ClassDistributionMetrics {
-  class_counts: Record<string, number>;
-  class_percentages: Record<string, number>;
-  imbalance_ratio?: number;
-  majority_class?: string;
-  minority_class?: string;
-}
-
-/** Aggregated analytics across all sessions */
-export interface AnalyticsOverview {
-  total_sessions: number;
-  total_instances: number;
-  total_labels: number;
-  total_iterations: number;
-  
-  // Averages across sessions
-  avg_f1_score?: number;
-  avg_labels_per_session?: number;
-  avg_labeling_duration_s?: number;
-  
-  // Best performers
-  best_f1_instance_id?: number;
-  best_f1_score?: number;
-  most_efficient_strategy?: string;
-  
-  // Strategy breakdown
-  strategy_performance: Record<string, number>;
-}
-
-/** Side-by-side comparison of multiple sessions */
-export interface SessionComparison {
-  session_ids: string[];
-  instance_ids: number[];
-  
-  // Comparative metrics
-  f1_scores: Record<number, number[]>;
-  num_labeled: Record<number, number[]>;
-  strategies: Record<number, string>;
-  
-  // Rankings
-  f1_ranking: number[];
-  efficiency_ranking: number[];
-}
-
-/** Request model for exporting session data */
-export interface ExportRequest {
-  instance_ids: number[];
-  include_decisions?: boolean;
-  include_metrics?: boolean;
-  format?: 'json' | 'csv';
-}
-
-/** Export response */
-export interface ExportResponse {
-  data: Record<string, unknown>;
-  format: string;
-}
-
-// ======
-// Simulation Environment Types (for JSON import)
-// ======
-
-/** Agent definition in simulation environment */
-export interface SimAgent {
+/** Environment block */
+export interface Environment {
   id: string;
   class: string;
-  model: 'system' | 'ai' | 'human';
+  attributes: Record<string, unknown>;
+}
+
+/** Agent definition */
+export interface AgentSpec {
+  id: AgentId;
+  class: string;
+  model: AgentModel;
   affordances: string[];
 }
 
-/** Object definition in simulation environment */
-export interface SimObject {
-  id: string;
+/** Object definition */
+export interface ObjectSpec {
+  id: ObjectId;
   class: string;
   attributes: Record<string, unknown>;
   affordances: string[];
 }
 
-/** Script event in simulation */
-export interface ScriptEvent {
+/** A single timestamped script entry */
+export interface ScriptEntry {
   t: number;
-  agent: string;
+  agent: AgentId;
   action: string;
-  object: string;
+  object: ObjectId;
   effect: Record<string, unknown>;
-  latency_ms?: number;
-  duration_s?: number;
+  latency_ms?: number | null;
+  duration_s?: number | null;
+  interaction_id?: string | null;
 }
 
-/** Simulation environment definition */
-export interface SimulationEnvironment {
+/** Full benchmark session matching benchmarking_suite/*.json */
+export interface BenchmarkSession {
   sim_id: string;
-  environment: {
-    id: string;
-    class: string;
-    attributes: Record<string, unknown>;
-  };
-  agents: SimAgent[];
-  objects: SimObject[];
-  script: ScriptEvent[];
+  environment: Environment;
+  agents: AgentSpec[];
+  objects: ObjectSpec[];
+  script: ScriptEntry[];
 }
 
-/** Wrapper for logs array from sample JSON */
-export interface SessionLogsFile {
-  logs: SessionLog[];
+/** Lightweight summary used in /analytics/sessions list */
+export interface BenchmarkSessionSummary {
+  sim_id: string;
+  instance_id?: number | null;
+  started_at?: number | null;
+  ended_at?: number | null;
+  num_events: number;
+  agents_used: AgentId[];
+  is_active: boolean;
+}
+
+/** Aggregated overview across all sessions */
+export interface BenchmarkOverview {
+  total_sessions: number;
+  active_sessions: number;
+  total_events: number;
+  events_by_agent: Record<string, number>;
+  avg_events_per_session: number;
+}
+
+/** Frontend telemetry event payload */
+export interface TelemetryEventRequest {
+  instance_id?: number | null;
+  sim_id?: string | null;
+  action: string;
+  object: ObjectId;
+  effect?: Record<string, unknown>;
+  duration_s?: number | null;
+  interaction_id?: string | null;
 }

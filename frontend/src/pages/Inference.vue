@@ -18,6 +18,7 @@ import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/
 import { useTickets } from '@/composables/api/useData'
 import { usePredictionHistory } from '@/composables/usePredictionHistory'
 import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse, Ticket } from '@/types/api'
 import {
   Zap,
@@ -41,11 +42,13 @@ const selectedInstanceId = computed({
 })
 
 // Initialize from route query
+const telemetry = useBenchmarkTelemetry()
 onMounted(() => {
   const instanceParam = route.query.instance
   if (instanceParam) {
     instanceStore.setInstance(Number(instanceParam))
   }
+  telemetry.recordLab('open_page', 'Ticket', { page: 'inference' })
 })
 
 // Sync URL with instance selection

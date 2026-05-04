@@ -60,19 +60,11 @@ export {
   resolutionKeys,
 } from './useResolution';
 
-// Analytics domain - session logs, metrics, comparisons
+// Analytics domain - benchmark sessions
 export {
   useAnalyticsOverview,
   useSessions,
   useSession,
-  useSessionDecisions,
-  useSessionLabeling,
-  useSessionPerformance,
-  useSessionEffectiveness,
-  useSessionDistribution,
-  useCompareSessions,
-  useExportSessions,
-  useSessionAllMetrics,
   useSampleData,
   setUseSampleData,
   analyticsKeys,
@@ -85,4 +77,4 @@ export type { UseDataOptions } from './useData';
 export type { UseInferenceOptions } from './useInference';
 export type { UseXaiOptions, ExplainLimePayload, NearestTicketPayload } from './useXai';
 export type { UseResolutionOptions } from './useResolution';
-export type { UseAnalyticsOptions } from './useAnalytics';
+

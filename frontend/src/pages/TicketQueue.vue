@@ -11,6 +11,7 @@ import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { TicketStatus, SortOrder } from '@/stores/useTicketQueueStore'
 import {
   Inbox,
@@ -24,6 +25,17 @@ import {
 const route = useRoute()
 const router = useRouter()
 const instanceStore = useInstanceStore()
+const telemetry = useBenchmarkTelemetry()
+
+function selectTicketWithTelemetry(id: string | null) {
+  selectTicket(id)
+  if (id) telemetry.recordLab('select_ticket', 'Ticket', { ticket_id: id })
+}
+
+function setFilterWithTelemetry(...args: Parameters<typeof setFilter>) {
+  setFilter(...args)
+  telemetry.recordLab('filter_pool', 'Pool', { filter: args[0] })
+}
 
 // Use store's instance ID
 const selectedInstanceId = computed({
@@ -302,7 +314,7 @@ const groupedShortcuts = computed(() => {
               :bulk-selected="store.bulkSelection.has(ticket.id)"
               :show-bulk-checkbox="hasBulkSelection"
               :recently-labeled="store.recentlyLabeled.has(ticket.id)"
-              @select="selectTicket(ticket.id)"
+              @select="selectTicketWithTelemetry(ticket.id)"
               @toggle-bulk="toggleBulkSelect(ticket.id)"
             />
           </TransitionGroup>
