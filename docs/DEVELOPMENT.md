@@ -10,10 +10,8 @@ HumAL/
 |   ├── app/              # FastAPI application
 │   ├── data/             # CSV datasets (place your data here)
 │   └── models/           # Saved models (joblib .pkl)
-├── frontend/             # React + Vite frontend
 ├── docs/                 # Documentation
 ├── tests/                # Test suite
-├── start-dev.bat         # Windows startup script
 ├── requirements.txt      # Backend dependencies
 ├── install.py           # Automated dependency installer
 └── .env                 # Environment configuration (create from .env.example)
@@ -23,8 +21,6 @@ HumAL/
 
 - **Python 3.8+** (for backend)
 - **uv** or **pip** (for Python package management)
-- **Node.js 18+** (for frontend)
-- **npm** or **yarn** (for frontend package management)
 - **CUDA Toolkit** (optional, for GPU acceleration - will be auto-detected)
 
 ### Installing uv (Optional but Recommended)
@@ -80,7 +76,6 @@ The automated installer detects your system configuration (CUDA version, package
    The installer will:
    - ✓ Auto-detect CUDA and install PyTorch with GPU support (if available)
    - ✓ Install all dependencies from requirements.txt
-   - ✓ Install all frontend dependencies
    - ✓ Verify the installation and display GPU/CPU status
 
 4. Prepare data and models (required before using the app):
@@ -91,8 +86,7 @@ The automated installer detects your system configuration (CUDA version, package
    ```
 
   - Place CSV data files in `backend/data/`.
-    - Resolution KB: `User_Request_last_team_ANON.csv`.
-    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`,  `al_demo_train_labels_dispatch.csv`
+    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`, `al_demo_train_labels_dispatch.csv`
    - Place pre-trained team classification and ticket type classification models in `backend/models/`.
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
@@ -102,11 +96,6 @@ The automated installer detects your system configuration (CUDA version, package
    # Copy .env.example to .env (if .env.example exists)
    # Windows PowerShell
    copy .env.example .env
-   ```
-   
-   Edit `.env` and add your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your-openai-api-key-here
    ```
 
 ### Option 2: Manual Installation
@@ -140,13 +129,6 @@ The automated installer detects your system configuration (CUDA version, package
    pip install torch --index-url https://download.pytorch.org/whl/cu118
    ```
 
-5. Install frontend dependencies:
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
-
 6. Prepare data and models (required before using the app):
    ```bash
    # Windows PowerShell
@@ -155,8 +137,7 @@ The automated installer detects your system configuration (CUDA version, package
    ```
 
   - Place CSV data files in `backend/data/`.
-    - Resolution KB: `User_Request_last_team_ANON.csv`.
-    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`,  `al_demo_train_labels_dispatch.csv`
+    - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`, `al_demo_train_labels_dispatch.csv`
    - Place pre-trained team classification and ticket type classification models in `backend/models/`.
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
@@ -166,11 +147,6 @@ The automated installer detects your system configuration (CUDA version, package
    # Copy .env.example to .env (if .env.example exists)
    # Windows PowerShell
    copy .env.example .env
-   ```
-   
-   Edit `.env` and add your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your-openai-api-key-here
    ```
 
 ## Running the Application
@@ -183,12 +159,11 @@ After completing installation, choose one of the following methods to run the ap
 
 Before starting, ensure:
 - `backend/data/` and `backend/models/` exist and are populated
-- `.env` file exists in the project root with `OPENAI_API_KEY` configured
 
 **Windows:**
 ```bash
-# Double-click start-dev.bat or run:
-.\start-dev.bat
+cd backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Option 2: Manual Startup
@@ -213,22 +188,9 @@ Before starting, ensure:
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-#### Frontend
-
-1. Open a new terminal and navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Start the frontend development server:
-   ```bash
-   npm run dev
-   ```
-
 ## Access Points
 
-After starting both services:
+After starting the backend:
 
-- **Frontend Application**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs

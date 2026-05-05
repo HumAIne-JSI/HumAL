@@ -2,13 +2,12 @@
 
 ## System Overview
 
-HumAL is a full-stack human-in-the-loop active learning platform designed for IT ticket classification, automated resolution generation, and interactive model training. The system combines traditional machine learning with LLM capabilities and XAI.
+HumAL is a human-in-the-loop active learning platform designed for IT ticket classification and interactive model training. The system combines traditional machine learning with XAI (explainable AI).
 
 **Technology Stack:**
 - **Backend**: FastAPI (Python 3.8+)
-- **Frontend**: React + TypeScript + Vite
 - **ML Framework**: scikit-learn, PyTorch
-- **NLP**: Sentence Transformers, OpenAI
+- **NLP**: Sentence Transformers
 - **XAI**: LIME
 - **Vector Search**: FAISS
 
@@ -41,25 +40,7 @@ backend/
 └── tests/                   # Test suite
 ```
 
----
 
-### Frontend Architecture
-
-```
-frontend/
-├── src/
-│   ├── main.tsx             # Application entry point
-│   ├── App.tsx              # Root component with routing
-│   ├── pages/               # Route-level components
-│   ├── components/          # Reusable UI components
-│   ├── services/            # API client layer
-│   ├── types/               # TypeScript type definitions
-│   ├── hooks/               # Custom React hooks
-│   └── lib/                 # Utility functions
-└── public/                  # Static assets
-```
-
----
 
 ## Component Details
 
@@ -86,6 +67,10 @@ frontend/
   - Ticket retrieval
   - Team information
   - Label statistics
+  
+- **config_router.py**: Configuration management
+  - Retrieve available models
+  - Retrieve query strategies
 
 ---
 
@@ -104,11 +89,6 @@ frontend/
 #### Inference Service
 - Loads trained models
 - Performs predictions
-
-#### Resolution Service
-- Implements RAG pipeline
-- Uses OpenAI models
-- Manages knowledge base embeddings
 
 #### XAI Service
 - Generates LIME explanations
@@ -143,6 +123,7 @@ class Storage:
 ```python
 def get_al_service() -> ActiveLearningService
 def get_inference_service() -> InferenceService
+def get_xai_service() -> XAIService
 ```
 
 ---
@@ -166,28 +147,7 @@ class NewInstance(BaseModel):
 class LabelRequest(BaseModel):
     indices: List[str]
     labels: List[str]
-
-# Resolution
-class ResolutionRequest(BaseModel):
-    ticket_description: str
-    ticket_category: Optional[str]
-    user_context: Optional[Dict]
-
-class ResolutionResponse(BaseModel):
-    resolution: str
-    confidence_score: float
-    similar_tickets: List[Dict]
 ```
-
----
-
-### 5. Frontend Components
-
-#### Pages
-- **Home**: Landing page with feature overview
-- **Training**: AL instance creation and configuration
-- **DispatchLabeling**: Interactive labeling interface
-- **Inference**: Model prediction interface
 
 
 ---
@@ -222,8 +182,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[User inputs new ticket]
-    B["Frontend → POST /activelearning/{id}/infer"]
+    A[New ticket data]
+    B["POST /activelearning/{id}/infer"]
     C[Load trained model from storage]
     D[Preprocess ticket text]
     E["Generate features (embeddings)"]

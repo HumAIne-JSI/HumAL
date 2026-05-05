@@ -176,7 +176,7 @@ curl "http://localhost:8000/config/models"
 
 Example response:
 ```json
-{"models": ["random_forest", "svm", "logistic_regression"]}
+{"models": ["random forest", "logistic regression", "svm"]}
 ```
 
 ### GET /config/query-strategies
@@ -190,21 +190,19 @@ curl "http://localhost:8000/config/query-strategies"
 
 Example response:
 ```json
-{"strategies": ["random sampling", "uncertainty sampling", "value of information"]}
+{"strategies": ["random sampling", "uncertainty sampling entropy", "uncertainty sampling margin sampling", "uncertainty sampling least confidence", "CLUE"]}
 ```
 
 ## Data
 
-### POST /data/{al_instance_id}/tickets
+### POST /data/tickets
 
 - Method: POST
-- Path params: `al_instance_id` (integer)
-- Query params: `train_data_path` (string, optional; required when `al_instance_id` is 0)
 - Request body format: array of ticket indices (strings)
 
 Example request:
 ```bash
-curl -X POST "http://localhost:8000/data/1/tickets" \
+curl -X POST "http://localhost:8000/data/tickets" \
 	-H "Content-Type: application/json" \
 	-d "[\"R-544314\",\"R-544315\"]"
 ```
@@ -225,15 +223,13 @@ Example response:
 }
 ```
 
-### GET /data/{al_instance_id}/teams
+### GET /data/teams
 
 - Method: GET
-- Path params: `al_instance_id` (integer)
-- Query params: `train_data_path` (string, optional; required when `al_instance_id` is 0)
 
 Example request:
 ```bash
-curl "http://localhost:8000/data/1/teams"
+curl "http://localhost:8000/data/teams"
 ```
 
 Example response:
@@ -241,15 +237,13 @@ Example response:
 {"teams": ["Team A", "Team B"]}
 ```
 
-### GET /data/{al_instance_id}/categories
+### GET /data/categories
 
 - Method: GET
-- Path params: `al_instance_id` (integer)
-- Query params: `train_data_path` (string, optional; required when `al_instance_id` is 0)
 
 Example request:
 ```bash
-curl "http://localhost:8000/data/1/categories"
+curl "http://localhost:8000/data/categories"
 ```
 
 Example response:
@@ -257,15 +251,13 @@ Example response:
 {"categories": ["Network", "Antivirus"]}
 ```
 
-### GET /data/{al_instance_id}/subcategories
+### GET /data/subcategories
 
 - Method: GET
-- Path params: `al_instance_id` (integer)
-- Query params: `train_data_path` (string, optional; required when `al_instance_id` is 0)
 
 Example request:
 ```bash
-curl "http://localhost:8000/data/1/subcategories"
+curl "http://localhost:8000/data/subcategories"
 ```
 
 Example response:
@@ -326,85 +318,61 @@ Example response:
 }
 ```
 
-## Resolution
+## Asynchronous XAI (RabbitMQ Required)
 
-### POST /resolution/process
+### POST /xai/{al_instance_id}/requests
 
 - Method: POST
-- Request body format (ResolutionRequest):
-	- `ticket_title` (string, optional)
-	- `ticket_description` (string, optional)
-	- `service_category` (string, optional)
-	- `service_subcategory` (string, optional)
-	- `top_k` (integer, optional; default: 3, range: 1-20)
-	- `force_rebuild` (boolean, optional; default: false)
+- Path params: `al_instance_id` (integer)
+- Query params:
+	- `model_id` (integer, optional, default: 0)
+	- `ticket_ref` (string, optional)
+- Request body format: Data object
 
 Example request:
 ```bash
-curl -X POST "http://localhost:8000/resolution/process" \
+curl -X POST "http://localhost:8000/xai/1/requests?model_id=0&ticket_ref=R-544314" \
 	-H "Content-Type: application/json" \
-	-d "{\"ticket_title\":\"VPN not working\",\"ticket_description\":\"Cannot connect to VPN\",\"top_k\":3}"
+	-d "{\"title_anon\":\"VPN not working\",\"description_anon\":\"Cannot connect to VPN\"}"
 ```
 
 Example response:
 ```json
 {
-	"classification": "vpn_request",
-	"predicted_team": "Network Support",
-	"team_confidence": 0.82,
-	"response": "Thanks for reporting the VPN issue...",
-	"similar_replies": [{"ticket_id": "R-544320", "reply": "..."}],
-	"retrieval_k": 3
+	"job_id": "550e8400-e29b-41d4-a716-446655440000",
+	"status": "pending",
+	"ticket_ref": "R-544314"
 }
 ```
 
-### POST /resolution/feedback
+### GET /xai/jobs/{job_id}
 
-- Method: POST
-- Request body format (FeedbackRequest):
-	- `ticket_title` (string, required)
-	- `ticket_description` (string, required)
-	- `edited_response` (string, required)
-	- `predicted_team` (string, optional)
-	- `predicted_classification` (string, optional)
-	- `service_name` (string, optional)
-	- `service_subcategory` (string, optional)
+- Method: GET
+- Path params: `job_id` (string, UUID format)
 
 Example request:
 ```bash
-curl -X POST "http://localhost:8000/resolution/feedback" \
-	-H "Content-Type: application/json" \
-	-d "{\"ticket_title\":\"VPN not working\",\"ticket_description\":\"Cannot connect to VPN\",\"edited_response\":\"Please try resetting your VPN client...\"}"
+curl "http://localhost:8000/xai/jobs/550e8400-e29b-41d4-a716-446655440000"
 ```
 
-Example response:
+Example response (pending):
 ```json
 {
-	"success": true,
-	"message": "Saved",
-	"ticket_ref": "R-544321",
-	"new_kb_size": 502,
-	"embedding_added_incrementally": true,
-	"embedding_invalidated": false
+	"job_id": "550e8400-e29b-41d4-a716-446655440000",
+	"status": "pending"
 }
 ```
 
-### POST /resolution/rebuild-embeddings
-
-- Method: POST
-
-Example request:
-```bash
-curl -X POST "http://localhost:8000/resolution/rebuild-embeddings"
-```
-
-Example response:
+Example response (completed):
 ```json
 {
-	"rebuilt": true,
-	"records": 500,
-	"embedding_dim": 384,
-	"cache_file": "embeddings_cache/kb_1700000000.npz",
-	"cache_saved": true
+	"job_id": "550e8400-e29b-41d4-a716-446655440000",
+	"status": "completed",
+	"result": {
+		"top_words": [["vpn", 0.42], ["connect", 0.18]],
+		"error": null
+	}
 }
 ```
+
+

@@ -6,7 +6,7 @@ router = APIRouter(prefix="/activelearning", tags=["inference"])
 inference_service = get_inference_service()
 
 @router.post("/{al_instance_id}/infer")
-def infer(al_instance_id: int, data: Data):
+def infer(al_instance_id: int, data: Data | list[Data]):
     # check if the instance id is valid
     if al_instance_id not in inference_service.storage.al_instances_dict:
         raise HTTPException(status_code=404, detail="Instance not found")

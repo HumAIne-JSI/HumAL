@@ -24,12 +24,14 @@ class InferenceService:
         self.local_artifacts_store = local_artifacts_store
 
     # Logic for inference
-    def infer(self, al_instance_id: int, X: Data, model_id: int = 0):
-        # Convert Data object to pandas DataFrame with an index
-        data_dict = X.model_dump()
+    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0):
+        # Convert Data object(s) to pandas DataFrame
+        if isinstance(X, list):
+            data_dicts = [item.model_dump() for item in X]
+        else:
+            data_dicts = [X.model_dump()]
         
-        # Wrap the dictionary in a list to create a single row DataFrame
-        X = pd.DataFrame([data_dict])
+        X = pd.DataFrame(data_dicts)
 
         # Preprocess the data for inference
         X = inference(
