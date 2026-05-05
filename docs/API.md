@@ -10,7 +10,7 @@ All endpoints accept and return JSON unless noted. Path and query parameters are
 
 - Method: POST
 - Path params: `al_instance_id` (integer)
-- Request body format (Data):
+- Request body format: Single `Data` object or an array of `Data` objects. A `Data` object contains:
 	- `service_subcategory_name` (string, optional)
 	- `team_name` (string, optional)
 	- `service_name` (string, optional)
@@ -19,16 +19,23 @@ All endpoints accept and return JSON unless noted. Path and query parameters are
 	- `description_anon` (string, optional)
 	- `public_log_anon` (string, optional)
 
-Example request:
+Example request (single):
 ```bash
 curl -X POST "http://localhost:8000/activelearning/1/infer" \
 	-H "Content-Type: application/json" \
 	-d "{\"title_anon\":\"VPN not working\",\"description_anon\":\"Cannot connect to VPN from home\"}"
 ```
 
+Example request (batch):
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/infer" \
+	-H "Content-Type: application/json" \
+	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
+```
+
 Example response:
 ```json
-["(GI-UX) Network Access"]
+["(GI-UX) Network Access", "Email Support Team"]
 ```
 
 ## Active Learning
