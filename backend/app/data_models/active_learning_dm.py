@@ -23,3 +23,8 @@ class Data(BaseModel):
     title_anon: Optional[str] = None
     description_anon: Optional[str] = None
     public_log_anon: Optional[str] = None
+
+# Response model for probability inference
+class InferProbaResponse(BaseModel):
+    classes: list[str | int | None]
+    probabilities: list[list[float]]

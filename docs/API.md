@@ -54,6 +54,57 @@ curl -X POST "http://localhost:8000/activelearning/1/infer" \
 	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
 ```
 
+### POST /activelearning/{al_instance_id}/infer_proba
+
+**Description:** Evaluates new tickets against a trained active learning model to return class probabilities. Supports processing a single ticket or a batch of tickets simultaneously.
+
+**Parameters:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+
+**Request Body (`application/json`):**  
+Single `Data` object or an array of `Data` objects.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title_anon` | string | No | Anonymized ticket title |
+| `description_anon` | string | No | Anonymized ticket description |
+| `service_subcategory_name` | string | No | Subcategory of the service |
+| `team_name` | string | No | Actual assigned team |
+| `service_name` | string | No | Top-level service name |
+| `last_team_id_name` | string | No | Previous team assignment |
+| `public_log_anon` | string | No | Public communication logs |
+
+**Swagger-style UI Example:**
+*Request Payload (Batch)*
+```json
+[
+  {
+    "title_anon": "VPN not working"
+  },
+  {
+    "title_anon": "Email issue"
+  }
+]
+```
+*HTTP 200 OK*
+```json
+{
+  "classes": ["network_issue", "hardware", "software", "other"],
+  "probabilities": [
+    [0.7, 0.1, 0.1, 0.1],
+    [0.05, 0.8, 0.1, 0.05]
+  ]
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
+	-H "Content-Type: application/json" \
+	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
+```
+
 
 ## Active Learning
 

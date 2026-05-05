@@ -1,6 +1,6 @@
 services:
   backend:
-    image: harbor.gftinnovation.eu/humaine/humaine-al-api:v0.4.0
+    image: harbor.gftinnovation.eu/humaine/humaine-al-api:v0.5.0
     ports:
       - "8000:8000"
     environment:
