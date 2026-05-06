@@ -53,7 +53,10 @@ print("\n")
 
 # Test getting model info/performance
 response = requests.get(f"http://127.0.0.1:8000/activelearning/{instance_id}/info")
-print(f"Model performance info: {response.json()}")
+info_json = response.json()
+print(f"Model performance info: {info_json}")
+assert "created_at" in info_json
+assert "train_data_path" in info_json
 print("\n")
 
 # Test saving model

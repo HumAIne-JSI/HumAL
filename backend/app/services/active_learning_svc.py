@@ -15,6 +15,10 @@ from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.data_preprocessing import dispatch_team
 from app.config.config import SYSTEM_USER_ID
 from app.persistence.minio_storage import MinioService
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ActiveLearningService:
     def __init__(
@@ -413,6 +417,27 @@ class ActiveLearningService:
             mean_entropy=mean_entropy,
             num_labeled=num_labeled
         )
+
+    def get_instance_info(self, al_instance_id: int):
+        # Base info
+        info = self.storage.results_dict.get(al_instance_id, {}).copy()
+        
+        # Enrich with instance info from duckdb (like creation date)
+        if self.duckdb_service is not None:
+            db_info = self.duckdb_service.load_al_instance(al_instance_id)
+            if db_info:
+                info["created_at"] = db_info.get("created_at")
+            
+        # Get training datasets names available from MinIO if configured
+        if self.minio_service is not None:
+            try:
+                info["train_datasets_minio"] = self.minio_service.return_data_names("train")
+            except Exception as e:
+                logger.warning(f"Could not retrieve train dataset names from MinIO: {e}")
+        else:
+            info["train_datasets_minio"] = []
+            
+        return info
 
     # Logic for saving the model
     def save_model(self, al_instance_id: int):

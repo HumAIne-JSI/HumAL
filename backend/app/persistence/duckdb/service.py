@@ -128,7 +128,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             result = conn.execute(
                 """
-                SELECT model_name, query_strategy, classes, train_data_path, test_data_path
+                SELECT model_name, query_strategy, classes, train_data_path, test_data_path, created_at
                 FROM al_instances
                 WHERE al_instance_id = ?
                 """,
@@ -144,6 +144,7 @@ class DuckDbPersistenceService:
             "classes": result[2],
             "train_data_path": result[3],
             "test_data_path": result[4],
+            "created_at": result[5],
         }
 
     def get_all_instances(self) -> Dict[int, Dict[str, Any]]:

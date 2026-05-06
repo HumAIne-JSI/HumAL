@@ -32,6 +32,47 @@ def mock_local_artifacts():
     return MagicMock(spec=LocalArtifactsStore)
 
 
+class TestGetInstanceInfo:
+    def test_get_instance_info_combines_storage_duckdb_and_minio(self, storage, mock_duckdb_service):
+        """Test that instance info includes metrics, creation time, and train dataset names."""
+        storage.results_dict[7] = {
+            "mean_entropies": [0.42],
+            "f1_scores": [0.91],
+            "num_labeled": [12],
+        }
+
+        mock_duckdb_service.load_al_instance.return_value = {
+            "created_at": "2026-05-01T12:34:56",
+            "train_data_path": "data/al_demo_train_data.csv",
+            "test_data_path": "data/al_demo_test_data.csv",
+        }
+
+        mock_minio_service = MagicMock()
+        mock_minio_service.return_data_names.return_value = [
+            "datasets/train/User_Request_last_team_ANON_20240101T120000.xlsx",
+            "datasets/train/User_Request_last_team_ANON_20240115T090000.xlsx",
+        ]
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=mock_duckdb_service,
+            minio_service=mock_minio_service,
+        )
+
+        info = service.get_instance_info(7)
+
+        assert info["mean_entropies"] == [0.42]
+        assert info["f1_scores"] == [0.91]
+        assert info["num_labeled"] == [12]
+        assert info["created_at"] == "2026-05-01T12:34:56"
+        assert info["train_datasets_minio"] == [
+            "datasets/train/User_Request_last_team_ANON_20240101T120000.xlsx",
+            "datasets/train/User_Request_last_team_ANON_20240115T090000.xlsx",
+        ]
+        mock_duckdb_service.load_al_instance.assert_called_once_with(7)
+        mock_minio_service.return_data_names.assert_called_once_with("train")
+
+
 class TestLoadFromPersistence:
     def test_load_from_persistence_empty_instances(self, storage, mock_duckdb_service, mock_local_artifacts):
         """Test that it gracefully handles empty instances."""
@@ -261,7 +302,14 @@ class TestLoadFromPersistence:
         
         le_mock = MagicMock()
         oh_mock = MagicMock()
-        le_mock.transform = MagicMock(side_effect=lambda x: np.array([0 if val == "A" else 1 for val in x]))
+
+        def encode_labels(values):
+            return np.array([
+                0 if val == "A" else 1 if val == "B" else 2
+                for val in values
+            ])
+
+        le_mock.transform = MagicMock(side_effect=encode_labels)
         mock_local_artifacts.load_encoders.return_value = (le_mock, oh_mock)
         
         # Mock datasets with specific indices

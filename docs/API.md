@@ -211,7 +211,7 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 
 ### GET /activelearning/{al_instance_id}/info
 
-**Description:** Returns the performance metrics tracking table (entropies, F1 scores, and query progression) for a given instance.
+**Description:** Returns performance metrics for a given instance, plus instance creation time and available training datasets from MinIO.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -222,9 +222,20 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 *HTTP 200 OK*
 ```json
 {
-  "mean_entropies": [0.91, 0.73],
-  "f1_scores": [0.42, 0.58],
-  "num_labeled": [25, 50]
+  "mean_entropies": [
+    2.0658459166699252
+  ],
+  "f1_scores": [
+    0.14496051823136516
+  ],
+  "num_labeled": [
+    58
+  ],
+  "created_at": "2026-05-06T13:10:41.115600",
+  "train_datasets_minio": [
+    "datasets/train/User Request_last_team_ANON_20260225T110000.xlsx",
+    "datasets/train/User Request_last_team_ANON_20260325T110000.xlsx"
+  ]
 }
 ```
 

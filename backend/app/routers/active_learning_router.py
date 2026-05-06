@@ -32,7 +32,7 @@ def label_instance(al_instance_id: int, label_request: LabelRequest):
 def get_info(al_instance_id: int):
     if al_instance_id not in al_service.storage.results_dict:
         raise HTTPException(status_code=404, detail="Instance not found")
-    return al_service.storage.results_dict[al_instance_id]
+    return al_service.get_instance_info(al_instance_id)
 
 @router.post("/{al_instance_id}/save")
 def save_model(al_instance_id: int):
