@@ -1,14 +1,46 @@
 from fastapi import APIRouter, HTTPException, Query, Body
 from app.core.dependencies import get_xai_service, get_data_service
-from app.data_models.active_learning_dm import Data
+from app.data_models.active_learning_dm import Data, Neighbor, NearestTicketResponse
+from pydantic import BaseModel
 import pandas as pd
-from typing import Optional
+from typing import Optional, List
 import uuid
 import os
 
 router = APIRouter(prefix="/xai", tags=["xai"])
 xai_service = get_xai_service()
 data_service = get_data_service()
+
+@router.post("/{al_instance_id}/nearest", response_model=List[NearestTicketResponse])
+def nearest(
+    al_instance_id: int, 
+    ticket_data: Optional[Data] = Body(None), 
+    query_idx: Optional[list[str]] = Query(None), 
+    top_k: int = Query(1),
+    distinct_classes: bool = Query(True),
+    model_id: int = Query(0),
+):
+    # check if the instance id is valid
+    if al_instance_id not in xai_service.storage.al_instances_dict:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    # check if the model is trained
+    if al_instance_id not in xai_service.storage.model_paths_dict:
+        raise HTTPException(status_code=404, detail="Model not trained yet, please train the model first")
+    
+    # require exactly one source
+    if (ticket_data is None) == (query_idx is None):
+        raise HTTPException(status_code=400, detail="Provide exactly one of ticket_data or query_idx")
+    
+    if ticket_data is not None:
+        neighbors = xai_service.find_nearest(al_instance_id, ticket_data, top_k, distinct_classes, model_id)
+        return [NearestTicketResponse(neighbors=neighbors)]
+    else:
+        results = []
+        for q_idx in query_idx:
+            neighbors = xai_service.find_nearest_by_idx(al_instance_id, q_idx, top_k, distinct_classes, model_id)
+            results.append(NearestTicketResponse(query_idx=str(q_idx), neighbors=neighbors))
+        return results
 
 @router.post("/{al_instance_id}/explain_lime")
 def explain_lime(

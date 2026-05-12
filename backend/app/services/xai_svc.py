@@ -88,6 +88,148 @@ class XaiService:
         
         return lime_explanation_outputs
 
+    def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, distinct_classes: bool = True, model_id: int = 0):
+        target_embedding = inference(
+            df=pd.DataFrame([ticket.model_dump()]), 
+            le=self.storage.dataset_dict[al_instance_id]['le'], 
+            oh=self.storage.dataset_dict[al_instance_id]['oh'], 
+            sentence_model=self.sentence_model
+        ).values
+        
+        target_classes = None
+        input_title = ticket.title_anon or ""
+        input_description = ticket.description_anon or ""
+        
+        if distinct_classes:
+            try:
+                res = self.inference_service.infer_proba(al_instance_id, ticket, model_id)
+                probs = res["probabilities"][0]
+                classes = res["classes"]
+                sorted_class_idx = np.argsort(probs)[::-1]
+                target_classes = {classes[i] for i in sorted_class_idx[:top_k]}
+            except ValueError:
+                # Fallback to standard infer
+                preds = self.inference_service.infer(al_instance_id, ticket, model_id)
+                target_classes = set(preds)
+                
+        return self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+    def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, distinct_classes: bool = True, model_id: int = 0):
+        target_embedding = self.storage.dataset_dict[al_instance_id]['X_train'].loc[[index]].values
+        
+        target_classes = None
+        
+        query_df = self.duckdb_service.load_tickets_by_ref([index])
+        if query_df is not None and not query_df.empty:
+            row = query_df.iloc[0]
+            input_title = row['Title_anon'] if pd.notna(row['Title_anon']) else ""
+            input_description = row['Description_anon'] if pd.notna(row['Description_anon']) else ""
+            s_name = row['Service->Name'] if pd.notna(row['Service->Name']) else None
+            s_sub = row['Service subcategory->Name'] if pd.notna(row['Service subcategory->Name']) else None
+        else:
+            input_title, input_description, s_name, s_sub = "", "", None, None
+
+        if distinct_classes:
+            ticket_obj = Data(
+                title_anon=input_title,
+                description_anon=input_description,
+                service_name=s_name,
+                service_subcategory_name=s_sub
+            )
+            
+            try:
+                res = self.inference_service.infer_proba(al_instance_id, ticket_obj, model_id)
+                probs = res["probabilities"][0]
+                classes = res["classes"]
+                sorted_class_idx = np.argsort(probs)[::-1]
+                target_classes = {classes[i] for i in sorted_class_idx[:top_k]}
+            except ValueError:
+                preds = self.inference_service.infer(al_instance_id, ticket_obj, model_id)
+                target_classes = set(preds)
+                
+        return self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+    def _compute_nearest(self, al_instance_id: int, target_embedding, top_k: int, distinct_classes: bool, target_classes: set = None, input_title: str = "", input_description: str = ""):
+        import re
+        X_train = self.storage.dataset_dict[al_instance_id]['X_train']
+        y_train = self.storage.dataset_dict[al_instance_id]['y_train']
+        le = self.storage.dataset_dict[al_instance_id]['le']
+        
+        labeled_mask = y_train.notna()
+        X_labeled = X_train[labeled_mask]
+        X_labeled_indices = np.where(labeled_mask)[0]
+        
+        similarities = cosine_similarity(target_embedding, X_labeled.values)[0]
+        sorted_sim_indices = np.argsort(similarities)[::-1]
+        
+        raw_matches = []
+        
+        if distinct_classes and target_classes is not None:
+            classes_found = set()
+            
+            for idx in sorted_sim_indices:
+                if len(classes_found) >= len(target_classes):
+                    break
+                    
+                real_idx_X_train = X_labeled_indices[idx]
+                nearest_ticket_ref = X_train.index[real_idx_X_train]
+                label_idx = int(y_train[nearest_ticket_ref])
+                nearest_ticket_label = le.inverse_transform([label_idx])[0]
+                
+                if nearest_ticket_label in target_classes and nearest_ticket_label not in classes_found:
+                    classes_found.add(nearest_ticket_label)
+                    raw_matches.append((str(nearest_ticket_ref), nearest_ticket_label, similarities[idx]))
+        else:
+            for idx in sorted_sim_indices:
+                if len(raw_matches) >= top_k:
+                    break
+                    
+                real_idx_X_train = X_labeled_indices[idx]
+                nearest_ticket_ref = X_train.index[real_idx_X_train]
+                label_idx = int(y_train[nearest_ticket_ref])
+                nearest_ticket_label = le.inverse_transform([label_idx])[0]
+                
+                raw_matches.append((str(nearest_ticket_ref), nearest_ticket_label, similarities[idx]))
+        
+        # Load the raw ticket data from duckdb
+        refs = [m[0] for m in raw_matches]
+        refs_df = self.duckdb_service.load_tickets_by_ref(refs) if refs else None
+
+        input_text = f"{input_title} {input_description}".lower()
+        input_words = set(re.findall(r'\b\w{4,}\b', input_text))
+
+        results = []
+        for ref, label, similarity in raw_matches:
+            title, description = None, None
+            
+            if refs_df is not None and not refs_df.empty:
+                # Match the ref string types properly
+                row_matches = refs_df[refs_df['Ref'] == ref]
+                if not row_matches.empty:
+                    row = row_matches.iloc[0]
+                    title = row['Title_anon'] if pd.notna(row['Title_anon']) else None
+                    description = row['Description_anon'] if pd.notna(row['Description_anon']) else None
+            
+            neighbor_text = f"{title or ''} {description or ''}".lower()
+            neighbor_words = set(re.findall(r'\b\w{4,}\b', neighbor_text))
+            
+            overlapping_terms = list(input_words.intersection(neighbor_words))
+            reason = None
+            if overlapping_terms:
+                reason = f"Shares {', '.join(overlapping_terms)} with the current ticket."
+                
+            results.append({
+                "ref": ref,
+                "label": label,
+                "similarity": float(similarity),
+                "title": title,
+                "description": description,
+                "reason": reason,
+                "overlapping_terms": overlapping_terms
+            })
+            
+        return results
+
     def find_nearest_by_ticket(self, al_instance_id: int, ticket: Data, model_id: int = 0):
         """
         This function finds the nearest already labeled ticket to the given ticket.
@@ -152,7 +294,7 @@ class XaiService:
 
         # Extract the indices of the labeled tickets
         X_labeled_indices = np.where(labeled_mask)[0]
-            
+                
         # Get the most similar tickets
         similarities = cosine_similarity(target_embeddings, X_labeled.values)
         nearest_ticket_idxs = np.argmax(similarities, axis=1)

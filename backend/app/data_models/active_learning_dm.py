@@ -28,3 +28,18 @@ class Data(BaseModel):
 class InferProbaResponse(BaseModel):
     classes: list[str | int | None]
     probabilities: list[list[float]]
+
+# Data model for the nearest neighbor ticket
+class Neighbor(BaseModel):
+    ref: str
+    label: str
+    similarity: float
+    title: Optional[str] = None
+    description: Optional[str] = None
+    reason: Optional[str] = None
+    overlapping_terms: Optional[list[str]] = None
+
+# Response model for nearest neighbor query
+class NearestTicketResponse(BaseModel):
+    query_idx: Optional[str] = None
+    neighbors: list[Neighbor]
