@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
+
+from pydantic import ValidationError
+
 from app.core.dependencies import get_al_service
-from app.data_models.active_learning_dm import NewInstance, LabelRequest
+from app.data_models.active_learning_dm import LabelInfo, LabelRequest, NewInstance
 
 router = APIRouter(prefix="/activelearning", tags=["active_learning"])
 al_service = get_al_service()
@@ -23,10 +26,46 @@ def next_instance(al_instance_id: int, batch_size: int = 1):
 
 @router.put("/{al_instance_id}/label")
 def label_instance(al_instance_id: int, label_request: LabelRequest):
-    al_service.label_instance(al_instance_id, label_request)
+    try:
+        al_service.label_instance(al_instance_id, label_request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     al_service.update_model(al_instance_id)
     al_service.calculate_metrics(al_instance_id)
     return {"message": "Labels updated"}
+
+
+def _coerce_label_info_items(label_info):
+    if isinstance(label_info, dict) and "label_info" in label_info:
+        label_info = label_info["label_info"]
+
+    if not isinstance(label_info, list):
+        raise HTTPException(status_code=400, detail="label_info must be a list of objects")
+
+    coerced_items = []
+    for item in label_info:
+        try:
+            coerced_items.append(item if isinstance(item, LabelInfo) else LabelInfo(**item))
+        except (TypeError, ValidationError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return coerced_items
+
+
+@router.post("/{al_instance_id}/label-with-info")
+def label_with_info(al_instance_id: int, label_info: list[LabelInfo] = Body(...)):
+    if al_instance_id not in al_service.storage.al_instances_dict:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    try:
+        coerced_items = _coerce_label_info_items(label_info)
+        result = al_service.label_with_info(al_instance_id, coerced_items)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    al_service.update_model(al_instance_id)
+    al_service.calculate_metrics(al_instance_id)
+    return result
 
 @router.get("/{al_instance_id}/info")
 def get_info(al_instance_id: int):

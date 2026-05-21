@@ -6,12 +6,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.preprocessing import LabelEncoder
 from skactiveml.utils import MISSING_LABEL
 
 from app.core.storage import ActiveLearningStorage
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.active_learning_svc import ActiveLearningService
+from app.data_models.active_learning_dm import LabelInfo, LabelRequest
 
 
 @pytest.fixture
@@ -71,6 +73,128 @@ class TestGetInstanceInfo:
         ]
         mock_duckdb_service.load_al_instance.assert_called_once_with(7)
         mock_minio_service.return_data_names.assert_called_once_with("train")
+
+
+class TestLabelInstanceLogging:
+    def test_label_instance_logs_and_triggers_export(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        benchmarking_service = MagicMock()
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        le_mock = MagicMock()
+        le_mock.classes_ = np.array(["Team A", "Team B"], dtype=object)
+        le_mock.transform.return_value = np.array([0])
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan], index=["T001"]),
+            "le": le_mock,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+            benchmarking_service=benchmarking_service,
+        )
+
+        service.label_instance(1, LabelRequest(query_idx=["T001"], labels=["Team A"]))
+
+        duckdb_service.save_labels.assert_called_once()
+        assert duckdb_service.save_labels.call_args.kwargs["labels_dict"] == {"T001": "Team A"}
+        minio_service.save_labels.assert_called_once()
+
+    def test_label_instance_rejects_unknown_labels(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        le_mock = MagicMock()
+        le_mock.classes_ = np.array(["Team A", "Team B"], dtype=object)
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan], index=["T001"]),
+            "le": le_mock,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=MagicMock(spec=LocalArtifactsStore),
+        )
+
+        with pytest.raises(ValueError, match="Unknown labels"):
+            service.label_instance(1, LabelRequest(query_idx=["T001"], labels=["team_a"]))
+
+    def test_label_with_info_logs_events_and_exports_once(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        benchmarking_service = MagicMock()
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        label_encoder = LabelEncoder().fit(["Hardware", "Network"])
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan, np.nan], index=["T001", "T002"]),
+            "le": label_encoder,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+            benchmarking_service=benchmarking_service,
+        )
+
+        response = service.label_with_info(
+            1,
+            [
+                LabelInfo(
+                    ticket_id="T001",
+                    label="Network",
+                    model_prediction=None,
+                    start_time=pd.Timestamp("2026-05-20T10:00:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:00:02"),
+                    explanation="Matched the expected label",
+                    most_helpful_feature="title",
+                ),
+                LabelInfo(
+                    ticket_id="T002",
+                    label="Hardware",
+                    model_prediction="Network",
+                    start_time=pd.Timestamp("2026-05-20T10:01:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:01:03"),
+                ),
+            ],
+        )
+
+        assert response == {"message": "Labels updated"}
+        duckdb_service.save_labels.assert_called_once()
+        assert duckdb_service.save_labels.call_args.kwargs["labels_dict"] == {"T001": "Network", "T002": "Hardware"}
+        assert [call.kwargs["action"] for call in duckdb_service.log_event.call_args_list] == ["confirm_label", "override_label"]
+        benchmarking_service.export_if_needed.assert_called_once_with(1)
+        minio_service.save_labels.assert_called_once()
 
 
 class TestLoadFromPersistence:
@@ -220,6 +344,7 @@ class TestLoadFromPersistence:
         # Mock encoders with transform that encodes labels
         le_mock = MagicMock()
         oh_mock = MagicMock()
+        le_mock.classes_ = np.array(["A", "B", "C"], dtype=object)
         le_mock.transform = MagicMock(side_effect=lambda x: np.array([0 if val == "A" else 1 if val == "B" else 2 for val in x]))
         mock_local_artifacts.load_encoders.return_value = (le_mock, oh_mock)
         
@@ -302,6 +427,7 @@ class TestLoadFromPersistence:
         
         le_mock = MagicMock()
         oh_mock = MagicMock()
+        le_mock.classes_ = np.array(["A", "B"], dtype=object)
 
         def encode_labels(values):
             return np.array([
@@ -379,6 +505,7 @@ class TestLoadFromPersistence:
         
         le_mock = MagicMock()
         oh_mock = MagicMock()
+        le_mock.classes_ = np.array(["A", "B"], dtype=object)
         le_mock.transform = MagicMock(side_effect=lambda x: np.array([0 if val == "A" else 1 for val in x]))
         mock_local_artifacts.load_encoders.return_value = (le_mock, oh_mock)
         

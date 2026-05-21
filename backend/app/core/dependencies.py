@@ -5,6 +5,7 @@ from app.services.active_learning_svc import ActiveLearningService
 from app.services.inference_svc import InferenceService
 from app.services.config_svc import ConfigService
 from app.services.data_service import DataService
+from app.services.benchmarking_svc import BenchmarkingService
 from app.services.xai_svc import XaiService
 from app.services.ticket_vectorizer_svc import TicketVectorizerService
 from app.persistence.duckdb import DuckDbPersistenceService
@@ -30,10 +31,11 @@ minio_service = MinioService(client=minio_client)
 if os.getenv("USE_RABBITMQ", "0") == "1":
     rabbitmq_client = RabbitMQClient(url=os.getenv("RABBIT_URL", ""))
 al_service = ActiveLearningService(storage, duckdb_persistence_service, local_artifacts_store, minio_service)
-inference_service = InferenceService(storage, local_artifacts_store)
+inference_service = InferenceService(storage, local_artifacts_store, duckdb_persistence_service)
 config_service = ConfigService()
 data_service = DataService(duckdb_service=duckdb_persistence_service)
 ticket_vectorizer_service = TicketVectorizerService(minio_service=minio_service)
+benchmarking_service = BenchmarkingService(duckdb_persistence_service, minio_service)
 xai_service = XaiService(
     storage,
     inference_service,
@@ -43,6 +45,7 @@ xai_service = XaiService(
     rabbitmq_client=rabbitmq_client if os.getenv("USE_RABBITMQ", "0") == "1" else None,
     ticket_vectorizer_service=ticket_vectorizer_service
 )
+al_service.benchmarking_service = benchmarking_service
 startup_service = StartupService(
     duckdb_service=duckdb_persistence_service,
     minio_service=minio_service,
@@ -67,6 +70,9 @@ def get_data_service():
 
 def get_ticket_vectorizer_service():
     return ticket_vectorizer_service
+
+def get_benchmarking_service() -> BenchmarkingService:
+    return benchmarking_service
 
 def get_xai_service():
     return xai_service

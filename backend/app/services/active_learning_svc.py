@@ -3,18 +3,20 @@ from skactiveml.utils import MISSING_LABEL
 import numpy as np
 import joblib
 import os
+import time
 from typing import Optional
 import pandas as pd
 from sklearn.metrics import f1_score
 from scipy.stats import entropy
-from app.config.config import model_dict, qs_dict
+from app.config.config import model_dict, qs_dict, SENTENCE_TRANSFORMERS_MODEL
 from app.core.storage import ActiveLearningStorage
-from app.data_models.active_learning_dm import NewInstance, LabelRequest
+from app.data_models.active_learning_dm import LabelInfo, LabelRequest, NewInstance
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.data_preprocessing import dispatch_team
 from app.config.config import SYSTEM_USER_ID
 from app.persistence.minio_storage import MinioService
+from app.services.benchmarking_svc import BenchmarkingService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,17 +28,40 @@ class ActiveLearningService:
         storage: ActiveLearningStorage,
         duckdb_service: Optional[DuckDbPersistenceService] = None,
         local_artifacts_store: Optional[LocalArtifactsStore] = None,
-        minio_service: Optional[MinioService] = None
+        minio_service: Optional[MinioService] = None,
+        benchmarking_service: Optional[BenchmarkingService] = None,
     ):
         self.storage = storage
         self.duckdb_service = duckdb_service
         self.local_artifacts_store = local_artifacts_store
         self.minio_service = minio_service
+        self.benchmarking_service = benchmarking_service
         if self.duckdb_service is not None and self.local_artifacts_store is not None:
             self._load_from_persistence()
 
+    def _log_event(
+        self,
+        *,
+        al_instance_id: int,
+        action: str,
+        latency_ms: int,
+        payload: dict,
+        user_id: str = SYSTEM_USER_ID,
+    ) -> None:
+        if self.duckdb_service is None:
+            return
+
+        self.duckdb_service.log_event(
+            al_instance_id=al_instance_id,
+            user_id=user_id,
+            action=action,
+            latency_ms=latency_ms,
+            payload=payload,
+        )
+
     # Logic for creating a new active learning instance
     def create_instance(self, new_instance: NewInstance):
+        start_time = time.perf_counter()
         # Get next available instance ID
         instance_id = self.storage.get_next_instance_id()
         
@@ -141,6 +166,18 @@ class ActiveLearningService:
                 df=y_test
             )
 
+        self._log_event(
+            al_instance_id=instance_id,
+            action="create_al_instance",
+            latency_ms=int((time.perf_counter() - start_time) * 1000),
+            payload={
+                "pool_size": int(len(X_train)),
+                "embedding_model": SENTENCE_TRANSFORMERS_MODEL,
+                "train_data_path": self.minio_service.return_data_names("train") if self.minio_service is not None else "",
+                "test_data_path": self.minio_service.return_data_names("test") if self.minio_service is not None else "",
+            }
+        )
+
 
         return instance_id
 
@@ -226,6 +263,33 @@ class ActiveLearningService:
             return pd.Series([fill_missing] * len(index), index=index)
 
         return labels.reindex(index).fillna(fill_missing)
+
+    def _validate_labels(self, labels: list[object], label_encoder) -> None:
+        """Validate that every non-missing label exists in the fitted encoder.
+
+        Args:
+            labels: Raw labels received from the client or persistence layer.
+            label_encoder: Fitted ``LabelEncoder`` for the active-learning instance.
+
+        Raises:
+            ValueError: If one or more labels are not present in the encoder classes.
+        """
+        if labels is None:
+            return
+
+        allowed_labels = label_encoder.classes_.tolist()
+        unknown_labels = []
+
+        for label in labels:
+            if pd.isna(label):
+                continue
+            if label not in label_encoder.classes_ and label not in unknown_labels:
+                unknown_labels.append(label)
+
+        if unknown_labels:
+            raise ValueError(
+                f"Unknown labels: {unknown_labels}. Available labels: {allowed_labels}"
+            )
     
     def _encode_labels(self, labels: pd.Series, label_encoder) -> pd.Series:
         """Encode labels using label encoder, preserving NaN as NaN."""
@@ -233,6 +297,7 @@ class ActiveLearningService:
             return labels
         
         encoded = labels.copy()
+        self._validate_labels(encoded.tolist(), label_encoder)
         encoded = label_encoder.transform(encoded)
 
         encoded = pd.Series(encoded, index=labels.index)
@@ -247,8 +312,37 @@ class ActiveLearningService:
         # encoded[mask] = labels[mask].apply(lambda x: label_encoder.transform([x])[0])
         return encoded
 
+    def _apply_label_request(self, al_instance_id: int, query_idx: list[int | str], labels: list[str | int | None]) -> None:
+        y = self.storage.dataset_dict[al_instance_id]['y_train']
+
+        normalized_labels = [np.nan if label is None else label for label in labels]
+        le = self.storage.dataset_dict[al_instance_id]['le']
+        self._validate_labels(normalized_labels, le)
+
+        labels_encoded = le.transform(normalized_labels)
+
+        # Use Ref-based labels directly against the index.
+        y.loc[query_idx] = labels_encoded
+
+        if self.duckdb_service is not None:
+            self.duckdb_service.save_labels(
+                al_instance_id=al_instance_id,
+                user_id=SYSTEM_USER_ID,
+                labels_dict={str(ticket_id): label for ticket_id, label in zip(query_idx, normalized_labels)},
+                split="train",
+            )
+
+        if self.minio_service is not None:
+            self.minio_service.save_labels(
+                al_instance_id=al_instance_id,
+                labels_version=0,
+                split="train",
+                df=y,
+            )
+
     # Logic for getting the next instances
     def get_next_instances(self, al_instance_id: int, batch_size: int = 1):        
+        start_time = time.perf_counter()
         # Get the data
         X = self.storage.dataset_dict[al_instance_id]['X_train']
         y = self.storage.dataset_dict[al_instance_id]['y_train']
@@ -259,6 +353,17 @@ class ActiveLearningService:
         qs = qs_dict[qs_name]
         model = instance['model']
         classes = instance['classes']
+
+        self._log_event(
+            al_instance_id=al_instance_id,
+            action="request_batch",
+            latency_ms=int((time.perf_counter() - start_time) * 1000),
+            payload={
+                "batch_size": batch_size,
+                "strategy": qs_name,
+                "pool_size": int(len(X)),
+            },
+        )
         
         # Initialize classifier
         clf = SklearnClassifier(model, classes=classes)
@@ -275,56 +380,81 @@ class ActiveLearningService:
         
         # convert the query_idx to the original Ref values using positional lookup
         query_idx = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[query_idx])
+
+        self._log_event(
+            al_instance_id=al_instance_id,
+            action="select_batch",
+            latency_ms=int((time.perf_counter() - start_time) * 1000),
+            payload={
+                "batch_id": int(time.time() * 1000),
+                "ids": query_idx,
+                "uncertainties": None,
+            },
+        )
         
         # Return the query indices
         return query_idx
 
     # Logic for labeling instances
     def label_instance(self, al_instance_id: int, label_request: LabelRequest):
-        # get the data
-        # X = self.storage.dataset_dict[al_instance_id]['X_train']
-        y = self.storage.dataset_dict[al_instance_id]['y_train']
-        # X_test = self.storage.dataset_dict[al_instance_id]['X_test']
-        # y_test = self.storage.dataset_dict[al_instance_id]['y_test']
-        
-        # Get the query indices and labels
-        query_idx = label_request.query_idx
-        labels = label_request.labels
-        # change None to np.nan
-        labels = [np.nan if label is None else label for label in labels]
-        
-        le = self.storage.dataset_dict[al_instance_id]['le']
-        # convert the labels to integers
-        labels_encoded = le.transform(labels)
-        
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
-        
-        #instance = self.storage.al_instances_dict[al_instance_id]
-        
-        # update the labels
-        # use Ref-based labels directly against index
-        y.loc[query_idx] = labels_encoded
+        self._apply_label_request(al_instance_id, label_request.query_idx, label_request.labels)
 
-        # Save the labels to persistence
-        self.duckdb_service.save_labels(
-            al_instance_id=al_instance_id,
-            user_id=SYSTEM_USER_ID,  # System user ID for now
-            labels_dict=dict(zip(query_idx, labels)),
-            split="train"
-        )
+    def label_with_info(self, al_instance_id: int, label_info: list[LabelInfo], user_id: str = SYSTEM_USER_ID):
+        """Label tickets and log the human review metadata.
 
-        # Save the labels to MinIO
-        if self.minio_service is not None:
-            self.minio_service.save_labels(
-                al_instance_id=al_instance_id,
-                labels_version=0,
-                split="train",
-                df=y
-            )
+        Args:
+            al_instance_id: Active-learning instance identifier.
+            label_info: Validated label metadata objects for each labeled ticket.
+            user_id: User identifier used for event logging.
+
+        Returns:
+            A simple success payload after labels are applied, events are logged,
+            and any configured benchmark export is triggered.
+
+        Raises:
+            ValueError: If the provided labels are invalid for the fitted encoder.
+        """
+        query_idx = [item.ticket_id for item in label_info]
+        labels = [item.label for item in label_info]
+
+        self._apply_label_request(al_instance_id, query_idx, labels)
+
+        if self.duckdb_service is not None:
+            for item in label_info:
+                action = "confirm_label"
+                if item.model_prediction is not None and item.label != item.model_prediction:
+                    action = "override_label"
+
+                duration_s = (item.end_time - item.start_time).total_seconds()
+                payload = {
+                    "ticket_id": item.ticket_id,
+                    "new_label": item.label,
+                }
+                if item.model_prediction is not None:
+                    payload["model_prediction"] = item.model_prediction
+                if item.explanation is not None:
+                    payload["explanation"] = item.explanation
+                if item.most_helpful_feature is not None:
+                    payload["most_helpful_feature"] = item.most_helpful_feature
+
+                self._log_event(
+                    al_instance_id=al_instance_id,
+                    action=action,
+                    latency_ms=int(duration_s * 1000),
+                    payload=payload,
+                    user_id=user_id,
+                )
+
+        if self.duckdb_service is not None and self.benchmarking_service is not None:
+            self.benchmarking_service.export_if_needed(al_instance_id)
+
+        return {"message": "Labels updated"}
 
     # Logic for updating the model
     def update_model(self, al_instance_id: int):
+        start_time = time.perf_counter()
         # Instance
         instance = self.storage.al_instances_dict[al_instance_id]
 
@@ -338,6 +468,18 @@ class ActiveLearningService:
 
         # Train the model
         clf.fit(X, y)
+
+        self._log_event(
+            al_instance_id=al_instance_id,
+            action="train",
+            latency_ms=int((time.perf_counter() - start_time) * 1000),
+            payload={
+                "model_name": instance['model_name'],
+                "num_labeled": int(y.value_counts().sum()),
+                "train_samples": int(len(X)),
+                "model_id": 0,
+            },
+        )
         
         # save the model (the clf object)
         model_path = self.local_artifacts_store.save_model(
@@ -368,6 +510,7 @@ class ActiveLearningService:
 
 
     def calculate_metrics(self, al_instance_id: int):
+        start_time = time.perf_counter()
         # Get the data
         X_test = self.storage.dataset_dict[al_instance_id]['X_test']
         y_test = self.storage.dataset_dict[al_instance_id]['y_test']
@@ -418,6 +561,17 @@ class ActiveLearningService:
             num_labeled=num_labeled
         )
 
+        self._log_event(
+            al_instance_id=al_instance_id,
+            action="evaluate",
+            latency_ms=int((time.perf_counter() - start_time) * 1000),
+            payload={
+                "f1_macro": float(f1),
+                "mean_entropy": float(mean_entropy),
+                "num_labeled": int(num_labeled),
+            },
+        )
+
     def get_instance_info(self, al_instance_id: int):
         # Base info
         info = self.storage.results_dict.get(al_instance_id, {}).copy()
@@ -441,6 +595,7 @@ class ActiveLearningService:
 
     # Logic for saving the model
     def save_model(self, al_instance_id: int):
+        start_time = time.perf_counter()
         if al_instance_id not in self.storage.model_paths_dict:
             self.storage.model_paths_dict[al_instance_id] = {}
 
@@ -495,10 +650,21 @@ class ActiveLearningService:
                 df=self.storage.dataset_dict[al_instance_id]['y_test']
             )
 
-            self.minio_service.save_model(
+            minio_model_info = self.minio_service.save_model(
                 al_instance_id=al_instance_id,
                 model_version=model_id,
                 model=current_model
+            )
+
+            self._log_event(
+                al_instance_id=al_instance_id,
+                action="model_checkpoint",
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
+                payload={
+                    "model_id": model_id,
+                    "local_path": model_path,
+                    "minio_object": minio_model_info["object"],
+                },
             )
 
         return model_id

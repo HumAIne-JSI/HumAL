@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from app.core.minio_client import MinioClient
-from app.persistence.minio_storage import DATA_BUCKET, MODELS_BUCKET, MinioService
+from app.persistence.minio_storage import DATA_BUCKET, MODELS_BUCKET, RESULTS_BUCKET, MinioService
 
 
 @pytest.fixture
@@ -30,10 +30,10 @@ def test_save_model_uses_minio_prefix(monkeypatch: pytest.MonkeyPatch, mock_clie
     assert isinstance(model_bytes, bytes)
 
 
-def test_load_data_uses_prefixed_dataset_path(monkeypatch: pytest.MonkeyPatch, mock_client: MagicMock):
+def test_load_data_uses_unprefixed_dataset_path(monkeypatch: pytest.MonkeyPatch, mock_client: MagicMock):
     monkeypatch.setenv("MINIO_PREFIX", "qa")
 
-    object_name = "qa/datasets/train/User Request_last_team_ANON_20260124T123000.xlsx"
+    object_name = "datasets/train/User Request_last_team_ANON_20260124T123000.xlsx"
     mock_client.list_objects.return_value = {"matches": [object_name]}
     mock_client.download_object.return_value = b"xlsx-bytes"
 
@@ -44,7 +44,7 @@ def test_load_data_uses_prefixed_dataset_path(monkeypatch: pytest.MonkeyPatch, m
 
     mock_client.list_objects.assert_called_once_with(
         DATA_BUCKET,
-        prefix="qa/datasets/train/",
+        prefix="datasets/train/",
         filter_type="exact",
     )
     mock_client.download_object.assert_called_once_with(DATA_BUCKET, object_name)
@@ -63,8 +63,11 @@ def test_delete_instance_objects_uses_prefixed_paths_and_buckets(
     mock_client.list_objects.side_effect = [
         {"matches": ["sandbox/models/11/1.joblib"]},
         {"matches": ["sandbox/encoders/11/label_encoder.joblib"]},
+        {"matches": []},
         {"matches": ["sandbox/vectorized_tickets/11/1_train.joblib"]},
         {"matches": ["sandbox/labels/11/1_train.joblib"]},
+        {"matches": []},
+        {"matches": []},
     ]
 
     svc = MinioService(mock_client)
@@ -73,8 +76,11 @@ def test_delete_instance_objects_uses_prefixed_paths_and_buckets(
     assert mock_client.list_objects.call_args_list == [
         ((MODELS_BUCKET,), {"prefix": "sandbox/models/11/", "filter_type": "exact"}),
         ((MODELS_BUCKET,), {"prefix": "sandbox/encoders/11/", "filter_type": "exact"}),
+        ((MODELS_BUCKET,), {"prefix": "sandbox/vectorizers/11/", "filter_type": "exact"}),
         ((DATA_BUCKET,), {"prefix": "sandbox/vectorized_tickets/11/", "filter_type": "exact"}),
         ((DATA_BUCKET,), {"prefix": "sandbox/labels/11/", "filter_type": "exact"}),
+        ((DATA_BUCKET,), {"prefix": "sandbox/xai_tickets/11/", "filter_type": "exact"}),
+        ((RESULTS_BUCKET,), {"prefix": "sandbox/xai_results/11/", "filter_type": "exact"}),
     ]
 
     assert mock_client.delete_object.call_args_list == [
@@ -100,3 +106,30 @@ def test_lowercase_minio_prefix_env_is_supported(
 
     assert bucket_name == MODELS_BUCKET
     assert object_name == "dev/encoders/5/label_encoder.joblib"
+
+
+def test_save_benchmark_events_and_list_objects(monkeypatch: pytest.MonkeyPatch, mock_client: MagicMock):
+    monkeypatch.setenv("MINIO_PREFIX", "bench")
+
+    mock_client.list_objects.return_value = {
+        "matches": [
+            "bench/benchmarking/9/events_a.json",
+            "bench/benchmarking/9/events_b.json",
+        ]
+    }
+
+    svc = MinioService(mock_client)
+    info = svc.save_benchmark_events(
+        al_instance_id=9,
+        export_id="a1b2c3",
+        payload={"al_instance_id": 9, "events": []},
+    )
+
+    assert info["bucket"] == "smart-finance-results"
+    assert info["object"] == "bench/benchmarking/9/events_a1b2c3.json"
+
+    objects = svc.list_benchmark_events(9)
+    assert objects == [
+        "bench/benchmarking/9/events_a.json",
+        "bench/benchmarking/9/events_b.json",
+    ]

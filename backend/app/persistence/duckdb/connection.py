@@ -8,7 +8,7 @@ from typing import Iterator, Optional
 import duckdb
 
 
-DEFAULT_DB_PATH = "storage/db/humal.duckdb"
+DEFAULT_DB_PATH = Path("storage/db/humal.duckdb")
 
 
 def resolve_db_path(db_path: Optional[str | Path]) -> Path:

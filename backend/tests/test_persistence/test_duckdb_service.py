@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -73,8 +74,8 @@ class TestALInstances:
     def test_save_and_load_instance(self, service):
         data = {
             "model_name": "SVC",
-            "query_strategy": "entropy",
-            "classes": ["ClassA", "ClassB", "ClassC"]
+            "qs": "entropy",
+            "classes": [1, 2, 3]
         }
         service.save_al_instance(1, data)
         
@@ -82,29 +83,39 @@ class TestALInstances:
         
         assert loaded["model_name"] == "SVC"
         assert loaded["qs"] == "entropy"
-        assert loaded["classes"] == ["ClassA", "ClassB", "ClassC"]
+        assert loaded["classes"] == [1, 2, 3]
 
     def test_load_nonexistent_instance(self, service):
         result = service.load_al_instance(999)
         assert result is None
 
     def test_get_all_instances(self, service):
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
-        service.save_al_instance(2, {"model_name": "M2", "query_strategy": "qs2", "classes": []})
-        service.save_al_instance(3, {"model_name": "M3", "query_strategy": "qs3", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.save_al_instance(2, {"model_name": "M2", "qs": "qs2", "classes": []})
+        service.save_al_instance(3, {"model_name": "M3", "qs": "qs3", "classes": []})
         
         instances = service.get_all_instances()
         
-        assert len(instances) == 3
+        assert len(instances) == 4
+        assert 0 in instances
         assert 1 in instances
         assert 2 in instances
         assert 3 in instances
+        assert instances[0]["model_name"] == "default_model"
         assert instances[1]["model_name"] == "M1"
         assert instances[2]["model_name"] == "M2"
 
     def test_get_all_instances_empty(self, service):
         instances = service.get_all_instances()
-        assert instances == {}
+        assert instances == {
+            0: {
+                "model_name": "default_model",
+                "qs": "default_query_strategy",
+                "classes": [1, 2],
+                "train_data_path": None,
+                "test_data_path": None,
+            }
+        }
 
 
 class TestTickets:
@@ -120,8 +131,8 @@ class TestTickets:
         
         loaded = service.load_tickets("train")
         assert len(loaded) == 3
-        assert "T001" in loaded["ref"].values
-        assert "T002" in loaded["ref"].values
+        assert "T001" in loaded["Ref"].values
+        assert "T002" in loaded["Ref"].values
 
     def test_upsert_tickets_df_with_all_columns(self, service):
         df = pd.DataFrame({
@@ -141,8 +152,8 @@ class TestTickets:
         
         loaded = service.load_tickets("test")
         assert len(loaded) == 1
-        assert loaded.iloc[0]["ref"] == "T100"
-        assert loaded.iloc[0]["service_subcategory_name"] == "Hardware"
+        assert loaded.iloc[0]["Ref"] == "T100"
+        assert loaded.iloc[0]["Service subcategory->Name"] == "Hardware"
         assert loaded.iloc[0]["split"] == "test"
 
     def test_upsert_tickets_empty_df(self, service):
@@ -166,8 +177,8 @@ class TestTickets:
         train_tickets = service.load_tickets("train")
         
         assert len(train_tickets) == 2
-        assert "T1" in train_tickets["ref"].values
-        assert "T3" not in train_tickets["ref"].values
+        assert "T1" in train_tickets["Ref"].values
+        assert "T3" not in train_tickets["Ref"].values
 
     def test_load_tickets_test(self, service):
         df_train = pd.DataFrame({"Ref": ["T1"]})
@@ -179,7 +190,7 @@ class TestTickets:
         test_tickets = service.load_tickets("test")
         
         assert len(test_tickets) == 1
-        assert "T3" in test_tickets["ref"].values
+        assert "T3" in test_tickets["Ref"].values
 
     def test_load_tickets_invalid_split(self, service):
         with pytest.raises(ValueError, match="must be 'train' or 'test'"):
@@ -189,7 +200,7 @@ class TestTickets:
 class TestLabels:
     def test_save_and_load_labels(self, service):
         # Create dependencies first (required by foreign keys)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         user_id = service.upsert_user(username="labeler", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001", "T002", "T003"]}), split="train")
         
@@ -211,7 +222,7 @@ class TestLabels:
 
     def test_save_labels_skips_null(self, service):
         # Create dependencies first (required by foreign keys)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         user_id = service.upsert_user(username="labeler2", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001", "T002", "T003", "T004"]}), split="train")
         
@@ -244,7 +255,7 @@ class TestLabels:
 
     def test_save_labels_replaces_existing(self, service):
         # Create dependencies first (required by foreign keys)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         user_id = service.upsert_user(username="labeler5", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
         
@@ -256,7 +267,7 @@ class TestLabels:
 
     def test_labels_isolated_by_user(self, service):
         # Create dependencies first (required by foreign keys)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         user1 = service.upsert_user(username="user1", password="pwd")
         user2 = service.upsert_user(username="user2", password="pwd")
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
@@ -306,10 +317,66 @@ class TestLabels:
         assert resolved.loc[resolved["ref"] == "T002", "label"].iloc[0] == "ClassB"
 
 
+class TestEvents:
+    def test_log_and_read_events(self, service):
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.upsert_user(username="user", password="pwd")
+
+        service.log_event(
+            al_instance_id=1,
+            user_id="00000000-0000-0000-0000-000000000000",
+            action="confirm_label",
+            latency_ms=250,
+            payload={"ticket_id": "T1"},
+        )
+        service.log_event(
+            al_instance_id=1,
+            user_id="00000000-0000-0000-0000-000000000000",
+            action="benchmark_export",
+            latency_ms=15,
+            payload={"minio_path": "benchmarking/1/events_1.json"},
+        )
+
+        events = service.get_al_events(1)
+        assert len(events) == 2
+        assert events[0]["action"] == "confirm_label"
+        assert events[0]["payload"]["ticket_id"] == "T1"
+
+        filtered = service.get_al_events(1, actions=["benchmark_export"])
+        assert len(filtered) == 1
+        assert filtered[0]["action"] == "benchmark_export"
+
+        last_export = service.get_last_benchmark_export(1)
+        assert last_export is not None
+
+    def test_log_event_serializes_datetime_payload(self, service):
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.upsert_user(username="user", password="pwd")
+
+        exported_at = datetime(2026, 1, 1, 10, 30, 0)
+        service.log_event(
+            al_instance_id=1,
+            user_id="00000000-0000-0000-0000-000000000000",
+            action="benchmark_export",
+            payload={"exported_at": exported_at},
+        )
+
+        events = service.get_al_events(1)
+        assert events[0]["payload"]["exported_at"] == exported_at.isoformat()
+
+    def test_count_label_events_since(self, service):
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.log_event(al_instance_id=1, user_id="00000000-0000-0000-0000-000000000000", action="confirm_label")
+        service.log_event(al_instance_id=1, user_id="00000000-0000-0000-0000-000000000000", action="override_label")
+        service.log_event(al_instance_id=1, user_id="00000000-0000-0000-0000-000000000000", action="predict")
+
+        assert service.count_label_events_since(1, None) == 2
+
+
 class TestModelPaths:
     def test_save_and_load_model_paths(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         service.save_model_path(1, 1, "storage/models/1/model_1.joblib")
         service.save_model_path(1, 2, "storage/models/1/model_2.joblib")
@@ -328,7 +395,7 @@ class TestModelPaths:
 
     def test_save_model_path_replaces(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         service.save_model_path(1, 1, "old/path.joblib")
         service.save_model_path(1, 1, "new/path.joblib")
@@ -340,7 +407,7 @@ class TestModelPaths:
 class TestMetrics:
     def test_save_and_load_metrics(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         iteration_id = service.save_metrics(1, f1_score=0.85, mean_entropy=0.42, num_labeled=100)
         
@@ -355,7 +422,7 @@ class TestMetrics:
 
     def test_save_metrics_partial(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         iteration_id = service.save_metrics(1, f1_score=0.75)
         
@@ -378,7 +445,7 @@ class TestMetrics:
 
     def test_save_metrics_replaces(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         iter1 = service.save_metrics(1, f1_score=0.5)
         iter2 = service.save_metrics(1, f1_score=0.9, mean_entropy=0.3)
@@ -394,7 +461,7 @@ class TestMetrics:
 
     def test_save_metrics_with_explicit_iteration_id(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         # Save with explicit iteration_id
         iter_id = service.save_metrics(1, iteration_id=5, f1_score=0.8)
@@ -418,7 +485,7 @@ class TestMetrics:
 
     def test_load_all_metrics(self, service):
         # Create AL instance first (required by foreign key)
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         
         # Save multiple iterations
         service.save_metrics(1, f1_score=0.5, num_labeled=10)
@@ -445,7 +512,7 @@ class TestDeletion:
         user_id = service.upsert_user(username="test_user", password="hash")
         
         # Setup AL instance
-        service.save_al_instance(1, {"model_name": "SVC", "query_strategy": "entropy", "classes": []})
+        service.save_al_instance(1, {"model_name": "SVC", "qs": "entropy", "classes": []})
         
         # Add tickets (required by foreign key in labels)
         service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
@@ -469,8 +536,8 @@ class TestDeletion:
         service.delete_instance(999)
 
     def test_delete_preserves_other_instances(self, service):
-        service.save_al_instance(1, {"model_name": "M1", "query_strategy": "qs1", "classes": []})
-        service.save_al_instance(2, {"model_name": "M2", "query_strategy": "qs2", "classes": []})
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.save_al_instance(2, {"model_name": "M2", "qs": "qs2", "classes": []})
         
         service.delete_instance(1)
         
@@ -494,8 +561,8 @@ class TestIntegration:
         # Create AL instance
         service.save_al_instance(1, {
             "model_name": "SVC",
-            "query_strategy": "entropy",
-            "classes": ["A", "B"]
+            "qs": "entropy",
+            "classes": [1, 2]
         })
         
         # Label some tickets

@@ -7,7 +7,7 @@
   },
   "agents": [
     { "id": "ORCH", "class": "base.Agent", "model": "system",
-      "affordances": ["create_al_instance", "request_batch", "request_prediction", "model_checkpoint"] },
+      "affordances": ["create_al_instance", "request_batch", "request_prediction", "model_checkpoint", "benchmark_export"] },
     { "id": "AL", "class": "base.Agent", "model": "ai",
       "affordances": ["select_batch"] },
     { "id": "LAB", "class": "base.Agent", "model": "human",

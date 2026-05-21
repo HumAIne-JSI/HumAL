@@ -105,6 +105,7 @@ def test_find_nearest(mock_compute_nearest, mock_inference, xai_service, test_da
     
     assert len(res) == 1
     mock_compute_nearest.assert_called_once()
+    xai_service.duckdb_service.log_event.assert_called_once()
     args, kwargs = mock_compute_nearest.call_args
     assert args[2] == 1  # top_k
     assert args[4] == {"Team A"}  # target_classes
@@ -122,6 +123,7 @@ def test_find_nearest_by_idx(xai_service):
         mock_compute.return_value = []
         xai_service.find_nearest_by_idx(1, "ref1", top_k=2)
         mock_compute.assert_called_once()
+        xai_service.duckdb_service.log_event.assert_called_once()
         args = mock_compute.call_args[0]
         # input_title and input_description passed correctly
         assert args[5] == "Title 1"
@@ -201,6 +203,19 @@ def test_get_xai_job(xai_service):
 def test_update_xai_job(xai_service):
     job_id = uuid.uuid4()
     data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
+
+    xai_service.duckdb_service.get_xai_job.return_value = {
+        "job_id": job_id,
+        "al_instance_id": 1,
+        "ticket_ref_or_sha": "ref1",
+        "result_location": "minio/res",
+        "result_file_names": ["f.json"],
+        "created_at": pd.Timestamp("2026-01-01 10:00:00"),
+        "finished_at": pd.Timestamp("2026-01-01 10:00:01"),
+    }
+    xai_service.minio_service.load_xai_results.return_value = {
+        "lime": [{"top_words": [("printer", 0.15)], "error": None}]
+    }
     
     asyncio.run(xai_service.update_xai_job(data))
     
@@ -210,4 +225,5 @@ def test_update_xai_job(xai_service):
         result_location="minio/res",
         result_file_names={"lime": "f.json"}
     )
+    xai_service.duckdb_service.log_event.assert_called_once()
 

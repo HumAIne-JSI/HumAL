@@ -1,5 +1,7 @@
-from pydantic import BaseModel
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
+
+from pydantic import BaseModel, root_validator, validator
 
 # Data model for the new instance
 class NewInstance(BaseModel):
@@ -13,6 +15,42 @@ class NewInstance(BaseModel):
 class LabelRequest(BaseModel):
     query_idx: list[int | str]
     labels: list[str | int | None]
+
+
+class LabelInfo(BaseModel):
+    ticket_id: str
+    label: str
+    model_prediction: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    explanation: Optional[str] = None
+    most_helpful_feature: Optional[str] = None
+
+    @validator("ticket_id", "label")
+    def _ensure_non_empty_string(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must be a non-empty string")
+        return value
+
+    @root_validator(skip_on_failure=True)
+    def _validate_time_order(cls, values):
+        start_time = values.get("start_time")
+        end_time = values.get("end_time")
+
+        if start_time is not None and end_time is not None and end_time < start_time:
+            raise ValueError("end_time must be greater than or equal to start_time")
+
+        return values
+
+
+class BenchmarkLabelEventRequest(BaseModel):
+    ticket_id: str
+    action: Literal["confirm_label", "override_label"]
+    new_label: str
+    duration_s: float
+    original_prediction: Optional[str] = None
+    user_id: Optional[str] = None
 
 # Data model for the inference instance input
 class Data(BaseModel):

@@ -22,11 +22,24 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
 import aio_pika
 from aio_pika import Message
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ENV_AL_API = PROJECT_ROOT / ".env.al_api"
+ENV_FALLBACK = PROJECT_ROOT / ".env"
+
+if ENV_AL_API.exists():
+    load_dotenv(ENV_AL_API)
+    print(f"[simulator] Loaded environment variables from {ENV_AL_API}")
+else:
+    load_dotenv(ENV_FALLBACK)
+    print(f"[simulator] Loaded environment variables from {ENV_FALLBACK}")
 
 
 RABBIT_URL = os.getenv("RABBIT_URL", "amqp://guest:guest@localhost/")
@@ -35,13 +48,18 @@ RESULT_QUEUE = os.getenv("RESULT_QUEUE", "xai_results")
 MESSAGE_VERSION = os.getenv("MESSAGE_VERSION", "0.1")
 SIMULATOR_DELAY_SEC = float(os.getenv("SIMULATOR_DELAY_SEC", "1.0"))
 
+print(f"[simulator] Configuration:")
+print(f"  RABBIT_URL={RABBIT_URL}") 
+print(f"  TASK_QUEUE={TASK_QUEUE}")
+print(f"  RESULT_QUEUE={RESULT_QUEUE}")
+print(f"  MESSAGE_VERSION={MESSAGE_VERSION}")
+
 
 def build_success_result(task_payload: Dict[str, Any]) -> Dict[str, Any]:
     """Build a result payload compatible with backend update_xai_job."""
     job_id = task_payload.get("job_id")
     if not job_id:
         raise ValueError("Incoming task does not include required field 'job_id'")
-
 
     return {
         "job_id": str(job_id),

@@ -149,3 +149,23 @@ def test_infer_proba_missing_predict_proba(mock_inference, inference_service):
 
     with pytest.raises(ValueError, match="predict_proba"):
         inference_service.infer_proba(1, data, model_id=0)
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_logs_prediction(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
+
+    result = inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0)
+
+    assert result == ["Team A"]
+    duckdb_service.log_event.assert_called_once()
+    assert duckdb_service.log_event.call_args.kwargs["action"] == "predict"

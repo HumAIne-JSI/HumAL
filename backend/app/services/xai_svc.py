@@ -20,6 +20,8 @@ import uuid
 import app.config.config as config
 import os
 import logging
+import time
+from app.config.config import SYSTEM_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,7 @@ class XaiService:
         return lime_explanation_outputs
 
     def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, distinct_classes: bool = True, model_id: int = 0):
+        start_time = time.perf_counter()
         target_embedding = inference(
             df=pd.DataFrame([ticket.model_dump()]), 
             le=self.storage.dataset_dict[al_instance_id]['le'], 
@@ -111,10 +114,27 @@ class XaiService:
                 # Fallback to standard infer
                 preds = self.inference_service.infer(al_instance_id, ticket, model_id)
                 target_classes = set(preds)
-                
-        return self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+        results = self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+        if self.duckdb_service is not None:
+            self.duckdb_service.log_event(
+                al_instance_id=al_instance_id,
+                user_id=SYSTEM_USER_ID,
+                action="similar_tickets",
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
+                payload={
+                    "ticket_id": None,
+                    "similar_ids": [item["ref"] for item in results],
+                    "similarities": [item["similarity"] for item in results],
+                    "top_k": top_k,
+                },
+            )
+
+        return results
 
     def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, distinct_classes: bool = True, model_id: int = 0):
+        start_time = time.perf_counter()
         target_embedding = self.storage.dataset_dict[al_instance_id]['X_train'].loc[[index]].values
         
         target_classes = None
@@ -146,8 +166,24 @@ class XaiService:
             except ValueError:
                 preds = self.inference_service.infer(al_instance_id, ticket_obj, model_id)
                 target_classes = set(preds)
-                
-        return self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+        results = self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+
+        if self.duckdb_service is not None:
+            self.duckdb_service.log_event(
+                al_instance_id=al_instance_id,
+                user_id=SYSTEM_USER_ID,
+                action="similar_tickets",
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
+                payload={
+                    "ticket_id": str(index),
+                    "similar_ids": [item["ref"] for item in results],
+                    "similarities": [item["similarity"] for item in results],
+                    "top_k": top_k,
+                },
+            )
+
+        return results
 
     def _compute_nearest(self, al_instance_id: int, target_embedding, top_k: int, distinct_classes: bool, target_classes: set = None, input_title: str = "", input_description: str = ""):
         import re
@@ -423,6 +459,52 @@ class XaiService:
                                                       result_location=data.get("result_location"),
                                                       result_file_names=data.get("result_file_names"))
             logger.info(f"Successfully updated XAI job {job_id}")
+
+            if data["status"] == "completed":
+                job_info = self.duckdb_service.get_xai_job(job_id)
+                ticket_ids = []
+                top_features = []
+                errors = None
+
+                if job_info and job_info.get("ticket_ref_or_sha"):
+                    ticket_ids = [job_info["ticket_ref_or_sha"]]
+
+                if job_info and job_info.get("result_location") and job_info.get("result_file_names") and self.minio_service is not None:
+                    try:
+                        result_payload = self.minio_service.load_xai_results(
+                            result_location=job_info["result_location"],
+                            files=job_info["result_file_names"],
+                        )
+                        for value in result_payload.values():
+                            if isinstance(value, list):
+                                for item in value:
+                                    if isinstance(item, dict) and item.get("top_words"):
+                                        top_features.append(item["top_words"][:10])
+                                        if item.get("error"):
+                                            errors = (errors or []) + [item["error"]]
+                            elif isinstance(value, dict) and value.get("top_words"):
+                                top_features.append(value["top_words"][:10])
+                                if value.get("error"):
+                                    errors = (errors or []) + [value["error"]]
+                    except Exception as exc:
+                        errors = (errors or []) + [str(exc)]
+
+                latency_ms = None
+                if job_info and job_info.get("created_at") and job_info.get("finished_at"):
+                    latency_ms = int((job_info["finished_at"] - job_info["created_at"]).total_seconds() * 1000)
+
+                if job_info is not None:
+                    self.duckdb_service.log_event(
+                        al_instance_id=job_info["al_instance_id"],
+                        user_id=SYSTEM_USER_ID,
+                        action="lime",
+                        latency_ms=latency_ms,
+                        payload={
+                            "ticket_ids": ticket_ids,
+                            "top_features": top_features,
+                            "errors": errors,
+                        },
+                    )
         
         
 

@@ -6,6 +6,7 @@ from io import BytesIO
 import logging
 import os
 import re
+import json
 from typing import Any, Dict, Optional
 import joblib
 import cloudpickle
@@ -417,6 +418,38 @@ class MinioService:
             return {"bucket": DATA_BUCKET, "object": object_name, "ticket_sha": ticket_sha}
         except Exception as e:
             logger.error(f"Failed to save ticket for XAI (instance {al_instance_id}): {e}", exc_info=True)
+            raise
+
+    def save_benchmark_events(
+        self,
+        *,
+        al_instance_id: int,
+        export_id: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, str]:
+        """Upload a readable benchmark export payload to the results bucket."""
+        object_name = self._with_prefix(f"benchmarking/{al_instance_id}/events_{export_id}.json")
+        logger.info(f"Saving benchmark events to MinIO: instance={al_instance_id}, export_id={export_id}, object={object_name}")
+        try:
+            payload_bytes = json.dumps(payload, default=str, indent=2, sort_keys=True).encode("utf-8")
+            self.client.upload_file_bytes(RESULTS_BUCKET, object_name, payload_bytes, filename=f"events_{export_id}.json")
+            logger.info(f"Benchmark events saved successfully")
+            return {"bucket": RESULTS_BUCKET, "object": object_name}
+        except Exception as e:
+            logger.error(f"Failed to save benchmark events for instance {al_instance_id}: {e}", exc_info=True)
+            raise
+
+    def list_benchmark_events(self, al_instance_id: int) -> list[str]:
+        """List benchmark export objects for an AL instance."""
+        prefix = self._with_prefix(f"benchmarking/{al_instance_id}/")
+        logger.debug(f"Listing benchmark export objects for instance={al_instance_id}, prefix={prefix}")
+        try:
+            listing = self.client.list_objects(RESULTS_BUCKET, prefix=prefix, filter_type="exact")
+            if not listing or not listing.get("matches"):
+                return []
+            return [str(name) for name in listing["matches"]]
+        except Exception as e:
+            logger.error(f"Failed to list benchmark events for instance {al_instance_id}: {e}", exc_info=True)
             raise
     
     def load_xai_results(self, result_location: str, files: list[str]) -> Dict[str, Any]:

@@ -30,6 +30,27 @@ def _deserialize_varchar_array(value: Any) -> Optional[list[str]]:
     return [str(value)]
 
 
+def _deserialize_json(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+
+
 @dataclass(frozen=True)
 class DuckDbPersistenceService:
     db_path: Optional[str | Path] = None
@@ -573,9 +594,90 @@ class DuckDbPersistenceService:
                     str(resolved_user_id) if resolved_user_id is not None else None,
                     action,
                     latency_ms,
-                    json.dumps(payload) if payload is not None else None,
+                    json.dumps(payload, default=_json_default) if payload is not None else None,
                 ],
             )
+
+    def get_al_events(
+        self,
+        al_instance_id: int,
+        since_timestamp: Optional[datetime] = None,
+        actions: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list[Dict[str, Any]]:
+        query = [
+            "SELECT timestamp, user_id, action, latency_ms, payload",
+            "FROM al_events",
+            "WHERE al_instance_id = ?",
+        ]
+        params: list[Any] = [al_instance_id]
+
+        if since_timestamp is not None:
+            query.append("AND timestamp > ?")
+            params.append(since_timestamp)
+
+        if actions:
+            placeholders = ", ".join(["?"] * len(actions))
+            query.append(f"AND action IN ({placeholders})")
+            params.extend(actions)
+
+        query.append("ORDER BY timestamp ASC")
+
+        if limit is not None:
+            query.append("LIMIT ?")
+            params.append(limit)
+
+        with connect(self.db_path) as conn:
+            rows = conn.execute("\n".join(query), params).fetchall()
+
+        return [
+            {
+                "timestamp": row[0],
+                "user_id": str(row[1]) if row[1] is not None else None,
+                "action": row[2],
+                "latency_ms": row[3],
+                "payload": _deserialize_json(row[4]),
+            }
+            for row in rows
+        ]
+
+    def get_last_benchmark_export(self, al_instance_id: int) -> Optional[datetime]:
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(timestamp)
+                FROM al_events
+                WHERE al_instance_id = ? AND action = ?
+                """,
+                [al_instance_id, "benchmark_export"],
+            ).fetchone()
+
+        return row[0] if row and row[0] is not None else None
+
+    def count_label_events_since(
+        self,
+        al_instance_id: int,
+        since_timestamp: Optional[datetime],
+    ) -> int:
+        query = [
+            "SELECT COUNT(*)",
+            "FROM al_events",
+            "WHERE al_instance_id = ?",
+            "AND action IN (?, ?)",
+        ]
+        params: list[Any] = [al_instance_id, "confirm_label", "override_label"]
+
+        if since_timestamp is not None:
+            query.append("AND timestamp > ?")
+            params.append(since_timestamp)
+
+        with connect(self.db_path) as conn:
+            row = conn.execute("\n".join(query), params).fetchone()
+
+        if row is None:
+            return 0
+
+        return int(row[0] or 0)
 
     # --- XAI Jobs ---
     def create_xai_job(

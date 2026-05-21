@@ -209,9 +209,67 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 ```
 
 
+### POST /activelearning/{al_instance_id}/label-with-info
+
+**Description:** Submits human-assigned labels together with metadata such as review duration, model prediction, and optional explanation fields. The API logs one event per labeled ticket and triggers benchmark exports when needed.
+
+**Parameters:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+
+**Request Body (`application/json`):**
+Array of `label_info` objects.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `ticket_id` | string | **Yes** | Ticket reference being labeled |
+| `label` | string | **Yes** | Human-assigned label |
+| `model_prediction` | string or null | No | Model prediction shown to the reviewer |
+| `start_time` | string (date-time) | **Yes** | RFC3339 timestamp when review started |
+| `end_time` | string (date-time) | **Yes** | RFC3339 timestamp when review ended |
+| `explanation` | string or null | No | Optional reviewer explanation |
+| `most_helpful_feature` | string or null | No | Optional feature that helped the decision |
+
+**Swagger-style UI Example:**
+*Request Payload*
+```json
+[
+  {
+    "ticket_id": "R-544314",
+    "label": "team_a",
+    "model_prediction": "team_a",
+    "start_time": "2026-05-20T10:00:00Z",
+    "end_time": "2026-05-20T10:00:03Z",
+    "explanation": "Confirmed the model output",
+    "most_helpful_feature": "title"
+  },
+  {
+    "ticket_id": "R-544315",
+    "label": "team_b",
+    "model_prediction": "team_a",
+    "start_time": "2026-05-20T10:01:00Z",
+    "end_time": "2026-05-20T10:01:04Z"
+  }
+]
+```
+*HTTP 200 OK*
+```json
+{
+  "message": "Labels updated"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
+	-H "Content-Type: application/json" \
+	-d "[{\"ticket_id\":\"R-544314\",\"label\":\"team_a\",\"model_prediction\":\"team_a\",\"start_time\":\"2026-05-20T10:00:00Z\",\"end_time\":\"2026-05-20T10:00:03Z\"}]"
+```
+
+
 ### GET /activelearning/{al_instance_id}/info
 
-**Description:** Returns performance metrics for a given instance, plus instance creation time and available training datasets from MinIO.
+**Description:** Returns the performance metrics tracking table (entropies, F1 scores, and query progression) for a given instance.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -222,20 +280,9 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 *HTTP 200 OK*
 ```json
 {
-  "mean_entropies": [
-    2.0658459166699252
-  ],
-  "f1_scores": [
-    0.14496051823136516
-  ],
-  "num_labeled": [
-    58
-  ],
-  "created_at": "2026-05-06T13:10:41.115600",
-  "train_datasets_minio": [
-    "datasets/train/User Request_last_team_ANON_20260225T110000.xlsx",
-    "datasets/train/User Request_last_team_ANON_20260325T110000.xlsx"
-  ]
+  "mean_entropies": [0.91, 0.73],
+  "f1_scores": [0.42, 0.58],
+  "num_labeled": [25, 50]
 }
 ```
 

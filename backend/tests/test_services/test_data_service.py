@@ -56,23 +56,22 @@ def test_get_teams_returns_empty_when_no_data(
     data_service: DataService,
     mock_duckdb_service: MagicMock,
 ):
-    mock_duckdb_service.load_tickets.return_value = None
+    mock_duckdb_service.load_labels.return_value = pd.Series(dtype=object)
 
     result = data_service.get_teams()
 
     assert result == {"teams": []}
-    mock_duckdb_service.load_tickets.assert_called_once_with(split=TRAIN_SPLIT)
+    mock_duckdb_service.load_labels.assert_called_once_with(
+        al_instance_id=0,
+        split=TRAIN_SPLIT,
+    )
 
 
 def test_get_teams_returns_unique_non_null_values(
     data_service: DataService,
     mock_duckdb_service: MagicMock,
 ):
-    mock_duckdb_service.load_tickets.return_value = pd.DataFrame(
-        {
-            TEAM_NAME: ["Team A", "Team B", None, "Team A"],
-        }
-    )
+    mock_duckdb_service.load_labels.return_value = pd.Series(["Team A", "Team B", None, "Team A"])
 
     result = data_service.get_teams()
 
