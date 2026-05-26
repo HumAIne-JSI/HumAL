@@ -20,6 +20,8 @@ import {
   CheckCircle,
   X,
   Keyboard,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -202,6 +204,29 @@ function handleBulkApprove() {
   )
 }
 
+// Auto-collapse the list panel when a ticket is selected so the detail view
+// gets focus. The user can override via the toggle; the override is cleared
+// once the ticket is deselected.
+const isListCollapsed = ref(false)
+const userOverrodeCollapse = ref(false)
+
+watch(
+  () => selectedTicket.value?.id ?? null,
+  (newId, oldId) => {
+    if (newId && !oldId) {
+      if (!userOverrodeCollapse.value) isListCollapsed.value = true
+    } else if (!newId) {
+      isListCollapsed.value = false
+      userOverrodeCollapse.value = false
+    }
+  }
+)
+
+function toggleListCollapse() {
+  isListCollapsed.value = !isListCollapsed.value
+  userOverrodeCollapse.value = true
+}
+
 // Grouped shortcuts by category for help modal
 const groupedShortcuts = computed(() => {
   const groups: Record<string, typeof shortcuts.value> = {
@@ -245,7 +270,21 @@ const groupedShortcuts = computed(() => {
     <!-- Main Content -->
     <div class="ticket-queue__main">
       <!-- Left Panel: Ticket List -->
-      <div class="ticket-queue__list-panel">
+      <div
+        class="ticket-queue__list-panel"
+        :class="{ 'ticket-queue__list-panel--collapsed': isListCollapsed }"
+      >
+        <!-- Collapse/expand toggle (only meaningful when a ticket is selected) -->
+        <button
+          v-if="selectedTicket"
+          type="button"
+          class="ticket-queue__collapse-toggle"
+          :title="isListCollapsed ? 'Expand queue' : 'Collapse queue'"
+          @click="toggleListCollapse"
+        >
+          <PanelLeftOpen v-if="isListCollapsed" :size="14" />
+          <PanelLeftClose v-else :size="14" />
+        </button>
         <!-- Filter Bar -->
         <TicketFilterBar
           :filters="filters"
@@ -421,6 +460,7 @@ const groupedShortcuts = computed(() => {
   }
 
   &__list-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     width: 40%;
@@ -428,6 +468,44 @@ const groupedShortcuts = computed(() => {
     max-width: 500px;
     border-right: 1px solid var(--border);
     background: var(--card);
+    transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+
+    &--collapsed {
+      width: 200px;
+      min-width: 180px;
+      max-width: 220px;
+    }
+  }
+
+  &__collapse-toggle {
+    position: absolute;
+    top: 50%;
+    right: -12px;
+    transform: translateY(-50%);
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--card);
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+
+    &:hover {
+      color: var(--foreground);
+      background: var(--muted);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ring, var(--primary));
+      outline-offset: 2px;
+    }
   }
 
   &__bulk-bar {
@@ -636,6 +714,16 @@ const groupedShortcuts = computed(() => {
       max-height: 50vh;
       border-right: none;
       border-bottom: 1px solid var(--border);
+
+      &--collapsed {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+      }
+    }
+
+    &__collapse-toggle {
+      display: none;
     }
 
     &__detail-panel {
