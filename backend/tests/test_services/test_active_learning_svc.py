@@ -13,7 +13,7 @@ from app.core.storage import ActiveLearningStorage
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.services.active_learning_svc import ActiveLearningService
-from app.data_models.active_learning_dm import LabelInfo, LabelRequest
+from app.data_models.active_learning_dm import LabelInfo, LabelRequest, NewInstance
 
 
 @pytest.fixture
@@ -32,6 +32,54 @@ def mock_duckdb_service():
 def mock_local_artifacts():
     """Create a mock local artifacts store."""
     return MagicMock(spec=LocalArtifactsStore)
+
+
+class _FakeLabelEncoder:
+    classes_ = np.array(["Team A", "Team B", np.nan], dtype=object)
+
+    def transform(self, values):
+        encoded = []
+        for value in values:
+            if pd.isna(value):
+                encoded.append(2)
+            elif value == "Team A":
+                encoded.append(0)
+            elif value == "Team B":
+                encoded.append(1)
+            else:
+                raise ValueError(f"Unknown label: {value}")
+        return np.array(encoded)
+
+    def inverse_transform(self, values):
+        decoded = []
+        for value in values:
+            if value == 0:
+                decoded.append("Team A")
+            elif value == 1:
+                decoded.append("Team B")
+            else:
+                decoded.append(np.nan)
+        return np.array(decoded, dtype=object)
+
+
+class _DummyClassifier:
+    def predict_proba(self, X):
+        return np.array([[0.7, 0.3] for _ in range(len(X))])
+
+    def predict(self, X):
+        return np.array([index % 2 for index in range(len(X))])
+
+
+def _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts):
+    mock_duckdb_service.get_all_instances.return_value = {}
+    mock_local_artifacts.save_model.return_value = "models/1/model_0.joblib"
+    mock_local_artifacts.load_model.return_value = _DummyClassifier()
+
+    return ActiveLearningService(
+        storage,
+        duckdb_service=mock_duckdb_service,
+        local_artifacts_store=mock_local_artifacts,
+    )
 
 
 class TestGetInstanceInfo:
@@ -73,6 +121,83 @@ class TestGetInstanceInfo:
         ]
         mock_duckdb_service.load_al_instance.assert_called_once_with(7)
         mock_minio_service.return_data_names.assert_called_once_with("train")
+
+
+class TestCreateInstance:
+    def test_create_instance_rejects_fewer_than_50_labeled_rows(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
+        empty_value = _FakeLabelEncoder().transform([np.nan])[0]
+
+        def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
+            if not test_set:
+                refs = [f"T{i:03d}" for i in range(50)]
+                x_train = pd.DataFrame([[i, i + 1] for i in range(50)], index=refs)
+                y_train = pd.Series([0] * 49 + [empty_value], index=refs)
+                return x_train, y_train, _FakeLabelEncoder(), MagicMock()
+
+            x_test = pd.DataFrame([[1, 2]], index=["S001"])
+            y_test = pd.Series(["Team A"], index=["S001"])
+            return x_test, y_test, _FakeLabelEncoder(), MagicMock()
+
+        monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", fake_dispatch_team)
+        service = _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts)
+
+        new_instance = NewInstance(
+            model_name="svm",
+            qs_strategy="random sampling",
+            class_list=["Team A", "Team B"],
+            train_data_path="train.csv",
+            test_data_path="test.csv",
+        )
+
+        with pytest.raises(ValueError, match="at least 50 labeled instances"):
+            service.create_instance(new_instance)
+
+        assert storage.al_instances_dict == {}
+        assert storage.dataset_dict == {}
+        assert storage.model_paths_dict == {}
+        assert storage.results_dict == {}
+        mock_duckdb_service.save_al_instance.assert_not_called()
+        mock_local_artifacts.save_model.assert_not_called()
+
+    def test_create_instance_trains_and_populates_metrics(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
+        def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
+            if not test_set:
+                refs = [f"T{i:03d}" for i in range(50)]
+                x_train = pd.DataFrame([[i, i + 1] for i in range(50)], index=refs)
+                y_train = pd.Series([0 if i % 2 == 0 else 1 for i in range(50)], index=refs)
+                return x_train, y_train, _FakeLabelEncoder(), MagicMock()
+
+            x_test = pd.DataFrame([[1, 2], [3, 4]], index=["S001", "S002"])
+            y_test = pd.Series(["Team A", "Team B"], index=["S001", "S002"])
+            return x_test, y_test, _FakeLabelEncoder(), MagicMock()
+
+        monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", fake_dispatch_team)
+        service = _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts)
+
+        new_instance = NewInstance(
+            model_name="svm",
+            qs_strategy="random sampling",
+            class_list=["Team A", "Team B"],
+            train_data_path="train.csv",
+            test_data_path="test.csv",
+        )
+
+        instance_id = service.create_instance(new_instance)
+
+        assert instance_id == 1
+        assert instance_id in storage.al_instances_dict
+        assert instance_id in storage.dataset_dict
+        assert instance_id in storage.model_paths_dict
+        assert instance_id in storage.results_dict
+        assert storage.model_paths_dict[instance_id][0] == "models/1/model_0.joblib"
+        assert len(storage.results_dict[instance_id]["mean_entropies"]) == 1
+        assert len(storage.results_dict[instance_id]["f1_scores"]) == 1
+        assert len(storage.results_dict[instance_id]["num_labeled"]) == 1
+        mock_duckdb_service.save_al_instance.assert_called_once()
+        mock_duckdb_service.save_model_path.assert_called_once()
+        mock_duckdb_service.save_metrics.assert_called_once()
+        mock_local_artifacts.save_model.assert_called_once()
+        mock_local_artifacts.load_model.assert_called_once_with(instance_id, 0)
 
 
 class TestLabelInstanceLogging:

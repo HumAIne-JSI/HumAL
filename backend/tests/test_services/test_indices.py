@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, SYSTEM_USER_ID
 from app.persistence.duckdb import DuckDbPersistenceService
@@ -19,23 +20,31 @@ def test_indices_use_ref_round_trip(monkeypatch):
         def save_vectorized_dataset(self, *args, **kwargs):
             return None
 
+        def save_model(self, *args, **kwargs):
+            return "models/1/model_0.joblib"
+
+        def load_model(self, *args, **kwargs):
+            class DummyClassifier:
+                def predict_proba(self, X):
+                    return np.array([[0.7, 0.3] for _ in range(len(X))])
+
+                def predict(self, X):
+                    return np.array([index % 2 for index in range(len(X))])
+
+            return DummyClassifier()
+
     def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
         if not test_set:
-            refs = ["R1", "R2", "R3", "R4"]
+            refs = [f"R{i}" for i in range(1, 54)]
             x_train = pd.DataFrame(
-                [[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5]],
+                [[float(i), float(i + 1)] for i in range(1, 54)],
                 index=refs,
             )
             label_encoder = __import__("sklearn.preprocessing", fromlist=["LabelEncoder"]).LabelEncoder()
             label_encoder.fit(class_list + [np.nan])
             empty_value = label_encoder.transform([np.nan])[0]
             y_train = pd.Series(
-                [
-                    label_encoder.transform([class_list[0]])[0],
-                    label_encoder.transform([class_list[1]])[0],
-                    empty_value,
-                    label_encoder.transform([class_list[0]])[0],
-                ],
+                [label_encoder.transform([class_list[i % 2]])[0] for i in range(50)] + [empty_value, empty_value, empty_value],
                 index=refs,
             )
             one_hot_encoder = __import__("sklearn.preprocessing", fromlist=["OneHotEncoder"]).OneHotEncoder(handle_unknown="ignore")
@@ -50,8 +59,13 @@ def test_indices_use_ref_round_trip(monkeypatch):
     monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", fake_dispatch_team)
 
     storage = ActiveLearningStorage()
-    duckdb_service = DuckDbPersistenceService()
-    duckdb_service.upsert_tickets_df(pd.DataFrame({"Ref": ["R1", "R2", "R3", "R4"]}), split="train")
+    duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+    duckdb_service.get_all_instances.return_value = {}
+    duckdb_service.save_al_instance.return_value = None
+    duckdb_service.save_model_path.return_value = None
+    duckdb_service.save_metrics.return_value = None
+    duckdb_service.save_labels.return_value = None
+    duckdb_service.save_labels.return_value = None
 
     svc = ActiveLearningService(
         storage,

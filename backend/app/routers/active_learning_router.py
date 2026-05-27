@@ -11,7 +11,10 @@ al_service = get_al_service()
 
 @router.post("/new")
 def activelearning_init(new_instance: NewInstance):
-    instance_id = al_service.create_instance(new_instance)
+    try:
+        instance_id = al_service.create_instance(new_instance)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"instance_id": instance_id}
 
 @router.get("/{al_instance_id}/next")

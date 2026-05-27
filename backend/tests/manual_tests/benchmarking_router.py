@@ -165,3 +165,30 @@ def test_label_route_keeps_existing_payload_shape(monkeypatch: pytest.MonkeyPatc
     duckdb_service.save_labels.assert_called_once()
     service.update_model.assert_called_once_with(7)
     service.calculate_metrics.assert_called_once_with(7)
+
+
+def test_new_instance_endpoint_returns_400_for_insufficient_labels(monkeypatch: pytest.MonkeyPatch):
+    service = MagicMock(spec=ActiveLearningService)
+    service.create_instance.side_effect = ValueError(
+        "Initial dataset must contain at least 50 labeled instances to create an AL instance."
+    )
+    monkeypatch.setattr(active_learning_router, "al_service", service)
+
+    app = _build_app(service)
+    client = TestClient(app)
+
+    response = client.post(
+        "/activelearning/new",
+        json={
+            "model_name": "svm",
+            "qs_strategy": "random sampling",
+            "class_list": ["Team A", "Team B"],
+            "train_data_path": "train.csv",
+            "test_data_path": "test.csv",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Initial dataset must contain at least 50 labeled instances to create an AL instance."
+    }

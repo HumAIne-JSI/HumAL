@@ -21,6 +21,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+MIN_INITIAL_LABELED = 50
+
 
 class ActiveLearningService:
     def __init__(
@@ -69,14 +71,6 @@ class ActiveLearningService:
         new_instance.class_list = new_instance.class_list
         classes = list(range(len(new_instance.class_list)+1))
         
-        # Initialize active learning instance
-        self.storage.al_instances_dict[instance_id] = {
-            'model': model_dict[new_instance.model_name],
-            'model_name': new_instance.model_name,
-            'qs': new_instance.qs_strategy,
-            'classes': classes
-        }
-        
         # Preprocess the data (indices stay as Ref)
         X_train, y_train, le, oh = dispatch_team(duckdb_service=self.duckdb_service, test_set=False, classes=new_instance.class_list)
         X_test, y_test, _, _ = dispatch_team(duckdb_service=self.duckdb_service, test_set=True, le=le, oh=oh)
@@ -85,6 +79,20 @@ class ActiveLearningService:
         empty = le.transform([np.nan])[0]
         # Replace missing values with MISSING_LABEL in y_train (indexed by Ref)
         y_train = y_train.replace(empty, MISSING_LABEL)
+
+        labeled_count = int(y_train.notna().sum())
+        if labeled_count < MIN_INITIAL_LABELED:
+            raise ValueError(
+                "Initial dataset must contain at least 50 labeled instances to create an AL instance."
+            )
+
+        # Initialize active learning instance after the threshold check passes.
+        self.storage.al_instances_dict[instance_id] = {
+            'model': model_dict[new_instance.model_name],
+            'model_name': new_instance.model_name,
+            'qs': new_instance.qs_strategy,
+            'classes': classes
+        }
         
         # save the data to the dataset dictionary
         self.storage.dataset_dict[instance_id] = {
@@ -125,6 +133,9 @@ class ActiveLearningService:
                 X=X_test,
                 split="test"
             )
+
+            self.update_model(instance_id)
+            self.calculate_metrics(instance_id)
 
         # Save the datasets, encoders and labels to MinIO
         if self.minio_service is not None:
