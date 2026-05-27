@@ -219,6 +219,14 @@ curl "http://localhost:8000/xai/jobs/a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6"
 }
 ```
 
+**Behavior update:** Completed job payloads are now persisted into `label_decisions.xai_result` so the tracked XAI output stays associated with the originating ticket reference or SHA.
+
+---
+
+#### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest_ticket`
+
+**Behavior update:** When a ticket reference is available, nearest-neighbor results are now persisted into `label_decisions.similar_tickets` with title and description removed from the stored payload.
+
 **Note:** The "result" field structure is not yet fully decided upon.
 
 ---

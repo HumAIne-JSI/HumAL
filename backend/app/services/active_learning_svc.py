@@ -447,6 +447,18 @@ class ActiveLearningService:
                     user_id=user_id,
                 )
 
+                self.duckdb_service.upsert_label_decision(
+                    al_instance_id=al_instance_id,
+                    ref=str(item.ticket_id),
+                    user_id=user_id,
+                    label=item.label,
+                    labeled_at=item.end_time,
+                    model_prediction=item.model_prediction,
+                    latency_ms=int(duration_s * 1000),
+                    explanation=item.explanation,
+                    most_helpful_feature=item.most_helpful_feature,
+                )
+
         if self.duckdb_service is not None and self.benchmarking_service is not None:
             self.benchmarking_service.export_if_needed(al_instance_id)
 

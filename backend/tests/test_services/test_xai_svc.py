@@ -98,14 +98,31 @@ def test_explain_lime(mock_lime, xai_service, test_data):
 @patch('app.services.xai_svc.inference')
 @patch.object(XaiService, '_compute_nearest')
 def test_find_nearest(mock_compute_nearest, mock_inference, xai_service, test_data):
+    ticket_with_ref = MagicMock()
+    ticket_with_ref.ref = "ref_ticket"
+    ticket_with_ref.title_anon = test_data.title_anon
+    ticket_with_ref.description_anon = test_data.description_anon
+    ticket_with_ref.service_name = test_data.service_name
+    ticket_with_ref.service_subcategory_name = test_data.service_subcategory_name
+    ticket_with_ref.model_dump.return_value = {
+        "title_anon": test_data.title_anon,
+        "description_anon": test_data.description_anon,
+        "service_name": test_data.service_name,
+        "service_subcategory_name": test_data.service_subcategory_name,
+    }
+
     mock_inference.return_value = pd.DataFrame(np.random.rand(1, 10))
-    mock_compute_nearest.return_value = [{"ref": "ref1", "similarity": 0.9}]
+    mock_compute_nearest.return_value = [{"ref": "ref1", "similarity": 0.9, "title": "Title 1", "description": "Desc 1"}]
     
-    res = xai_service.find_nearest(1, test_data, top_k=1, distinct_classes=True)
+    res = xai_service.find_nearest(1, ticket_with_ref, top_k=1, distinct_classes=True)
     
     assert len(res) == 1
     mock_compute_nearest.assert_called_once()
     xai_service.duckdb_service.log_event.assert_called_once()
+    xai_service.duckdb_service.upsert_label_decision.assert_called_once()
+    stored_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
+    assert stored_payload == [{"ref": "ref1", "similarity": 0.9}]
+    assert xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["ref"] == "ref_ticket"
     args, kwargs = mock_compute_nearest.call_args
     assert args[2] == 1  # top_k
     assert args[4] == {"Team A"}  # target_classes
@@ -120,10 +137,14 @@ def test_find_nearest_by_idx(xai_service):
     })
     
     with patch.object(XaiService, '_compute_nearest') as mock_compute:
-        mock_compute.return_value = []
+        mock_compute.return_value = [{"ref": "ref1", "similarity": 0.9, "title": "Title 1", "description": "Desc 1"}]
         xai_service.find_nearest_by_idx(1, "ref1", top_k=2)
         mock_compute.assert_called_once()
         xai_service.duckdb_service.log_event.assert_called_once()
+        xai_service.duckdb_service.upsert_label_decision.assert_called_once()
+        stored_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
+        assert stored_payload == [{"ref": "ref1", "similarity": 0.9}]
+        assert xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["ref"] == "ref1"
         args = mock_compute.call_args[0]
         # input_title and input_description passed correctly
         assert args[5] == "Title 1"

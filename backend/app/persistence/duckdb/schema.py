@@ -79,6 +79,27 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS label_decisions (
+            al_instance_id INTEGER NOT NULL,
+            ref VARCHAR NOT NULL,
+            user_id UUID,
+            label VARCHAR,
+            labeled_at TIMESTAMP,
+            model_prediction VARCHAR,
+            latency_ms INTEGER,
+            explanation VARCHAR,
+            most_helpful_feature VARCHAR,
+            xai_result JSON,
+            similar_tickets JSON,
+            PRIMARY KEY (al_instance_id, ref),
+            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS metrics (
             al_instance_id INTEGER NOT NULL,
             iteration_id INTEGER NOT NULL,
@@ -148,6 +169,20 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_labels_instance_ref
         ON labels(al_instance_id, ref)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_label_decisions_instance_ref
+        ON label_decisions(al_instance_id, ref)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_label_decisions_user
+        ON label_decisions(user_id)
         """
     )
 

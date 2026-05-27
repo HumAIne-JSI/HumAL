@@ -155,6 +155,13 @@ def get_xai_job(job_id: uuid.UUID):
             files=result_file_names,
         )
 
+        if xai_service.duckdb_service is not None:
+            xai_service.duckdb_service.upsert_label_decision(
+                al_instance_id=job_info["al_instance_id"],
+                ref=str(job_info["ticket_ref_or_sha"]),
+                xai_result=result_payload,
+            )
+
         return {
             "status": job_info['status'],
             "result": result_payload,

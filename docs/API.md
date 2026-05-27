@@ -211,7 +211,7 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 
 ### POST /activelearning/{al_instance_id}/label-with-info
 
-**Description:** Submits human-assigned labels together with metadata such as review duration, model prediction, and optional explanation fields. The API logs one event per labeled ticket and triggers benchmark exports when needed.
+**Description:** Submits human-assigned labels together with metadata such as review duration, model prediction, and optional explanation fields. The API logs one event per labeled ticket, persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -229,6 +229,8 @@ Array of `label_info` objects.
 | `end_time` | string (date-time) | **Yes** | RFC3339 timestamp when review ended |
 | `explanation` | string or null | No | Optional reviewer explanation |
 | `most_helpful_feature` | string or null | No | Optional feature that helped the decision |
+
+The stored `label_decisions` row is updated in stages and keeps the latest non-null values for `label`, `labeled_at`, `model_prediction`, `latency_ms`, `explanation`, and `most_helpful_feature`.
 
 **Swagger-style UI Example:**
 *Request Payload*
@@ -515,7 +517,7 @@ curl -X POST "http://localhost:8000/xai/1/explain_lime" \
 
 ### POST /xai/{al_instance_id}/nearest_ticket
 
-**Description:** Recommends the structurally contextual "nearest neighbors" in embedding-space from the known historical dataset.
+**Description:** Recommends the structurally contextual "nearest neighbors" in embedding-space from the known historical dataset. When a ticket reference is available, the returned neighbor list is also persisted into `label_decisions.similar_tickets` without the raw title and description text.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -570,7 +572,7 @@ Accepts a single `Data` ticket representation chunk.
 
 ### GET /xai/jobs/{job_id}
 
-**Description:** Interrogates the RabbitMQ backend for the real-time processing status of a dispatched XAI calculation item and collects the payload if complete.
+**Description:** Interrogates the RabbitMQ backend for the real-time processing status of a dispatched XAI calculation item and collects the payload if complete. When the job is completed, the returned XAI result is also persisted into `label_decisions.xai_result`.
 
 **Parameters:**
 | Name | In | Type | Required | Description |

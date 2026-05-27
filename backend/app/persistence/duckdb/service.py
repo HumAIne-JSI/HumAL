@@ -387,6 +387,97 @@ class DuckDbPersistenceService:
 
         return saved
 
+    def upsert_label_decision(
+        self,
+        *,
+        al_instance_id: int,
+        ref: str,
+        user_id: str | uuid.UUID | None = None,
+        label: Optional[str] = None,
+        labeled_at: Optional[datetime] = None,
+        model_prediction: Optional[str] = None,
+        latency_ms: Optional[int] = None,
+        explanation: Optional[str] = None,
+        most_helpful_feature: Optional[str] = None,
+        xai_result: Optional[Any] = None,
+        similar_tickets: Optional[Any] = None,
+    ) -> None:
+        """Insert or update a staged label-decision record without clearing existing fields."""
+        resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else None
+
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO label_decisions (
+                    al_instance_id,
+                    ref,
+                    user_id,
+                    label,
+                    labeled_at,
+                    model_prediction,
+                    latency_ms,
+                    explanation,
+                    most_helpful_feature,
+                    xai_result,
+                    similar_tickets
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (al_instance_id, ref) DO UPDATE SET
+                    user_id = COALESCE(EXCLUDED.user_id, label_decisions.user_id),
+                    label = COALESCE(EXCLUDED.label, label_decisions.label),
+                    labeled_at = COALESCE(EXCLUDED.labeled_at, label_decisions.labeled_at),
+                    model_prediction = COALESCE(EXCLUDED.model_prediction, label_decisions.model_prediction),
+                    latency_ms = COALESCE(EXCLUDED.latency_ms, label_decisions.latency_ms),
+                    explanation = COALESCE(EXCLUDED.explanation, label_decisions.explanation),
+                    most_helpful_feature = COALESCE(EXCLUDED.most_helpful_feature, label_decisions.most_helpful_feature),
+                    xai_result = COALESCE(EXCLUDED.xai_result, label_decisions.xai_result),
+                    similar_tickets = COALESCE(EXCLUDED.similar_tickets, label_decisions.similar_tickets)
+                """,
+                [
+                    al_instance_id,
+                    ref,
+                    str(resolved_user_id) if resolved_user_id is not None else None,
+                    label,
+                    labeled_at,
+                    model_prediction,
+                    latency_ms,
+                    explanation,
+                    most_helpful_feature,
+                    json.dumps(xai_result, default=_json_default) if xai_result is not None else None,
+                    json.dumps(similar_tickets, default=_json_default) if similar_tickets is not None else None,
+                ],
+            )
+
+    def get_label_decision(self, *, al_instance_id: int, ref: str) -> Optional[Dict[str, Any]]:
+        """Load a staged label-decision row for inspection or tests."""
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT al_instance_id, ref, user_id, label, labeled_at, model_prediction,
+                       latency_ms, explanation, most_helpful_feature, xai_result, similar_tickets
+                FROM label_decisions
+                WHERE al_instance_id = ? AND ref = ?
+                """,
+                [al_instance_id, ref],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "al_instance_id": row[0],
+            "ref": row[1],
+            "user_id": str(row[2]) if row[2] is not None else None,
+            "label": row[3],
+            "labeled_at": row[4],
+            "model_prediction": row[5],
+            "latency_ms": row[6],
+            "explanation": row[7],
+            "most_helpful_feature": row[8],
+            "xai_result": _deserialize_json(row[9]),
+            "similar_tickets": _deserialize_json(row[10]),
+        }
+
     def load_labels(self, al_instance_id: int, user_id: Optional[str | uuid.UUID] = None, split: Optional[str] = None) -> pd.Series:
         """Load labels for an instance, optionally filtered by user and/or split."""
         query = "SELECT ref, label, labeled_at FROM labels WHERE al_instance_id IN (?, ?)"
@@ -786,6 +877,7 @@ class DuckDbPersistenceService:
         tables_and_queries = [
             ("al_events", "DELETE FROM al_events WHERE al_instance_id = ?"),
             ("labels", "DELETE FROM labels WHERE al_instance_id = ?"),
+            ("label_decisions", "DELETE FROM label_decisions WHERE al_instance_id = ?"),
             ("model_paths", "DELETE FROM model_paths WHERE al_instance_id = ?"),
             ("metrics", "DELETE FROM metrics WHERE al_instance_id = ?"),
             ("xai_jobs", "DELETE FROM xai_jobs WHERE al_instance_id = ?"),

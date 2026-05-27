@@ -223,6 +223,13 @@ flowchart TD
 
 ## Storage and Persistence
 
+The DuckDB persistence layer stores active-learning and XAI metadata in staged tables so partial updates can be merged without losing earlier non-null values.
+
+### Label Decision Metadata
+- `label_decisions` keeps decision metadata from `/activelearning/{al_instance_id}/label-with-info`, `/xai/{al_instance_id}/nearest_ticket`, and `/xai/jobs/{job_id}`.
+- Rows are merged by `(al_instance_id, ref)` so label information, nearest neighbors, and XAI results can arrive in separate calls.
+- `similar_tickets` and `xai_result` are stored as JSON payloads, while the human review fields stay as regular columns for querying.
+
 ### Model Storage
 ```
 backend/models/

@@ -131,6 +131,18 @@ class XaiService:
                 },
             )
 
+            ticket_ref = getattr(ticket, "ref", None)
+            if ticket_ref and results:
+                sanitized_results = [
+                    {key: value for key, value in item.items() if key not in {"title", "description"}}
+                    for item in results
+                ]
+                self.duckdb_service.upsert_label_decision(
+                    al_instance_id=al_instance_id,
+                    ref=str(ticket_ref),
+                    similar_tickets=sanitized_results,
+                )
+
         return results
 
     def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, distinct_classes: bool = True, model_id: int = 0):
@@ -182,6 +194,17 @@ class XaiService:
                     "top_k": top_k,
                 },
             )
+
+            if results:
+                sanitized_results = [
+                    {key: value for key, value in item.items() if key not in {"title", "description"}}
+                    for item in results
+                ]
+                self.duckdb_service.upsert_label_decision(
+                    al_instance_id=al_instance_id, 
+                    ref=str(index),
+                    similar_tickets=sanitized_results,
+                )
 
         return results
 
