@@ -13,6 +13,24 @@
 
 ---
 
+## Latest Update
+
+**Date:** May 27, 2026
+
+### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest`
+
+The nearest-neighbor endpoint now returns two result lists in one response: `predicted_class_neighbors` and `historical_neighbors`.
+
+**Behavior update:**
+- `predicted_class_neighbors` returns one best neighbor per top predicted class
+- `historical_neighbors` returns the most similar rows from `label_decisions` that already have non-empty `xai_result` or `similar_tickets`
+- Neighbor scoring now includes `best_sentence`, `best_sentence_score`, and `sentence_score_components` using the weighted formula `0.7 * embedding_similarity + 0.2 * keyword_overlap + 0.1 * entity_overlap`
+- Deprecated neighbor fields `reason` and `overlapping_terms` are no longer returned
+- Historical neighbors now include persisted metadata fields: `xai_result`, `similar_tickets`, `model_prediction`, `explanation`, and `most_helpful_feature`
+- Stored `label_decisions.similar_tickets` payloads are now structured with `title` and `description` preserved for readability, while recursive `xai_result` and `similar_tickets` content is stripped to avoid duplication and bloat
+
+---
+
 ## Detailed Changes
 
 ### Data Router (`/data`)
@@ -225,7 +243,7 @@ curl "http://localhost:8000/xai/jobs/a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6"
 
 #### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest_ticket`
 
-**Behavior update:** When a ticket reference is available, nearest-neighbor results are now persisted into `label_decisions.similar_tickets` with title and description removed from the stored payload.
+**Behavior update:** When a ticket reference is available, nearest-neighbor results are now persisted into `label_decisions.similar_tickets` with `title` and `description` retained for display, while recursive `xai_result` and `similar_tickets` content is stripped to avoid duplication and bloat.
 
 **Note:** The "result" field structure is not yet fully decided upon.
 

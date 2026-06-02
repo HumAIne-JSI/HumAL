@@ -17,7 +17,6 @@ def nearest(
     ticket_data: Optional[Data] = Body(None), 
     query_idx: Optional[list[str]] = Query(None), 
     top_k: int = Query(1),
-    distinct_classes: bool = Query(True),
     model_id: int = Query(0),
 ):
     # check if the instance id is valid
@@ -33,13 +32,21 @@ def nearest(
         raise HTTPException(status_code=400, detail="Provide exactly one of ticket_data or query_idx")
     
     if ticket_data is not None:
-        neighbors = xai_service.find_nearest(al_instance_id, ticket_data, top_k, distinct_classes, model_id)
-        return [NearestTicketResponse(neighbors=neighbors)]
+        neighbors = xai_service.find_nearest(al_instance_id, ticket_data, top_k, model_id)
+        return [NearestTicketResponse(
+            predicted_class_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["predicted_class_neighbors"]],
+            historical_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["historical_neighbors"]],
+        )]
     else:
+        assert query_idx is not None
         results = []
         for q_idx in query_idx:
-            neighbors = xai_service.find_nearest_by_idx(al_instance_id, q_idx, top_k, distinct_classes, model_id)
-            results.append(NearestTicketResponse(query_idx=str(q_idx), neighbors=neighbors))
+            neighbors = xai_service.find_nearest_by_idx(al_instance_id, q_idx, top_k, model_id)
+            results.append(NearestTicketResponse(
+                query_idx=str(q_idx),
+                predicted_class_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["predicted_class_neighbors"]],
+                historical_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["historical_neighbors"]],
+            ))
         return results
 
 @router.post("/{al_instance_id}/explain_lime")
@@ -66,8 +73,12 @@ def explain_lime(
     if ticket_data is not None:
         tickets.append(ticket_data)
     else:
+        assert query_idx is not None
         for idx in query_idx:
-            ticket = data_service.get_tickets(al_instance_id, [idx])['tickets'][0]
+            ticket_response = data_service.get_tickets([idx])
+            if ticket_response is None or not ticket_response.get('tickets'):
+                raise HTTPException(status_code=404, detail=f"Ticket {idx} not found")
+            ticket = ticket_response['tickets'][0]
             ticket_data_obj = Data(
                 title_anon = ticket['Title_anon'],
                 description_anon = ticket['Description_anon'],
@@ -102,6 +113,7 @@ def find_nearest_ticket(
     if ticket_data is not None:
         return xai_service.find_nearest_by_ticket(al_instance_id, ticket_data, model_id)
     else:
+        assert query_idx is not None
         return xai_service.find_nearest_by_query_idx(al_instance_id, query_idx, model_id)
 
 @router.post("/{al_instance_id}/requests")

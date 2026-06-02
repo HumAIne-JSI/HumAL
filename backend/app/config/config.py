@@ -11,6 +11,7 @@ RANDOM_STATE = 42
 SENTENCE_TRANSFORMERS_CACHE_DIR = os.getenv('SENTENCE_TRANSFORMERS_CACHE_DIR', os.path.join(os.path.dirname(__file__), '../../cache/sentence_transformers'))
 SENTENCE_TRANSFORMERS_MODEL = os.getenv('SENTENCE_TRANSFORMERS_MODEL', 'all-MiniLM-L6-v2')
 SENTENCE_TRANSFORMERS_LOCAL_ONLY = os.getenv('SENTENCE_TRANSFORMERS_LOCAL_ONLY', '1').lower() in ('1', 'true', 'yes', 'y')
+SPACY_MODEL_NAME = os.getenv('SPACY_MODEL_NAME', 'en_core_web_sm')
 
 qs_dict = {
     'random sampling': RandomSampling(random_state=RANDOM_STATE, missing_label=MISSING_LABEL),

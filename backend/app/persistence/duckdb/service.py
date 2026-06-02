@@ -43,6 +43,14 @@ def _deserialize_json(value: Any) -> Any:
     return value
 
 
+def _json_value_is_non_empty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (dict, list, str, tuple, set)):
+        return len(value) > 0
+    return True
+
+
 def _json_default(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -379,7 +387,7 @@ class DuckDbPersistenceService:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO labels (al_instance_id, user_id, ref, label, split, labeled_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
                     """,
                     [al_instance_id, str(user_uuid), str(ref), str(label), split, timestamp],
                 )
@@ -478,10 +486,54 @@ class DuckDbPersistenceService:
             "similar_tickets": _deserialize_json(row[10]),
         }
 
+    def load_label_decisions_with_xai(self, *, al_instance_id: int) -> list[Dict[str, Any]]:
+        """Load label-decision rows that already contain XAI history or stored similar tickets.
+
+        Args:
+            al_instance_id: Active learning instance identifier to filter by.
+
+        Returns:
+            A list of dictionaries containing ref, xai_result, similar_tickets,
+            model_prediction, explanation, most_helpful_feature, and label when present.
+        """
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT ref, label, xai_result, similar_tickets, model_prediction, explanation, most_helpful_feature
+                FROM label_decisions
+                WHERE al_instance_id = ?
+                                    AND label IS NOT NULL
+                  AND (xai_result IS NOT NULL OR similar_tickets IS NOT NULL)
+                """,
+                [al_instance_id],
+            ).fetchall()
+
+        results: list[Dict[str, Any]] = []
+        for row in rows:
+            xai_result = _deserialize_json(row[2])
+            similar_tickets = _deserialize_json(row[3])
+
+            if not (_json_value_is_non_empty(xai_result) or _json_value_is_non_empty(similar_tickets)):
+                continue
+
+            results.append(
+                {
+                    "ref": str(row[0]),
+                    "label": row[1],
+                    "xai_result": xai_result,
+                    "similar_tickets": similar_tickets,
+                    "model_prediction": row[4],
+                    "explanation": row[5],
+                    "most_helpful_feature": row[6],
+                }
+            )
+
+        return results
+
     def load_labels(self, al_instance_id: int, user_id: Optional[str | uuid.UUID] = None, split: Optional[str] = None) -> pd.Series:
         """Load labels for an instance, optionally filtered by user and/or split."""
         query = "SELECT ref, label, labeled_at FROM labels WHERE al_instance_id IN (?, ?)"
-        params = [al_instance_id, GROUND_TRUTH_AL_INSTANCE_ID]
+        params: list[Any] = [al_instance_id, GROUND_TRUTH_AL_INSTANCE_ID]
         
         if user_id is not None:
             user_uuid = uuid.UUID(str(user_id))
@@ -586,7 +638,7 @@ class DuckDbPersistenceService:
                     """,
                     [al_instance_id],
                 ).fetchone()
-                iteration_id = result[0]
+                iteration_id = int(result[0]) if result is not None else 1
 
             conn.execute(
                 """
@@ -597,9 +649,9 @@ class DuckDbPersistenceService:
                 [al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled],
             )
         
-        return iteration_id
+        return int(iteration_id)
 
-    def load_metrics(self, al_instance_id: int, iteration_id: Optional[int] = None) -> Dict[str, any]:
+    def load_metrics(self, al_instance_id: int, iteration_id: Optional[int] = None) -> Dict[str, Any]:
         with connect(self.db_path) as conn:
             if iteration_id is None:
                 # Load the latest iteration
@@ -639,7 +691,7 @@ class DuckDbPersistenceService:
             "num_labeled": row[3],
         }
 
-    def load_all_metrics(self, al_instance_id: int) -> list[Dict[str, any]]:
+    def load_all_metrics(self, al_instance_id: int) -> list[Dict[str, Any]]:
         """Load all metrics iterations for an AL instance."""
         with connect(self.db_path) as conn:
             rows = conn.execute(

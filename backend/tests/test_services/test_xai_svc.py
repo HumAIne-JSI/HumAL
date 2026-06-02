@@ -1,45 +1,68 @@
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+import asyncio
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import numpy as np
 import pandas as pd
+import pytest
 import uuid
 
 from app.core.storage import ActiveLearningStorage
-from app.services.inference_svc import InferenceService
-from app.services.xai_svc import XaiService
 from app.data_models.active_learning_dm import Data
-from app.persistence.local_artifacts import LocalArtifactsStore
-from app.persistence.duckdb.service import DuckDbPersistenceService
-from app.persistence.minio_storage import MinioService
 from app.core.rabbitmq_client import RabbitMQClient
+from app.persistence.duckdb.service import DuckDbPersistenceService
+from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence.minio_storage import MinioService
+from app.services.inference_svc import InferenceService
 from app.services.ticket_vectorizer_svc import TicketVectorizerService
+from app.services.xai_svc import XaiService
+
+
+class _FakeSentence:
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _FakeDoc:
+    def __init__(self, text: str):
+        self.sents = [_FakeSentence(part.strip()) for part in text.split(".") if part.strip()]
+        self.noun_chunks = []
+        self.ents = []
+
+
+class _FakeNlp:
+    def __call__(self, text: str):
+        return _FakeDoc(text)
+
 
 @pytest.fixture
 def mock_storage():
     storage = MagicMock(spec=ActiveLearningStorage)
-    
-    # Mocking storage variables needed for xai_svc
+
     mock_le = MagicMock()
     mock_le.classes_ = ["Team A", "Team B"]
-    mock_le.inverse_transform.side_effect = lambda x: np.array([f"Team {i}" for i in x])
-    mock_le.transform.side_effect = lambda x: [0] * len(x)
-    
-    X_train = pd.DataFrame({
-        "Title_anon": ["Title 1", "Title 2", "Title 3"],
-        "Description_anon": ["Desc 1", "Desc 2", "Desc 3"]
-    }, index=["ref1", "ref2", "ref3"])
-    
+    mock_le.inverse_transform.side_effect = lambda values: np.array(["Team A" if int(value) == 0 else "Team B" for value in values])
+    mock_le.transform.side_effect = lambda values: [0] * len(values)
+
+    x_train = pd.DataFrame(
+        {
+            "Title_anon": ["Title 1", "Title 2", "Title 3"],
+            "Description_anon": ["Desc 1", "Desc 2", "Desc 3"],
+        },
+        index=["ref1", "ref2", "ref3"],
+    )
     y_train = pd.Series([0, 1, 0], index=["ref1", "ref2", "ref3"])
-    
+
     storage.dataset_dict = {
         1: {
-            'le': mock_le,
-            'oh': MagicMock(),
-            'X_train': X_train,
-            'y_train': y_train
+            "le": mock_le,
+            "oh": MagicMock(),
+            "X_train": x_train,
+            "y_train": y_train,
         }
     }
     return storage
+
 
 @pytest.fixture
 def test_data():
@@ -47,8 +70,9 @@ def test_data():
         title_anon="Fix printer",
         description_anon="Printer is broken",
         service_name="IT",
-        service_subcategory_name="Hardware"
+        service_subcategory_name="Hardware",
     )
+
 
 @pytest.fixture
 def mock_inference_svc():
@@ -56,9 +80,10 @@ def mock_inference_svc():
     inference_svc.infer.return_value = ["Team A"]
     inference_svc.infer_proba.return_value = {
         "probabilities": [[0.8, 0.2]],
-        "classes": ["Team A", "Team B"]
+        "classes": ["Team A", "Team B"],
     }
     return inference_svc
+
 
 @pytest.fixture
 def mock_dependencies():
@@ -67,160 +92,310 @@ def mock_dependencies():
         "minio_service": MagicMock(spec=MinioService),
         "duckdb_service": MagicMock(spec=DuckDbPersistenceService),
         "rabbitmq_client": AsyncMock(spec=RabbitMQClient),
-        "ticket_vectorizer_service": MagicMock(spec=TicketVectorizerService)
+        "ticket_vectorizer_service": MagicMock(spec=TicketVectorizerService),
     }
 
+
 @pytest.fixture
-@patch('app.services.xai_svc.SentenceTransformer')
-def xai_service(mock_st, mock_storage, mock_inference_svc, mock_dependencies):
-    return XaiService(
+@patch("app.services.xai_svc.SentenceTransformer")
+def xai_service(mock_sentence_transformer, mock_storage, mock_inference_svc, mock_dependencies):
+    mock_model = MagicMock()
+    mock_model.encode.return_value = np.array([[0.1, 0.2, 0.3]])
+    mock_sentence_transformer.return_value = mock_model
+
+    service = XaiService(
         storage=mock_storage,
         inference_service=mock_inference_svc,
-        **mock_dependencies
+        **mock_dependencies,
     )
+    return service
 
-@patch('app.services.xai_svc.LimeTextExplainer')
-def test_explain_lime(mock_lime, xai_service, test_data):
-    mock_explainer = MagicMock()
-    mock_lime.return_value = mock_explainer
-    
-    # Mocking as_list which LimeTextExplainer uses
-    mock_explanation = MagicMock()
-    mock_explanation.as_list.return_value = [("printer", 0.15)]
-    mock_explainer.explain_instance.return_value = mock_explanation
 
-    res = xai_service.explain_lime(1, [test_data])
-    
-    assert len(res) == 1
-    assert res[0]["top_words"] == [("printer", 0.15)]
-    assert res[0]["error"] is None
+def _predicted_neighbors():
+    return [
+        {
+            "ref": "ref1",
+            "label": "Team A",
+            "similarity": 0.91,
+            "title": "Title 1",
+            "description": "Desc 1",
+            "best_sentence": "Title 1",
+            "best_sentence_score": 0.87,
+            "sentence_score_components": {
+                "embedding_similarity": 0.9,
+                "keyword_overlap": 0.05,
+                "entity_overlap": 0.02,
+            },
+        }
+    ]
 
-@patch('app.services.xai_svc.inference')
-@patch.object(XaiService, '_compute_nearest')
-def test_find_nearest(mock_compute_nearest, mock_inference, xai_service, test_data):
+
+def _historical_neighbors():
+    return [
+        {
+            "ref": "ref2",
+            "label": "Team B",
+            "similarity": 0.84,
+            "title": "Title 2",
+            "description": "Desc 2",
+            "best_sentence": "Desc 2",
+            "best_sentence_score": 0.8,
+            "sentence_score_components": {
+                "embedding_similarity": 0.82,
+                "keyword_overlap": 0.03,
+                "entity_overlap": 0.0,
+            },
+            "xai_result": {"top_words": [["printer", 0.15]]},
+            "similar_tickets": [{"ref": "ref9", "similarity": 0.5}],
+            "model_prediction": "Team B",
+            "explanation": "Historical explanation",
+            "most_helpful_feature": "title",
+        }
+    ]
+
+
+@patch("app.services.xai_svc.inference")
+def test_find_nearest_returns_predicted_and_historical_neighbors(mock_inference, xai_service, test_data):
     ticket_with_ref = MagicMock()
     ticket_with_ref.ref = "ref_ticket"
     ticket_with_ref.title_anon = test_data.title_anon
     ticket_with_ref.description_anon = test_data.description_anon
     ticket_with_ref.service_name = test_data.service_name
     ticket_with_ref.service_subcategory_name = test_data.service_subcategory_name
+    ticket_with_ref.public_log_anon = None
     ticket_with_ref.model_dump.return_value = {
         "title_anon": test_data.title_anon,
         "description_anon": test_data.description_anon,
         "service_name": test_data.service_name,
         "service_subcategory_name": test_data.service_subcategory_name,
+        "public_log_anon": None,
     }
 
-    mock_inference.return_value = pd.DataFrame(np.random.rand(1, 10))
-    mock_compute_nearest.return_value = [{"ref": "ref1", "similarity": 0.9, "title": "Title 1", "description": "Desc 1"}]
-    
-    res = xai_service.find_nearest(1, ticket_with_ref, top_k=1, distinct_classes=True)
-    
-    assert len(res) == 1
-    mock_compute_nearest.assert_called_once()
+    mock_inference.return_value = pd.DataFrame(np.array([[0.4, 0.6]]))
+    xai_service.duckdb_service.load_label_decisions_with_xai.return_value = [{"ref": "ref2", "xai_result": {"a": 1}, "similar_tickets": [{"b": 2}], "model_prediction": "Team B", "explanation": "exp", "most_helpful_feature": "title"}]
+
+    with patch.object(XaiService, "_build_predicted_class_neighbors", return_value=_predicted_neighbors()) as mock_predicted, patch.object(XaiService, "_build_historical_neighbors", return_value=_historical_neighbors()) as mock_historical:
+        result = xai_service.find_nearest(1, ticket_with_ref, top_k=1)
+
+    assert set(result.keys()) == {"predicted_class_neighbors", "historical_neighbors"}
+    assert result["predicted_class_neighbors"][0]["best_sentence"] == "Title 1"
+    assert result["historical_neighbors"][0]["xai_result"] == {"top_words": [["printer", 0.15]]}
+    assert "reason" not in result["predicted_class_neighbors"][0]
+    assert "overlapping_terms" not in result["predicted_class_neighbors"][0]
+    assert "reason" not in result["historical_neighbors"][0]
+    assert "overlapping_terms" not in result["historical_neighbors"][0]
+    mock_predicted.assert_called_once()
+    mock_historical.assert_called_once()
+
     xai_service.duckdb_service.log_event.assert_called_once()
     xai_service.duckdb_service.upsert_label_decision.assert_called_once()
-    stored_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
-    assert stored_payload == [{"ref": "ref1", "similarity": 0.9}]
+    saved_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
+    assert set(saved_payload.keys()) == {"predicted_class_neighbors", "historical_neighbors"}
+    assert "title" in saved_payload["predicted_class_neighbors"][0]
+    assert "description" in saved_payload["predicted_class_neighbors"][0]
+    assert "xai_result" not in saved_payload["predicted_class_neighbors"][0]
+    assert "similar_tickets" not in saved_payload["predicted_class_neighbors"][0]
+    assert "title" in saved_payload["historical_neighbors"][0]
+    assert "description" in saved_payload["historical_neighbors"][0]
+    assert "xai_result" not in saved_payload["historical_neighbors"][0]
+    assert "similar_tickets" not in saved_payload["historical_neighbors"][0]
     assert xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["ref"] == "ref_ticket"
-    args, kwargs = mock_compute_nearest.call_args
-    assert args[2] == 1  # top_k
-    assert args[4] == {"Team A"}  # target_classes
 
-def test_find_nearest_by_idx(xai_service):
-    xai_service.duckdb_service.load_tickets_by_ref.return_value = pd.DataFrame({
-        "Ref": ["ref1"],
-        "Title_anon": ["Title 1"],
-        "Description_anon": ["Desc 1"],
-        "Service->Name": ["IT"],
-        "Service subcategory->Name": ["Software"]
-    })
-    
-    with patch.object(XaiService, '_compute_nearest') as mock_compute:
-        mock_compute.return_value = [{"ref": "ref1", "similarity": 0.9, "title": "Title 1", "description": "Desc 1"}]
-        xai_service.find_nearest_by_idx(1, "ref1", top_k=2)
-        mock_compute.assert_called_once()
-        xai_service.duckdb_service.log_event.assert_called_once()
-        xai_service.duckdb_service.upsert_label_decision.assert_called_once()
-        stored_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
-        assert stored_payload == [{"ref": "ref1", "similarity": 0.9}]
-        assert xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["ref"] == "ref1"
-        args = mock_compute.call_args[0]
-        # input_title and input_description passed correctly
-        assert args[5] == "Title 1"
-        assert args[6] == "Desc 1"
 
-def test_compute_nearest(xai_service, test_data):
-    # Setup DuckDB return
-    xai_service.duckdb_service.load_tickets_by_ref.return_value = pd.DataFrame({
-        "Ref": ["ref1", "ref2"],
-        "Title_anon": ["Fix printer issue", "Another printer issue"],
-        "Description_anon": ["Printer is broken here", "Broken printer"],
-    })
-    
-    target_embedding = np.random.rand(1, 384)
-    # Patch similarities
-    with patch('app.services.xai_svc.cosine_similarity') as mock_cos:
-        mock_cos.return_value = np.array([[0.9, 0.8, 0.7]])
-        
-        res = xai_service._compute_nearest(
-            1, target_embedding, top_k=2, distinct_classes=False,
-            input_title="printer issue", input_description="broken printer"
+@patch("app.services.xai_svc.inference")
+def test_find_nearest_by_idx_returns_dual_neighbors(mock_inference, xai_service):
+    xai_service.duckdb_service.load_tickets_by_ref.return_value = pd.DataFrame(
+        {
+            "Ref": ["ref1"],
+            "Title_anon": ["Title 1"],
+            "Description_anon": ["Desc 1"],
+            "Service->Name": ["IT"],
+            "Service subcategory->Name": ["Software"],
+        }
+    )
+    mock_inference.return_value = pd.DataFrame(np.array([[0.4, 0.6]]))
+
+    with patch.object(XaiService, "_build_predicted_class_neighbors", return_value=_predicted_neighbors()) as mock_predicted, patch.object(XaiService, "_build_historical_neighbors", return_value=_historical_neighbors()) as mock_historical:
+        result = xai_service.find_nearest_by_idx(1, "ref1", top_k=2)
+
+    assert len(result["predicted_class_neighbors"]) == 1
+    assert len(result["historical_neighbors"]) == 1
+    mock_predicted.assert_called_once()
+    mock_historical.assert_called_once()
+    xai_service.duckdb_service.log_event.assert_called_once()
+    xai_service.duckdb_service.upsert_label_decision.assert_called_once()
+
+
+def test_neighbor_deprecated_fields_removed(xai_service):
+    result = {
+        "predicted_class_neighbors": _predicted_neighbors(),
+        "historical_neighbors": _historical_neighbors(),
+    }
+
+    for group in result.values():
+        for neighbor in group:
+            assert "reason" not in neighbor
+            assert "overlapping_terms" not in neighbor
+
+
+def test_sentence_scoring_selects_highest_score(xai_service):
+    fake_scores = {
+        "First sentence": (0.21, {"embedding_similarity": 0.2, "keyword_overlap": 0.05, "entity_overlap": 0.0}),
+        "Second sentence": (0.73, {"embedding_similarity": 0.9, "keyword_overlap": 0.5, "entity_overlap": 0.0}),
+    }
+
+    xai_service._get_spacy_nlp = MagicMock(return_value=_FakeNlp())
+    xai_service._sentence_score_components = MagicMock(side_effect=lambda *, sentence, original_text_embedding, original_doc: fake_scores[sentence])
+
+    best_sentence, best_score, best_components = xai_service._best_sentence_from_text(
+        "First sentence. Second sentence.",
+        np.array([[1.0, 0.0, 0.0]]),
+    )
+
+    assert best_sentence == "Second sentence"
+    assert best_score == 0.73
+    assert best_components == {"embedding_similarity": 0.9, "keyword_overlap": 0.5, "entity_overlap": 0.0}
+
+
+def test_ticket_text_excludes_public_log(xai_service):
+    ticket = Data(
+        title_anon="Title",
+        description_anon="Description",
+        public_log_anon="Public log content",
+    )
+
+    result = xai_service._ticket_text(ticket)
+
+    assert result == "Title Description"
+    assert "Public" not in result
+
+
+def test_get_predicted_classes_raises_without_proba(xai_service, mock_inference_svc):
+    mock_inference_svc.infer_proba.side_effect = ValueError("Model does not support probabilities")
+    ticket = Data(title_anon="T", description_anon="D")
+
+    with pytest.raises(ValueError):
+        xai_service._get_predicted_classes(1, ticket, top_k=2)
+
+
+def test_best_sentence_uses_description_only(xai_service):
+    captured_texts = []
+
+    def fake_best_sentence(text, original_text_embedding):
+        captured_texts.append(text)
+        return "Desc sentence one", 0.0, None
+
+    xai_service.storage.dataset_dict[1]["X_train"] = pd.DataFrame(
+        [[0.1, 0.2, 0.3], [0.2, 0.3, 0.4], [0.3, 0.4, 0.5]],
+        index=["ref1", "ref2", "ref3"],
+    )
+
+    xai_service.duckdb_service.load_tickets_by_ref.return_value = pd.DataFrame(
+        {
+            "Ref": ["ref1"],
+            "Title_anon": ["Title 1"],
+            "Description_anon": ["Desc sentence one. Desc sentence two."],
+        }
+    )
+
+    with patch.object(XaiService, "_get_predicted_classes", return_value=["Team A"]), patch.object(
+        XaiService,
+        "_best_sentence_from_text",
+        side_effect=fake_best_sentence,
+    ):
+        xai_service._build_predicted_class_neighbors(
+            al_instance_id=1,
+            target_embedding=np.array([[0.1, 0.2, 0.3]]),
+            original_text_embedding=np.array([[1.0, 0.0, 0.0]]),
+            original_text="Title 1 Desc sentence one",
+            top_k=1,
+            ticket=Data(title_anon="Title 1", description_anon="Desc sentence one. Desc sentence two."),
         )
-        
-        assert len(res) == 2
-        assert res[0]["ref"] == "ref1"
-        assert res[0]["overlapping_terms"] is not None
 
-@patch('app.services.xai_svc.inference')
-def test_find_nearest_by_ticket(mock_inference, xai_service, test_data):
-    mock_inference.return_value = pd.DataFrame(np.random.rand(1, 384))
-    
-    with patch('app.services.xai_svc.cosine_similarity') as mock_cos:
-        mock_cos.return_value = np.array([[0.9, 0.8, 0.7]])
-        
-        res = xai_service.find_nearest_by_ticket(1, test_data)
-        assert res["nearest_ticket_ref"] == "ref1"
-
-def test_find_nearest_by_query_idx(xai_service):
-    with patch('app.services.xai_svc.cosine_similarity') as mock_cos:
-        mock_cos.return_value = np.array([[0.9, 0.8, 0.7]])
-        
-        res = xai_service.find_nearest_by_query_idx(1, ["ref1"])
-        assert len(res["nearest_ticket_ref"]) == 1
-        assert res["nearest_ticket_ref"][0] == "ref1"
+    assert captured_texts == ["Desc sentence one. Desc sentence two."]
 
 
-import asyncio
-import os
+@patch("app.services.xai_svc.inference")
+def test_label_decision_save_structure_for_dual_neighbors(mock_inference, xai_service, test_data):
+    ticket_with_ref = MagicMock()
+    ticket_with_ref.ref = "ref_ticket"
+    ticket_with_ref.title_anon = test_data.title_anon
+    ticket_with_ref.description_anon = test_data.description_anon
+    ticket_with_ref.service_name = test_data.service_name
+    ticket_with_ref.service_subcategory_name = test_data.service_subcategory_name
+    ticket_with_ref.public_log_anon = None
+    ticket_with_ref.model_dump.return_value = {
+        "title_anon": test_data.title_anon,
+        "description_anon": test_data.description_anon,
+        "service_name": test_data.service_name,
+        "service_subcategory_name": test_data.service_subcategory_name,
+        "public_log_anon": None,
+    }
+
+    mock_inference.return_value = pd.DataFrame(np.array([[0.4, 0.6]]))
+    with patch.object(XaiService, "_build_predicted_class_neighbors", return_value=_predicted_neighbors()), patch.object(XaiService, "_build_historical_neighbors", return_value=_historical_neighbors()):
+        xai_service.find_nearest(1, ticket_with_ref, top_k=1)
+
+    saved_payload = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["similar_tickets"]
+    assert set(saved_payload.keys()) == {"predicted_class_neighbors", "historical_neighbors"}
+    for neighbor in saved_payload["predicted_class_neighbors"]:
+        assert "title" in neighbor
+        assert "description" in neighbor
+        assert "xai_result" not in neighbor
+        assert "similar_tickets" not in neighbor
+    for neighbor in saved_payload["historical_neighbors"]:
+        assert "title" in neighbor
+        assert "description" in neighbor
+        assert "xai_result" not in neighbor
+        assert "similar_tickets" not in neighbor
+
+
+def test_sanitize_neighbor_keeps_title_and_description(xai_service):
+    neighbor = {
+        "ref": "R1",
+        "title": "T1",
+        "description": "D1",
+        "xai_result": {"words": []},
+        "similar_tickets": [],
+    }
+
+    result = xai_service._sanitize_neighbor_for_storage(neighbor)
+
+    assert result["title"] == "T1"
+    assert result["description"] == "D1"
+    assert "xai_result" not in result
+    assert "similar_tickets" not in result
+
 
 @patch.dict(os.environ, {"USE_RABBITMQ": "1", "TASK_QUEUE": "test_queue"})
 def test_create_xai_request(xai_service, test_data):
     xai_service.minio_service.save_ticket_for_xai.return_value = {
         "ticket_sha": "testsha123",
-        "object": "ticket/testsha123.json"
+        "object": "ticket/testsha123.json",
     }
-    
+
     xai_service.ticket_vectorizer_service.create_vectorizer.return_value = MagicMock()
     xai_service.ticket_vectorizer_service.save_vectorizer.return_value = {
-        "object": "vectorizer/path"
+        "object": "vectorizer/path",
     }
-    
+
     xai_service.minio_service.return_data_names.return_value = ["data1"]
-    
+
     job_id = asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))
-    
+
     assert isinstance(job_id, uuid.UUID)
     xai_service.duckdb_service.create_xai_job.assert_called_once()
     xai_service.rabbitmq_client.publish.assert_called_once()
 
+
 def test_get_xai_job(xai_service):
     job_id = uuid.uuid4()
     xai_service.duckdb_service.get_xai_job.return_value = {"job_id": job_id}
-    
+
     res = xai_service.get_xai_job(job_id)
     assert res["job_id"] == job_id
-    
+
+
 def test_update_xai_job(xai_service):
     job_id = uuid.uuid4()
     data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
@@ -237,14 +412,14 @@ def test_update_xai_job(xai_service):
     xai_service.minio_service.load_xai_results.return_value = {
         "lime": [{"top_words": [("printer", 0.15)], "error": None}]
     }
-    
+
     asyncio.run(xai_service.update_xai_job(data))
-    
+
     xai_service.duckdb_service.update_xai_job_status.assert_called_once_with(
         job_id=job_id,
         status="completed",
         result_location="minio/res",
-        result_file_names={"lime": "f.json"}
+        result_file_names={"lime": "f.json"},
     )
     xai_service.duckdb_service.log_event.assert_called_once()
 

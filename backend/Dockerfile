@@ -9,6 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
     SENTENCE_TRANSFORMERS_CACHE_DIR=/app/cache/sentence_transformers \
     SENTENCE_TRANSFORMERS_LOCAL_ONLY=1 \
+    SPACY_MODEL_NAME=en_core_web_sm \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
     MINIO_DATA_BUCKET=smart-finance-data \
@@ -34,6 +35,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       --index-url https://download.pytorch.org/whl/cpu \
             --extra-index-url https://pypi.org/simple \
             --index-strategy unsafe-best-match
+
+RUN python -m spacy download ${SPACY_MODEL_NAME}
 
 # Copy backend code + bundled artifacts
 COPY app /app/app

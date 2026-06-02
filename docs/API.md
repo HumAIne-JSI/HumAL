@@ -54,6 +54,74 @@ curl -X POST "http://localhost:8000/activelearning/1/infer" \
 	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
 ```
 
+### POST /xai/{al_instance_id}/nearest
+
+**Description:** Returns two nearest-neighbor result sets in one response. `predicted_class_neighbors` contains one most-similar ticket per top predicted class, and `historical_neighbors` contains the most-similar labeled decisions that already store `xai_result` or `similar_tickets`. When a ticket reference is available, the structured `similar_tickets` payload is also persisted without raw title/description text and without recursive `xai_result` or `similar_tickets` content.
+
+**Parameters:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+| `top_k` | query | integer | No (Default: 1) | Number of predicted classes to consider and number of historical neighbors to return |
+| `model_id` | query | integer | No (Default: 0) | Model identifier |
+
+**Request Body (`application/json`):**
+Exactly one of the following must be provided:
+`Data` object or `query_idx` list.
+
+**Response Shape:**
+```json
+[
+  {
+    "query_idx": "R-544314",
+    "predicted_class_neighbors": [
+      {
+        "ref": "R-123456",
+        "label": "team_a",
+        "similarity": 0.91,
+        "best_sentence": "Printer is broken",
+        "best_sentence_score": 0.82,
+        "sentence_score_components": {
+          "embedding_similarity": 0.9,
+          "keyword_overlap": 0.1,
+          "entity_overlap": 0.0
+        }
+      }
+    ],
+    "historical_neighbors": [
+      {
+        "ref": "R-222222",
+        "label": "team_b",
+        "similarity": 0.88,
+        "best_sentence": "Need VPN access",
+        "best_sentence_score": 0.79,
+        "xai_result": {"top_words": [["vpn", 0.42]]},
+        "similar_tickets": [{"ref": "R-111111", "similarity": 0.75}],
+        "model_prediction": "team_b",
+        "explanation": "Matched the historical decision",
+        "most_helpful_feature": "title"
+      }
+    ]
+  }
+]
+```
+
+**Sentence Scoring:**
+- `best_sentence_score = 0.7 * embedding_similarity + 0.2 * keyword_overlap + 0.1 * entity_overlap`
+- `sentence_score_components` exposes the three weighted terms used in the score
+- If a ticket has no sentences, `best_sentence` is `null` and `best_sentence_score` is `0.0`
+
+**Neighbor Fields:**
+- `reason` and `overlapping_terms` are no longer returned
+- Historical neighbors include the persisted `xai_result`, `similar_tickets`, `model_prediction`, `explanation`, and `most_helpful_feature` metadata
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/xai/1/nearest?top_k=2" \
+	-H "Content-Type: application/json" \
+	-d "{\"title_anon\":\"VPN not working\",\"description_anon\":\"Cannot connect to VPN\"}"
+```
+
 ### POST /activelearning/{al_instance_id}/infer_proba
 
 **Description:** Evaluates new tickets against a trained active learning model to return class probabilities. Supports processing a single ticket or a batch of tickets simultaneously.
@@ -517,7 +585,7 @@ curl -X POST "http://localhost:8000/xai/1/explain_lime" \
 
 ### POST /xai/{al_instance_id}/nearest_ticket
 
-**Description:** Recommends the structurally contextual "nearest neighbors" in embedding-space from the known historical dataset. When a ticket reference is available, the returned neighbor list is also persisted into `label_decisions.similar_tickets` without the raw title and description text.
+**Description:** Recommends the structurally contextual "nearest neighbors" in embedding-space from the known historical dataset. When a ticket reference is available, the returned neighbor list is also persisted into `label_decisions.similar_tickets` with `title` and `description` retained for display, but with recursive `xai_result` and `similar_tickets` content stripped to avoid duplication and bloat.
 
 **Parameters:**
 | Name | In | Type | Required | Description |

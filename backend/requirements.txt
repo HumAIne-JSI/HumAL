@@ -3,6 +3,7 @@ numpy<2
 #regex
 scikit-learn
 sentence-transformers
+spacy
 fastapi
 uvicorn
 joblib

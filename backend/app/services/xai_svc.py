@@ -12,6 +12,7 @@ from app.data_models.active_learning_dm import Data
 from sentence_transformers import SentenceTransformer
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 from typing import Optional, Dict, Any
+from collections.abc import Sequence
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.persistence.duckdb.service import DuckDbPersistenceService
 from app.persistence.minio_storage import MinioService
@@ -21,6 +22,7 @@ import app.config.config as config
 import os
 import logging
 import time
+import re
 from app.config.config import SYSTEM_USER_ID
 
 logger = logging.getLogger(__name__)
@@ -43,11 +45,436 @@ class XaiService:
             cache_folder=SENTENCE_TRANSFORMERS_CACHE_DIR,
             local_files_only=SENTENCE_TRANSFORMERS_LOCAL_ONLY
         )
+        self._spacy_nlp = None
         self.local_artifacts_store = local_artifacts_store
         self.minio_service = minio_service
         self.duckdb_service = duckdb_service
         self.rabbitmq_client = rabbitmq_client
         self.ticket_vectorizer_service = ticket_vectorizer_service
+
+    def _get_spacy_nlp(self):
+        """Load and cache the configured SpaCy pipeline on first use.
+
+        Returns:
+            The loaded SpaCy language pipeline.
+
+        Raises:
+            ValueError: If SpaCy is not installed or the configured model is missing.
+        """
+        if self._spacy_nlp is not None:
+            return self._spacy_nlp
+
+        try:
+            import spacy  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ValueError("SpaCy is not installed") from exc
+
+        try:
+            nlp = spacy.load(config.SPACY_MODEL_NAME)
+        except OSError as exc:
+            raise ValueError(f"SpaCy model '{config.SPACY_MODEL_NAME}' is not installed") from exc
+
+        if "sentencizer" not in nlp.pipe_names and "parser" not in nlp.pipe_names:
+            try:
+                nlp.add_pipe("sentencizer")
+            except ValueError:
+                pass
+
+        self._spacy_nlp = nlp
+        return nlp
+
+    def _ticket_text(self, ticket: Data) -> str:
+        """Build the canonical plain-text representation used for sentence scoring.
+
+        Args:
+            ticket: The ticket data to stringify.
+
+        Returns:
+            A single normalized text string.
+        """
+        parts = [ticket.title_anon, ticket.description_anon]
+        return " ".join(part.strip() for part in parts if isinstance(part, str) and part.strip()).strip()
+
+    def _encode_text_embedding(self, text: str) -> np.ndarray:
+        """Encode a text string into a 2D embedding array.
+
+        Args:
+            text: The text to embed.
+
+        Returns:
+            A 2D numpy array suitable for cosine similarity.
+        """
+        embedding = np.asarray(self.sentence_model.encode([text or ""]))
+        if embedding.ndim == 1:
+            embedding = embedding.reshape(1, -1)
+        return embedding
+
+    def _extract_keywords(self, doc) -> set[str]:
+        """Extract keyword candidates from a SpaCy doc.
+
+        Args:
+            doc: The SpaCy document.
+
+        Returns:
+            A set of normalized keyword strings.
+        """
+        keywords: set[str] = set()
+
+        try:
+            chunks = [chunk.text for chunk in doc.noun_chunks]
+        except Exception:
+            chunks = []
+
+        source_terms = chunks if chunks else [token.text for token in doc if getattr(token, "is_alpha", False) and not getattr(token, "is_stop", False)]
+        for term in source_terms:
+            normalized = term.lower().strip()
+            if normalized:
+                keywords.update(part for part in re.findall(r"\b\w+\b", normalized) if len(part) > 2)
+
+        return keywords
+
+    def _extract_entities(self, doc) -> set[str]:
+        """Extract normalized named entities from a SpaCy doc.
+
+        Args:
+            doc: The SpaCy document.
+
+        Returns:
+            A set of entity strings.
+        """
+        return {ent.text.lower().strip() for ent in getattr(doc, "ents", []) if ent.text and ent.text.strip()}
+
+    def _sentence_score_components(
+        self,
+        *,
+        sentence: str,
+        original_text_embedding: np.ndarray,
+        original_doc,
+    ) -> tuple[float, dict[str, float]]:
+        """Compute the weighted sentence score and component scores.
+
+        Args:
+            sentence: Candidate sentence text.
+            original_text_embedding: The cached embedding for the source ticket text.
+            original_doc: The SpaCy doc for the source ticket text.
+
+        Returns:
+            A tuple of overall score and component score dictionary.
+        """
+        nlp = self._get_spacy_nlp()
+        sentence_doc = nlp(sentence)
+        sentence_embedding = self._encode_text_embedding(sentence)
+
+        embedding_similarity = float(cosine_similarity(original_text_embedding, sentence_embedding)[0, 0])
+
+        original_keywords = self._extract_keywords(original_doc)
+        sentence_keywords = self._extract_keywords(sentence_doc)
+        keyword_overlap = float(len(original_keywords & sentence_keywords) / max(len(sentence_keywords), 1))
+
+        original_entities = self._extract_entities(original_doc)
+        sentence_entities = self._extract_entities(sentence_doc)
+        entity_overlap = float(len(original_entities & sentence_entities) / max(len(sentence_entities), 1))
+
+        score = 0.7 * embedding_similarity + 0.2 * keyword_overlap + 0.1 * entity_overlap
+        return score, {
+            "embedding_similarity": embedding_similarity,
+            "keyword_overlap": keyword_overlap,
+            "entity_overlap": entity_overlap,
+        }
+
+    def _best_sentence_from_text(self, text: str, original_text_embedding: np.ndarray) -> tuple[Optional[str], float, Optional[dict[str, float]]]:
+        """Select the best scoring sentence from a piece of text.
+
+        Newlines (``\\n``) are treated as sentence boundaries so that multi-line
+        descriptions yield meaningful short candidates.  The full text is then
+        cleaned of newlines for keyword and entity extraction to avoid confusing
+        SpaCy's tokenization and NER.
+
+        Args:
+            text: Candidate ticket text.
+            original_text_embedding: Cached embedding of the source ticket text.
+
+        Returns:
+            The best sentence, its score, and the component score breakdown.
+        """
+        normalized_text = (text or "").strip()
+        if not normalized_text:
+            return None, 0.0, None
+
+        nlp = self._get_spacy_nlp()
+
+        # Split on newlines first so each paragraph is processed independently.
+        # SpaCy does not treat \n as a sentence boundary, so without this step
+        # multi-line descriptions are lumped into one giant sentence.
+        all_sentences: list[str] = []
+        for paragraph in normalized_text.split("\n"):
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+            doc = nlp(paragraph)
+            for sent in doc.sents:
+                sent_text = sent.text.strip()
+                if sent_text:
+                    all_sentences.append(sent_text)
+
+        if not all_sentences:
+            return None, 0.0, None
+
+        # Build a single doc from the full text for keyword/entity extraction.
+        # Replace \n with space so SpaCy tokenization and NER are not confused
+        # by embedded newline characters.
+        clean_text = normalized_text.replace("\n", " ")
+        original_doc = nlp(clean_text)
+
+        best_sentence = None
+        best_score = 0.0
+        best_components = None
+
+        for sentence in all_sentences:
+            score, components = self._sentence_score_components(
+                sentence=sentence,
+                original_text_embedding=original_text_embedding,
+                original_doc=original_doc,
+            )
+            if best_sentence is None or score > best_score:
+                best_sentence = sentence
+                best_score = float(score)
+                best_components = components
+
+        return best_sentence, float(best_score), best_components
+
+    def _sanitize_neighbor_for_storage(self, neighbor: Dict[str, Any]) -> Dict[str, Any]:
+        """Strip large or recursive fields from a neighbor payload before persistence.
+
+        Args:
+            neighbor: The neighbor payload to sanitize.
+
+        Returns:
+            A JSON-serializable dictionary safe for label_decisions.similar_tickets.
+        """
+        excluded_keys = {"xai_result", "similar_tickets"}
+        return {key: value for key, value in neighbor.items() if key not in excluded_keys}
+
+    def _load_ticket_lookup(self, refs: list[str]) -> Dict[str, Dict[str, Any]]:
+        """Load ticket metadata for a list of refs and index it by ref string.
+
+        Args:
+            refs: Ticket references to fetch.
+
+        Returns:
+            A dictionary keyed by ref string.
+        """
+        if self.duckdb_service is None or not refs:
+            return {}
+
+        refs_df = self.duckdb_service.load_tickets_by_ref(refs)
+        if refs_df is None or refs_df.empty:
+            return {}
+
+        lookup: Dict[str, Dict[str, Any]] = {}
+        for _, row in refs_df.iterrows():
+            lookup[str(row["Ref"])] = {str(key): value for key, value in row.to_dict().items()}
+        return lookup
+
+    def _get_predicted_classes(self, al_instance_id: int, ticket: Data, top_k: int, model_id: int = 0) -> list[Any]:
+        """Return the top predicted classes for a ticket.
+
+        Args:
+            al_instance_id: Active learning instance identifier.
+            ticket: Ticket to classify.
+            top_k: Maximum number of classes to return.
+            model_id: Model identifier.
+
+        Returns:
+            Ordered class labels selected from the model probabilities.
+        """
+        if self.inference_service is None:
+            raise ValueError("Inference service is not configured")
+
+        res = self.inference_service.infer_proba(al_instance_id, ticket, model_id)
+        probabilities = res["probabilities"][0]
+        classes = res["classes"]
+        top_k = min(top_k, len(classes))
+        sorted_class_idx = np.argsort(probabilities)[::-1][:top_k]
+        return [classes[idx] for idx in sorted_class_idx]
+
+    def _build_predicted_class_neighbors(
+        self,
+        *,
+        al_instance_id: int,
+        target_embedding: np.ndarray,
+        original_text_embedding: np.ndarray,
+        original_text: str,
+        top_k: int,
+        ticket: Data,
+        model_id: int = 0,
+    ) -> list[Dict[str, Any]]:
+        """Build one nearest neighbor per predicted class.
+
+        Args:
+            al_instance_id: Active learning instance identifier.
+            target_embedding: Vectorized representation used for nearest-neighbor search.
+            original_text_embedding: Cached embedding for sentence scoring.
+            original_text: Source ticket text.
+            top_k: Maximum number of predicted classes to consider.
+            ticket: Source ticket data.
+            model_id: Model identifier.
+
+        Returns:
+            A list of neighbor dictionaries.
+        """
+        predicted_classes = self._get_predicted_classes(al_instance_id, ticket, top_k, model_id)
+        if not predicted_classes:
+            return []
+
+        X_train = self.storage.dataset_dict[al_instance_id]["X_train"]
+        y_train = self.storage.dataset_dict[al_instance_id]["y_train"]
+        le = self.storage.dataset_dict[al_instance_id]["le"]
+
+        labeled_mask = y_train.notna()
+        X_labeled = X_train[labeled_mask]
+        if X_labeled.empty:
+            return []
+
+        X_labeled_indices = np.where(labeled_mask)[0]
+        similarities = cosine_similarity(target_embedding, X_labeled.values)[0]
+        sorted_sim_indices = np.argsort(similarities)[::-1]
+
+        matched_neighbors: list[Dict[str, Any]] = []
+        matched_classes: set[Any] = set()
+        for idx in sorted_sim_indices:
+            real_idx_X_train = X_labeled_indices[idx]
+            nearest_ticket_ref = str(X_train.index[real_idx_X_train])
+            label_idx = int(y_train[nearest_ticket_ref])
+            nearest_ticket_label = le.inverse_transform([label_idx])[0]
+
+            if nearest_ticket_label in predicted_classes and nearest_ticket_label not in matched_classes:
+                matched_classes.add(nearest_ticket_label)
+                matched_neighbors.append(
+                    {
+                        "ref": nearest_ticket_ref,
+                        "label": str(nearest_ticket_label),
+                        "similarity": float(similarities[idx]),
+                    }
+                )
+                if len(matched_classes) >= len(predicted_classes):
+                    break
+
+        ticket_lookup = self._load_ticket_lookup([neighbor["ref"] for neighbor in matched_neighbors])
+        results: list[Dict[str, Any]] = []
+        for neighbor in matched_neighbors:
+            ticket_row = ticket_lookup.get(neighbor["ref"], {})
+            title = ticket_row.get("Title_anon") or None
+            description = ticket_row.get("Description_anon") or None
+            sentence_text = description or ""
+            best_sentence, best_sentence_score, sentence_score_components = self._best_sentence_from_text(
+                sentence_text,
+                original_text_embedding,
+            )
+            results.append(
+                {
+                    **neighbor,
+                    "title": title,
+                    "description": description,
+                    "best_sentence": best_sentence,
+                    "best_sentence_score": best_sentence_score,
+                    "sentence_score_components": sentence_score_components,
+                }
+            )
+
+        return results
+
+    def _build_historical_neighbors(
+        self,
+        *,
+        al_instance_id: int,
+        target_embedding: np.ndarray,
+        original_text_embedding: np.ndarray,
+        top_k: int = 2,
+    ) -> list[Dict[str, Any]]:
+        """Build nearest neighbors from previously saved label decisions.
+
+        Args:
+            al_instance_id: Active learning instance identifier.
+            target_embedding: Vectorized representation used for nearest-neighbor search.
+            original_text_embedding: Cached embedding for sentence scoring.
+
+        Returns:
+            A list of neighbor dictionaries with historical metadata attached.
+
+        Raises:
+            ValueError: If the DuckDB service is unavailable.
+        """
+        if self.duckdb_service is None:
+            raise ValueError("DuckDB service is not configured")
+
+        X_train = self.storage.dataset_dict[al_instance_id]["X_train"]
+        y_train = self.storage.dataset_dict[al_instance_id]["y_train"]
+        le = self.storage.dataset_dict[al_instance_id]["le"]
+
+        candidates = self.duckdb_service.load_label_decisions_with_xai(al_instance_id=al_instance_id)
+        if not candidates:
+            return []
+
+        valid_candidates: list[Dict[str, Any]] = []
+        skipped_refs: list[str] = []
+        for candidate in candidates:
+            ref = str(candidate["ref"])
+            if ref not in X_train.index:
+                skipped_refs.append(ref)
+                continue
+            valid_candidates.append(candidate)
+
+        if skipped_refs:
+            logger.debug("Skipping label_decision refs not found in X_train: %s", skipped_refs)
+
+        if not valid_candidates:
+            return []
+
+        candidate_refs = [str(candidate["ref"]) for candidate in valid_candidates]
+        candidate_embeddings = X_train.loc[candidate_refs].values
+        similarities = cosine_similarity(target_embedding, candidate_embeddings)[0]
+        sorted_indices = np.argsort(similarities)[::-1]
+        num_neighbors = min(top_k, len(valid_candidates), len(sorted_indices))
+
+        ticket_lookup = self._load_ticket_lookup(candidate_refs)
+        results: list[Dict[str, Any]] = []
+        for sorted_position in range(num_neighbors):
+            candidate = valid_candidates[int(sorted_indices[sorted_position])]
+            ref = str(candidate["ref"])
+            ticket_row = ticket_lookup.get(ref, {})
+            title = ticket_row.get("Title_anon") or None
+            description = ticket_row.get("Description_anon") or None
+            sentence_text = description or ""
+            best_sentence, best_sentence_score, sentence_score_components = self._best_sentence_from_text(
+                sentence_text,
+                original_text_embedding,
+            )
+
+            label_value = candidate.get("label")
+            if label_value is None and ref in y_train.index and pd.notna(y_train[ref]):
+                label_idx = int(y_train[ref])
+                label_value = le.inverse_transform([label_idx])[0]
+
+            results.append(
+                {
+                    "ref": ref,
+                    "label": None if label_value is None else str(label_value),
+                    "similarity": float(similarities[int(sorted_indices[sorted_position])]),
+                    "title": title,
+                    "description": description,
+                    "best_sentence": best_sentence,
+                    "best_sentence_score": best_sentence_score,
+                    "sentence_score_components": sentence_score_components,
+                    "xai_result": candidate.get("xai_result"),
+                    "similar_tickets": candidate.get("similar_tickets"),
+                    "model_prediction": candidate.get("model_prediction"),
+                    "explanation": candidate.get("explanation"),
+                    "most_helpful_feature": candidate.get("most_helpful_feature"),
+                }
+            )
+
+        return results
 
     def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
         """
@@ -90,32 +517,32 @@ class XaiService:
         
         return lime_explanation_outputs
 
-    def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, distinct_classes: bool = True, model_id: int = 0):
+    def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, model_id: int = 0):
         start_time = time.perf_counter()
+        original_text = self._ticket_text(ticket)
         target_embedding = inference(
             df=pd.DataFrame([ticket.model_dump()]), 
             le=self.storage.dataset_dict[al_instance_id]['le'], 
             oh=self.storage.dataset_dict[al_instance_id]['oh'], 
             sentence_model=self.sentence_model
         ).values
-        
-        target_classes = None
-        input_title = ticket.title_anon or ""
-        input_description = ticket.description_anon or ""
-        
-        if distinct_classes:
-            try:
-                res = self.inference_service.infer_proba(al_instance_id, ticket, model_id)
-                probs = res["probabilities"][0]
-                classes = res["classes"]
-                sorted_class_idx = np.argsort(probs)[::-1]
-                target_classes = {classes[i] for i in sorted_class_idx[:top_k]}
-            except ValueError:
-                # Fallback to standard infer
-                preds = self.inference_service.infer(al_instance_id, ticket, model_id)
-                target_classes = set(preds)
+        original_text_embedding = self._encode_text_embedding(original_text)
 
-        results = self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+        predicted_class_neighbors = self._build_predicted_class_neighbors(
+            al_instance_id=al_instance_id,
+            target_embedding=target_embedding,
+            original_text_embedding=original_text_embedding,
+            original_text=original_text,
+            top_k=top_k,
+            ticket=ticket,
+            model_id=model_id,
+        )
+        historical_neighbors = self._build_historical_neighbors(
+            al_instance_id=al_instance_id,
+            target_embedding=target_embedding,
+            original_text_embedding=original_text_embedding,
+            top_k=top_k,
+        )
 
         if self.duckdb_service is not None:
             self.duckdb_service.log_event(
@@ -125,31 +552,37 @@ class XaiService:
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
                 payload={
                     "ticket_id": None,
-                    "similar_ids": [item["ref"] for item in results],
-                    "similarities": [item["similarity"] for item in results],
+                    "predicted_class_neighbor_ids": [item["ref"] for item in predicted_class_neighbors],
+                    "predicted_class_similarities": [item["similarity"] for item in predicted_class_neighbors],
+                    "historical_neighbor_ids": [item["ref"] for item in historical_neighbors],
+                    "historical_similarities": [item["similarity"] for item in historical_neighbors],
                     "top_k": top_k,
                 },
             )
 
             ticket_ref = getattr(ticket, "ref", None)
-            if ticket_ref and results:
-                sanitized_results = [
-                    {key: value for key, value in item.items() if key not in {"title", "description"}}
-                    for item in results
-                ]
+            if ticket_ref and (predicted_class_neighbors or historical_neighbors):
+                sanitized_results = {
+                    "predicted_class_neighbors": [self._sanitize_neighbor_for_storage(item) for item in predicted_class_neighbors],
+                    "historical_neighbors": [self._sanitize_neighbor_for_storage(item) for item in historical_neighbors],
+                }
                 self.duckdb_service.upsert_label_decision(
                     al_instance_id=al_instance_id,
                     ref=str(ticket_ref),
                     similar_tickets=sanitized_results,
                 )
 
-        return results
+        return {
+            "predicted_class_neighbors": predicted_class_neighbors,
+            "historical_neighbors": historical_neighbors,
+        }
 
-    def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, distinct_classes: bool = True, model_id: int = 0):
+    def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, model_id: int = 0):
         start_time = time.perf_counter()
+        if self.duckdb_service is None:
+            raise ValueError("DuckDB service is not configured")
+
         target_embedding = self.storage.dataset_dict[al_instance_id]['X_train'].loc[[index]].values
-        
-        target_classes = None
         
         query_df = self.duckdb_service.load_tickets_by_ref([index])
         if query_df is not None and not query_df.empty:
@@ -161,25 +594,29 @@ class XaiService:
         else:
             input_title, input_description, s_name, s_sub = "", "", None, None
 
-        if distinct_classes:
-            ticket_obj = Data(
-                title_anon=input_title,
-                description_anon=input_description,
-                service_name=s_name,
-                service_subcategory_name=s_sub
-            )
-            
-            try:
-                res = self.inference_service.infer_proba(al_instance_id, ticket_obj, model_id)
-                probs = res["probabilities"][0]
-                classes = res["classes"]
-                sorted_class_idx = np.argsort(probs)[::-1]
-                target_classes = {classes[i] for i in sorted_class_idx[:top_k]}
-            except ValueError:
-                preds = self.inference_service.infer(al_instance_id, ticket_obj, model_id)
-                target_classes = set(preds)
-
-        results = self._compute_nearest(al_instance_id, target_embedding, top_k, distinct_classes, target_classes, input_title, input_description)
+        ticket_obj = Data(
+            title_anon=input_title,
+            description_anon=input_description,
+            service_name=s_name,
+            service_subcategory_name=s_sub
+        )
+        original_text = self._ticket_text(ticket_obj)
+        original_text_embedding = self._encode_text_embedding(original_text)
+        predicted_class_neighbors = self._build_predicted_class_neighbors(
+            al_instance_id=al_instance_id,
+            target_embedding=target_embedding,
+            original_text_embedding=original_text_embedding,
+            original_text=original_text,
+            top_k=top_k,
+            ticket=ticket_obj,
+            model_id=model_id,
+        )
+        historical_neighbors = self._build_historical_neighbors(
+            al_instance_id=al_instance_id,
+            target_embedding=target_embedding,
+            original_text_embedding=original_text_embedding,
+            top_k=top_k,
+        )
 
         if self.duckdb_service is not None:
             self.duckdb_service.log_event(
@@ -189,27 +626,31 @@ class XaiService:
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
                 payload={
                     "ticket_id": str(index),
-                    "similar_ids": [item["ref"] for item in results],
-                    "similarities": [item["similarity"] for item in results],
+                    "predicted_class_neighbor_ids": [item["ref"] for item in predicted_class_neighbors],
+                    "predicted_class_similarities": [item["similarity"] for item in predicted_class_neighbors],
+                    "historical_neighbor_ids": [item["ref"] for item in historical_neighbors],
+                    "historical_similarities": [item["similarity"] for item in historical_neighbors],
                     "top_k": top_k,
                 },
             )
 
-            if results:
-                sanitized_results = [
-                    {key: value for key, value in item.items() if key not in {"title", "description"}}
-                    for item in results
-                ]
+            if predicted_class_neighbors or historical_neighbors:
+                sanitized_results = {
+                    "predicted_class_neighbors": [self._sanitize_neighbor_for_storage(item) for item in predicted_class_neighbors],
+                    "historical_neighbors": [self._sanitize_neighbor_for_storage(item) for item in historical_neighbors],
+                }
                 self.duckdb_service.upsert_label_decision(
                     al_instance_id=al_instance_id, 
                     ref=str(index),
                     similar_tickets=sanitized_results,
                 )
 
-        return results
+        return {
+            "predicted_class_neighbors": predicted_class_neighbors,
+            "historical_neighbors": historical_neighbors,
+        }
 
-    def _compute_nearest(self, al_instance_id: int, target_embedding, top_k: int, distinct_classes: bool, target_classes: set = None, input_title: str = "", input_description: str = ""):
-        import re
+    def _compute_nearest(self, al_instance_id: int, target_embedding, top_k: int, distinct_classes: bool, target_classes: Optional[set[Any]] = None, input_title: str = "", input_description: str = ""):
         X_train = self.storage.dataset_dict[al_instance_id]['X_train']
         y_train = self.storage.dataset_dict[al_instance_id]['y_train']
         le = self.storage.dataset_dict[al_instance_id]['le']
@@ -252,39 +693,12 @@ class XaiService:
         
         # Load the raw ticket data from duckdb
         refs = [m[0] for m in raw_matches]
-        refs_df = self.duckdb_service.load_tickets_by_ref(refs) if refs else None
-
-        input_text = f"{input_title} {input_description}".lower()
-        input_words = set(re.findall(r'\b\w{4,}\b', input_text))
-
         results = []
         for ref, label, similarity in raw_matches:
-            title, description = None, None
-            
-            if refs_df is not None and not refs_df.empty:
-                # Match the ref string types properly
-                row_matches = refs_df[refs_df['Ref'] == ref]
-                if not row_matches.empty:
-                    row = row_matches.iloc[0]
-                    title = row['Title_anon'] if pd.notna(row['Title_anon']) else None
-                    description = row['Description_anon'] if pd.notna(row['Description_anon']) else None
-            
-            neighbor_text = f"{title or ''} {description or ''}".lower()
-            neighbor_words = set(re.findall(r'\b\w{4,}\b', neighbor_text))
-            
-            overlapping_terms = list(input_words.intersection(neighbor_words))
-            reason = None
-            if overlapping_terms:
-                reason = f"Shares {', '.join(overlapping_terms)} with the current ticket."
-                
             results.append({
                 "ref": ref,
                 "label": label,
                 "similarity": float(similarity),
-                "title": title,
-                "description": description,
-                "reason": reason,
-                "overlapping_terms": overlapping_terms
             })
             
         return results
@@ -333,7 +747,7 @@ class XaiService:
             "similarity_score": float(similarities[0, nearest_ticket_idx])
         }
 
-    def find_nearest_by_query_idx(self, al_instance_id: int, indices: list[int], model_id: int = 0):
+    def find_nearest_by_query_idx(self, al_instance_id: int, indices: Sequence[str | int], model_id: int = 0):
         """
         This function finds the nearest already labeled tickets to the tickets given by the indices.
 
@@ -537,6 +951,9 @@ class XaiService:
         This function predicts the probabilities of the texts.
         It adds other features to the texts and then predicts the probabilities.
         """
+
+        if self.local_artifacts_store is None:
+            raise ValueError("Local artifacts store is not configured")
 
         # Load the model
         model = self.local_artifacts_store.load_model(al_instance_id, model_id)

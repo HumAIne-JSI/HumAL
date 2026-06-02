@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, root_validator, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 # Data model for the new instance
 class NewInstance(BaseModel):
@@ -70,14 +70,21 @@ class InferProbaResponse(BaseModel):
 # Data model for the nearest neighbor ticket
 class Neighbor(BaseModel):
     ref: str
-    label: str
+    label: Optional[str] = None
     similarity: float
     title: Optional[str] = None
     description: Optional[str] = None
-    reason: Optional[str] = None
-    overlapping_terms: Optional[list[str]] = None
+    best_sentence: Optional[str] = None
+    best_sentence_score: Optional[float] = None
+    sentence_score_components: Optional[dict[str, float]] = None
+    xai_result: Optional[Any] = None
+    similar_tickets: Optional[Any] = None
+    model_prediction: Optional[str] = None
+    explanation: Optional[str] = None
+    most_helpful_feature: Optional[str] = None
 
 # Response model for nearest neighbor query
 class NearestTicketResponse(BaseModel):
     query_idx: Optional[str] = None
-    neighbors: list[Neighbor]
+    predicted_class_neighbors: list[Neighbor] = Field(default_factory=list)
+    historical_neighbors: list[Neighbor] = Field(default_factory=list)

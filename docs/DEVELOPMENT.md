@@ -78,7 +78,14 @@ The automated installer detects your system configuration (CUDA version, package
    - ✓ Install all dependencies from requirements.txt
    - ✓ Verify the installation and display GPU/CPU status
 
-4. Prepare data and models (required before using the app):
+4. Download the SpaCy model used by `/xai/{al_instance_id}/nearest` if it is not already present:
+   ```bash
+   python -m spacy download en_core_web_sm
+   ```
+
+   If you use a different model name, set `SPACY_MODEL_NAME` to match the model you installed.
+
+5. Prepare data and models (required before using the app):
    ```bash
    # Windows PowerShell
    mkdir backend\data
@@ -91,7 +98,7 @@ The automated installer detects your system configuration (CUDA version, package
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
 
-5. Configure environment variables:
+6. Configure environment variables:
    ```bash
    # Copy .env.example to .env (if .env.example exists)
    # Windows PowerShell
@@ -129,25 +136,11 @@ The automated installer detects your system configuration (CUDA version, package
    pip install torch --index-url https://download.pytorch.org/whl/cu118
    ```
 
-6. Prepare data and models (required before using the app):
-   ```bash
-   # Windows PowerShell
-   mkdir backend\data
-   mkdir backend\models
-   ```
-
   - Place CSV data files in `backend/data/`.
     - Active Learning datasets: `al_demo_train_data.csv`, `al_demo_test_data.csv`, `al_demo_train_labels_dispatch.csv`
    - Place pre-trained team classification and ticket type classification models in `backend/models/`.
       - `perfect_team_classifier/` folder
       - `ticket_classifier_model/` folder
-
-7. Configure environment variables:
-   ```bash
-   # Copy .env.example to .env (if .env.example exists)
-   # Windows PowerShell
-   copy .env.example .env
-   ```
 
 ## Running the Application
 
