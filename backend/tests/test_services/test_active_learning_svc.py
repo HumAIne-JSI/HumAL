@@ -93,8 +93,6 @@ class TestGetInstanceInfo:
 
         mock_duckdb_service.load_al_instance.return_value = {
             "created_at": "2026-05-01T12:34:56",
-            "train_data_path": "data/al_demo_train_data.csv",
-            "test_data_path": "data/al_demo_test_data.csv",
         }
 
         mock_minio_service = MagicMock()
@@ -145,8 +143,6 @@ class TestCreateInstance:
             model_name="svm",
             qs_strategy="random sampling",
             class_list=["Team A", "Team B"],
-            train_data_path="train.csv",
-            test_data_path="test.csv",
         )
 
         with pytest.raises(ValueError, match="at least 50 labeled instances"):
@@ -178,8 +174,6 @@ class TestCreateInstance:
             model_name="svm",
             qs_strategy="random sampling",
             class_list=["Team A", "Team B"],
-            train_data_path="train.csv",
-            test_data_path="test.csv",
         )
 
         instance_id = service.create_instance(new_instance)
@@ -198,6 +192,37 @@ class TestCreateInstance:
         mock_duckdb_service.save_metrics.assert_called_once()
         mock_local_artifacts.save_model.assert_called_once()
         mock_local_artifacts.load_model.assert_called_once_with(instance_id, 0)
+
+    def test_create_instance_ignores_optional_data_paths(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
+        """Deprecated train_data_path / test_data_path are accepted but ignored."""
+        def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
+            if not test_set:
+                refs = [f"T{i:03d}" for i in range(50)]
+                x_train = pd.DataFrame([[i, i + 1] for i in range(50)], index=refs)
+                y_train = pd.Series([0 if i % 2 == 0 else 1 for i in range(50)], index=refs)
+                return x_train, y_train, _FakeLabelEncoder(), MagicMock()
+
+            x_test = pd.DataFrame([[1, 2], [3, 4]], index=["S001", "S002"])
+            y_test = pd.Series(["Team A", "Team B"], index=["S001", "S002"])
+            return x_test, y_test, _FakeLabelEncoder(), MagicMock()
+
+        monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", fake_dispatch_team)
+        service = _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts)
+
+        new_instance = NewInstance(
+            model_name="svm",
+            qs_strategy="random sampling",
+            class_list=["Team A", "Team B"],
+            train_data_path="legacy-train.csv",
+            test_data_path="legacy-test.csv",
+        )
+
+        instance_id = service.create_instance(new_instance)
+
+        assert instance_id == 1
+        assert "train_data_path" not in storage.dataset_dict[instance_id]
+        assert "test_data_path" not in storage.dataset_dict[instance_id]
+        mock_duckdb_service.save_al_instance.assert_called_once()
 
 
 class TestLabelInstanceLogging:
@@ -363,8 +388,6 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "uncertainty sampling entropy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -387,8 +410,6 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "uncertainty sampling entropy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -414,8 +435,6 @@ class TestLoadFromPersistence:
                 "model_name": "InvalidModel",
                 "qs": "entropy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -436,8 +455,6 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "invalid_strategy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -451,27 +468,6 @@ class TestLoadFromPersistence:
         # Should skip instance 1 (qs not in qs_dict)
         assert 1 not in storage.al_instances_dict
 
-    def test_load_from_persistence_missing_data_paths(self, storage, mock_duckdb_service, mock_local_artifacts):
-        """Test that it skips instances when data paths are missing."""
-        instances = {
-            1: {
-                "model_name": "svm",
-                "qs": "uncertainty sampling entropy",
-                "classes": ["A", "B"],
-            }
-        }
-        mock_duckdb_service.get_all_instances.return_value = instances
-        
-        service = ActiveLearningService(
-            storage,
-            duckdb_service=mock_duckdb_service,
-            local_artifacts_store=mock_local_artifacts,
-        )
-        
-        # Should skip instance 1 (missing data paths)
-        assert 1 not in storage.al_instances_dict
-        assert 1 not in storage.dataset_dict
-
     def test_load_from_persistence_full_success(self, storage, mock_duckdb_service, mock_local_artifacts):
         """Test successful loading of a complete instance."""
         instances = {
@@ -479,8 +475,6 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "uncertainty sampling entropy",
                 "classes": ["A", "B", "C"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -538,10 +532,6 @@ class TestLoadFromPersistence:
         assert len(storage.dataset_dict[1]["X_train"]) == 3
         assert len(storage.dataset_dict[1]["X_test"]) == 1
         
-        # Verify data paths are stored
-        assert storage.dataset_dict[1]["train_data_path"] == "data/train.csv"
-        assert storage.dataset_dict[1]["test_data_path"] == "data/test.csv"
-        
         # Verify labels were encoded and aligned
         assert list(storage.dataset_dict[1]["y_train"].index) == ["T001", "T002", "T003"]
         assert storage.dataset_dict[1]["y_train"].loc["T001"] == 0  # "A" encoded as 0
@@ -563,8 +553,6 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "uncertainty sampling entropy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             }
         }
         mock_duckdb_service.get_all_instances.return_value = instances
@@ -634,15 +622,11 @@ class TestLoadFromPersistence:
                 "model_name": "svm",
                 "qs": "uncertainty sampling entropy",
                 "classes": ["A", "B"],
-                "train_data_path": "data/train.csv",
-                "test_data_path": "data/test.csv",
             },
             2: {
                 "model_name": "random forest",
                 "qs": "uncertainty sampling margin sampling",
                 "classes": ["X", "Y"],
-                "train_data_path": "data/train2.csv",
-                "test_data_path": "data/test2.csv",
             },
         }
         mock_duckdb_service.get_all_instances.return_value = instances

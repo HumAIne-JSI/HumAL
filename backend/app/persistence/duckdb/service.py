@@ -140,16 +140,14 @@ class DuckDbPersistenceService:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO al_instances
-                (al_instance_id, model_name, query_strategy, classes, train_data_path, test_data_path)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (al_instance_id, model_name, query_strategy, classes)
+                VALUES (?, ?, ?, ?)
                 """,
                 [
                     al_instance_id,
                     instance_data.get("model_name"),
                     instance_data.get("qs"),
                     instance_data.get("classes"),
-                    instance_data.get("train_data_path"),
-                    instance_data.get("test_data_path")
                 ],
             )
 
@@ -157,7 +155,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             result = conn.execute(
                 """
-                SELECT model_name, query_strategy, classes, train_data_path, test_data_path, created_at
+                SELECT model_name, query_strategy, classes, created_at
                 FROM al_instances
                 WHERE al_instance_id = ?
                 """,
@@ -171,16 +169,14 @@ class DuckDbPersistenceService:
             "model_name": result[0],
             "qs": result[1],
             "classes": result[2],
-            "train_data_path": result[3],
-            "test_data_path": result[4],
-            "created_at": result[5],
+            "created_at": result[3],
         }
 
     def get_all_instances(self) -> Dict[int, Dict[str, Any]]:
         with connect(self.db_path) as conn:
             rows = conn.execute(
                 """
-                SELECT al_instance_id, model_name, query_strategy, classes, train_data_path, test_data_path
+                SELECT al_instance_id, model_name, query_strategy, classes
                 FROM al_instances
                 ORDER BY al_instance_id
                 """
@@ -192,8 +188,6 @@ class DuckDbPersistenceService:
                 "model_name": row[1],
                 "qs": row[2],
                 "classes": row[3],
-                "train_data_path": row[4],
-                "test_data_path": row[5],
             }
         return instances
 

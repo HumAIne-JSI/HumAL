@@ -102,15 +102,11 @@ class ActiveLearningService:
             'y_test': y_test,
             'le': le,
             'oh': oh,
-            'train_data_path': new_instance.train_data_path,
-            'test_data_path': new_instance.test_data_path
         }
 
         # Save the dictionary elements to persistence
         if self.duckdb_service is not None and self.local_artifacts_store is not None:
             al_instance_data = self.storage.al_instances_dict[instance_id]
-            al_instance_data["train_data_path"] = new_instance.train_data_path
-            al_instance_data["test_data_path"] = new_instance.test_data_path
 
             self.duckdb_service.save_al_instance(
                 al_instance_id=instance_id,
@@ -201,16 +197,10 @@ class ActiveLearningService:
             model_name = instance_data.get("model_name")
             qs_name = instance_data.get("qs")
             classes = instance_data.get("classes")
-            train_data_path = instance_data.get("train_data_path")
-            test_data_path = instance_data.get("test_data_path")
 
             model = model_dict.get(model_name)
             if model is None or qs_name not in qs_dict:
                 print(f"Warning: Skipping instance {instance_id} - invalid model '{model_name}' or query strategy '{qs_name}'")
-                continue
-
-            if train_data_path is None or test_data_path is None:
-                print(f"Warning: Skipping instance {instance_id} - missing train or test data path")
                 continue
 
             try:
@@ -249,8 +239,6 @@ class ActiveLearningService:
                 "y_test": y_test,
                 "le": le,
                 "oh": oh,
-                "train_data_path": train_data_path,
-                "test_data_path": test_data_path
             }
 
             metrics = self.duckdb_service.load_all_metrics(instance_id)

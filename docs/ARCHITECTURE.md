@@ -137,12 +137,12 @@ def get_xai_service() -> XAIService
 ```python
 # Active Learning
 class NewInstance(BaseModel):
-    train_data_path: str
-    test_data_path: str
     model_name: str
     query_strategy: str
     batch_size: int
     n_iterations: int
+  train_data_path: str | None = None   # deprecated, unused
+  test_data_path: str | None = None    # deprecated, unused
 
 class LabelRequest(BaseModel):
     indices: List[str]

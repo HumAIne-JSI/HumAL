@@ -15,6 +15,19 @@
 
 ## Latest Update
 
+**Date:** June 2, 2026
+
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/new`
+
+The `train_data_path` and `test_data_path` fields are now optional on the new active-learning instance request and are ignored by the server.
+
+**Behavior update:**
+- `train_data_path` and `test_data_path` remain accepted for backward compatibility
+- The service no longer reads, validates, stores, or persists these request fields
+- The fields will be removed in a future API version
+
+---
+
 **Date:** May 27, 2026
 
 ### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest`

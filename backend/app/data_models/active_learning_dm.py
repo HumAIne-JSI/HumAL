@@ -3,13 +3,13 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
 
-# Data model for the new instance
+# Deprecated request fields remain accepted for backward compatibility but are unused.
 class NewInstance(BaseModel):
     model_name: str
     qs_strategy: str
     class_list: list[int | str | None]
-    train_data_path: str
-    test_data_path: str
+    train_data_path: str | None = None
+    test_data_path: str | None = None
 
 # Data model for the label request
 class LabelRequest(BaseModel):

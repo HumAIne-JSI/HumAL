@@ -77,8 +77,6 @@ def test_indices_use_ref_round_trip(monkeypatch):
         model_name="svm",
         qs_strategy="random sampling",
         class_list=class_list,
-        train_data_path="train.csv",
-        test_data_path="test.csv",
     )
 
     instance_id = svc.create_instance(new_instance)

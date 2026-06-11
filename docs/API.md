@@ -186,8 +186,8 @@ curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
 | `model_name` | string | **Yes** | Algorithm name (e.g. `svm`, `logistic regression`) |
 | `qs_strategy` | string | **Yes** | Query strategy (e.g. `uncertainty sampling`) |
 | `class_list` | array | **Yes** | List of all possible classification labels |
-| `train_data_path` | string | **Yes** | File path to the training dataset |
-| `test_data_path` | string | **Yes** | File path to the test dataset |
+| `train_data_path` | string | **No** | File path to the training dataset (deprecated, unused) |
+| `test_data_path` | string | **No** | File path to the test dataset (deprecated, unused) |
 
 **Swagger-style UI Example:**
 *Request Payload*
@@ -195,11 +195,10 @@ curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
 {
   "model_name": "svm",
   "qs_strategy": "uncertainty sampling",
-  "class_list": ["team_a", "team_b"],
-  "train_data_path": "backend/data/al_demo_train_data.csv",
-  "test_data_path": "backend/data/al_demo_test_data.csv"
+  "class_list": ["team_a", "team_b"]
 }
 ```
+*Note: `train_data_path` and `test_data_path` are still accepted for backward compatibility but are ignored by the server.*
 *HTTP 200 OK*
 ```json
 {
@@ -211,7 +210,7 @@ curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
 ```bash
 curl -X POST "http://localhost:8000/activelearning/new" \
 	-H "Content-Type: application/json" \
-	-d "{\"model_name\":\"svm\",\"qs_strategy\":\"uncertainty sampling\",\"class_list\":[\"team_a\",\"team_b\"],\"train_data_path\":\"backend/data/al_demo_train_data.csv\",\"test_data_path\":\"backend/data/al_demo_test_data.csv\"}"
+  -d "{\"model_name\":\"svm\",\"qs_strategy\":\"uncertainty sampling\",\"class_list\":[\"team_a\",\"team_b\"]}"
 ```
 
 
