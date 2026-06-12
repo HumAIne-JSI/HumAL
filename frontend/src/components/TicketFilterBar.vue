@@ -1,35 +1,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import Input from '@/components/ui/Input.vue'
 import Select from '@/components/ui/Select.vue'
-import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import { Search, X, SlidersHorizontal } from 'lucide-vue-next'
-import type { TicketStatus, SortOrder, QueueFilters } from '@/stores/useTicketQueueStore'
+import type { SortOrder, QueueFilters } from '@/stores/useTicketQueueStore'
 
 export interface FilterBarProps {
   filters: QueueFilters
-  statusCounts: Record<TicketStatus | 'all', number>
   teams?: string[]
 }
 
 const props = defineProps<FilterBarProps>()
 
 const emit = defineEmits<{
-  (e: 'update:status', value: TicketStatus | 'all'): void
   (e: 'update:search', value: string): void
   (e: 'update:team', value: string | null): void
   (e: 'update:sortOrder', value: SortOrder): void
   (e: 'reset'): void
 }>()
-
-const statusTabs: { value: TicketStatus | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'unlabeled', label: 'Unlabeled' },
-  { value: 'pending-review', label: 'Pending Review' },
-  { value: 'auto-classified', label: 'Auto-Classified' },
-  { value: 'resolved', label: 'Resolved' },
-]
 
 const sortOptions = [
   { value: 'newest', label: 'Newest First' },
@@ -47,11 +35,7 @@ const teamOptions = computed(() => {
 })
 
 const hasActiveFilters = computed(() => {
-  return (
-    props.filters.status !== 'all' ||
-    props.filters.search.trim() !== '' ||
-    props.filters.team !== null
-  )
+  return props.filters.search.trim() !== '' || props.filters.team !== null
 })
 
 const showFiltersPanel = ref(false)
@@ -67,28 +51,7 @@ function clearSearch() {
 </script>
 
 <template>
-  <div class="filter-bar">
-    <!-- Status Tabs -->
-    <div class="filter-bar__tabs">
-      <button
-        v-for="tab in statusTabs"
-        :key="tab.value"
-        :class="[
-          'filter-bar__tab',
-          { 'filter-bar__tab--active': filters.status === tab.value },
-        ]"
-        @click="$emit('update:status', tab.value)"
-      >
-        <span class="filter-bar__tab-label">{{ tab.label }}</span>
-        <span
-          v-if="statusCounts[tab.value] > 0"
-          class="filter-bar__tab-count"
-        >
-          {{ statusCounts[tab.value] }}
-        </span>
-      </button>
-    </div>
-
+  <div class="filter-bar" data-track-region="filter_bar">
     <!-- Search and Filters Row -->
     <div class="filter-bar__controls">
       <!-- Search -->
@@ -161,58 +124,6 @@ function clearSearch() {
   padding: 0.5rem 0.75rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
-
-  &__tabs {
-    display: flex;
-    gap: 0.125rem;
-    overflow-x: auto;
-    scrollbar-width: thin;
-
-    &::-webkit-scrollbar {
-      height: 4px;
-    }
-  }
-
-  &__tab {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.625rem;
-    border: none;
-    background: transparent;
-    color: var(--muted-foreground);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    border-radius: var(--radius);
-    transition: all 0.15s ease;
-
-    &:hover {
-      background: var(--accent);
-      color: var(--accent-foreground);
-    }
-
-    &--active {
-      background: var(--primary);
-      color: var(--primary-foreground);
-
-      &:hover {
-        background: var(--primary);
-        opacity: 0.9;
-      }
-
-      .filter-bar__tab-count {
-        opacity: 0.8;
-      }
-    }
-  }
-
-  &__tab-count {
-    font-size: 0.75rem;
-    opacity: 0.6;
-    font-variant-numeric: tabular-nums;
-  }
 
   &__controls {
     display: flex;

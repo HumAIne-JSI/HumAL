@@ -231,6 +231,15 @@ const runPrediction = async () => {
       description: `Category: ${inferRes.prediction} (${((inferRes.confidence ?? 0) * 100).toFixed(1)}%)`,
     })
 
+    // Telemetry: record the prediction latency so the analytics dashboard can
+    // chart inference cost vs. confidence per model.
+    telemetry.recordLab('run_prediction', 'Ticket', {
+      page: 'inference',
+      prediction: inferRes.prediction,
+      confidence: inferRes.confidence ?? null,
+      latency_ms: processingTime,
+    }, { duration_s: processingTime / 1000 })
+
     // Fire-and-forget XAI calls
     isLoadingXai.value = true
     
@@ -248,6 +257,15 @@ const runPrediction = async () => {
       if (thisPredictionId === currentPredictionId) {
         explanation.value = limeRes
         nearestResult.value = nearestRes
+        if (limeRes) {
+          telemetry.recordView('view_explanation', null, 'inference', { explanation_type: 'lime' })
+        }
+        if (nearestRes) {
+          const nearestRef = Array.isArray(nearestRes.nearest_ticket_ref)
+            ? nearestRes.nearest_ticket_ref[0]
+            : nearestRes.nearest_ticket_ref
+          telemetry.recordView('view_nearest_ticket', null, 'inference', { nearest_ref: nearestRef })
+        }
       }
     }).finally(() => {
       if (thisPredictionId === currentPredictionId) {

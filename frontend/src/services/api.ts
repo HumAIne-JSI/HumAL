@@ -27,6 +27,13 @@ import {
   type BenchmarkSession,
   type BenchmarkSessionSummary,
   type TelemetryEventRequest,
+  type UserBehaviorOverview,
+  type AIImpactMetrics,
+  type XAIEngagementMetrics,
+  type PageEngagementMetrics,
+  type TicketHeatmap,
+  type EventTimeline,
+  type FunnelMetrics,
   type XaiRequestResponse,
   type XaiJobResponse,
   type ConfigCapabilitiesResponse,
@@ -80,6 +87,15 @@ export const API_ENDPOINTS = {
   GET_SESSION_EXPORT: (simId: string) => `/analytics/sessions/${simId}/export`,
   POST_TELEMETRY_EVENT: '/analytics/event',
   END_SESSION: (simId: string) => `/analytics/sessions/${simId}/end`,
+
+  // User-behavior analytics
+  GET_USER_BEHAVIOR_OVERVIEW: '/analytics/user-behavior/overview',
+  GET_USER_BEHAVIOR_AI_IMPACT: '/analytics/user-behavior/ai-impact',
+  GET_USER_BEHAVIOR_XAI: '/analytics/user-behavior/xai-engagement',
+  GET_USER_BEHAVIOR_PAGE: '/analytics/user-behavior/page-engagement',
+  GET_USER_BEHAVIOR_HEATMAP: '/analytics/user-behavior/ticket-heatmap',
+  GET_USER_BEHAVIOR_TIMELINE: '/analytics/user-behavior/timeline',
+  GET_USER_BEHAVIOR_FUNNEL: '/analytics/user-behavior/funnel',
 } as const;
 
 /**
@@ -295,4 +311,48 @@ export const apiService = {
     apiCall<{ sim_id: string; file: string }>(API_ENDPOINTS.END_SESSION(simId), {
       method: 'POST',
     }),
+
+  // User-behavior analytics
+  getUserBehaviorOverview: (instanceId?: number | null) =>
+    apiCall<UserBehaviorOverview>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_OVERVIEW}${instanceId ? `?instance_id=${instanceId}` : ''}`,
+    ),
+
+  getUserBehaviorAIImpact: (instanceId?: number | null) =>
+    apiCall<AIImpactMetrics>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_AI_IMPACT}${instanceId ? `?instance_id=${instanceId}` : ''}`,
+    ),
+
+  getUserBehaviorXaiEngagement: (instanceId?: number | null) =>
+    apiCall<XAIEngagementMetrics>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_XAI}${instanceId ? `?instance_id=${instanceId}` : ''}`,
+    ),
+
+  getUserBehaviorPageEngagement: (instanceId?: number | null) =>
+    apiCall<PageEngagementMetrics>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_PAGE}${instanceId ? `?instance_id=${instanceId}` : ''}`,
+    ),
+
+  getUserBehaviorTicketHeatmap: (instanceId?: number | null, limit: number = 20) => {
+    const params = new URLSearchParams();
+    if (instanceId) params.append('instance_id', String(instanceId));
+    params.append('limit', String(limit));
+    return apiCall<TicketHeatmap>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_HEATMAP}?${params.toString()}`,
+    );
+  },
+
+  getUserBehaviorTimeline: (instanceId?: number | null, binSeconds: number = 60) => {
+    const params = new URLSearchParams();
+    if (instanceId) params.append('instance_id', String(instanceId));
+    params.append('bin_seconds', String(binSeconds));
+    return apiCall<EventTimeline>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_TIMELINE}?${params.toString()}`,
+    );
+  },
+
+  getUserBehaviorFunnel: (instanceId?: number | null) =>
+    apiCall<FunnelMetrics>(
+      `${API_ENDPOINTS.GET_USER_BEHAVIOR_FUNNEL}${instanceId ? `?instance_id=${instanceId}` : ''}`,
+    ),
 }

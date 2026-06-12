@@ -8,6 +8,8 @@ import Checkbox from '@/components/ui/Checkbox.vue';
 import SessionCard from '@/components/SessionCard.vue';
 import ScriptTimeline from '@/components/ScriptTimeline.vue';
 import EffectViewer from '@/components/EffectViewer.vue';
+import UserBehaviorDashboard from '@/components/UserBehaviorDashboard.vue';
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry';
 import {
   useAnalyticsOverview,
   useSessions,
@@ -28,6 +30,20 @@ import {
   Filter,
   X,
 } from 'lucide-vue-next';
+
+const telemetry = useBenchmarkTelemetry();
+const activeTab = ref<'benchmark' | 'user-behavior'>('benchmark');
+
+function switchTab(tab: 'benchmark' | 'user-behavior') {
+  if (activeTab.value === tab) return;
+  const prev = activeTab.value;
+  activeTab.value = tab;
+  telemetry.recordLab('tab_change', 'Ticket', {
+    page: 'analytics',
+    from_tab: prev,
+    to_tab: tab,
+  });
+}
 
 const sampleDataEnabled = computed({
   get: () => useSampleData.value,
@@ -80,6 +96,11 @@ function selectSession(s: BenchmarkSessionSummary) {
   selectedSimId.value = s.sim_id;
   selectedEntryIndex.value = null;
   agentFilter.value = null;
+  telemetry.recordLab('click', 'Ticket', {
+    page: 'analytics',
+    click_region: 'session_card',
+    sim_id: s.sim_id,
+  });
 }
 
 function selectEntry(_entry: ScriptEntry, index: number) {
@@ -107,6 +128,11 @@ function exportSession() {
   link.click();
   URL.revokeObjectURL(url);
   toast.success('Benchmark exported', { description: `${session.value.sim_id}.json` });
+  telemetry.recordLab('export', 'Ticket', {
+    page: 'analytics',
+    sim_id: session.value.sim_id,
+    format: 'json',
+  });
 }
 
 function fmtNumber(n: number | undefined): string {
@@ -121,22 +147,50 @@ function fmtNumber(n: number | undefined): string {
       <div class="analytics__header-content">
         <h1 class="analytics__title">
           <BarChart3 class="w-8 h-8" />
-          Benchmarking Suite
+          Analytics
         </h1>
-        <p class="analytics__subtitle">Tracks every agent action across the app for ML evaluation</p>
+        <p class="analytics__subtitle">Benchmark agent traces and user-behavior telemetry</p>
       </div>
       <div class="analytics__header-actions">
         <label class="sample-toggle">
           <Checkbox v-model="sampleDataEnabled" />
           <span>Sample Data</span>
         </label>
-        <Button v-if="selectedSimId && session" variant="outline" size="sm" @click="exportSession">
+        <Button
+          v-if="activeTab === 'benchmark' && selectedSimId && session"
+          variant="outline"
+          size="sm"
+          @click="exportSession"
+        >
           <Download class="w-4 h-4" /> Export JSON
         </Button>
       </div>
     </header>
 
-    <div v-if="isLoading" class="analytics__loading">
+    <nav class="analytics__tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'benchmark'"
+        :class="['analytics__tab', { 'analytics__tab--active': activeTab === 'benchmark' }]"
+        @click="switchTab('benchmark')"
+      >
+        Benchmarking Suite
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'user-behavior'"
+        :class="['analytics__tab', { 'analytics__tab--active': activeTab === 'user-behavior' }]"
+        @click="switchTab('user-behavior')"
+      >
+        User Behavior
+      </button>
+    </nav>
+
+    <UserBehaviorDashboard v-if="activeTab === 'user-behavior'" />
+
+    <div v-else-if="isLoading" class="analytics__loading">
       <RefreshCw class="w-6 h-6 animate-spin" />
       <span>Loading benchmark sessions...</span>
     </div>
@@ -334,6 +388,30 @@ function fmtNumber(n: number | undefined): string {
 .analytics__subtitle { color: var(--muted-foreground); margin: 0.25rem 0 0; }
 .analytics__header-actions { display: flex; align-items: center; gap: 0.75rem; }
 .sample-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; }
+
+.analytics__tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+.analytics__tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 0.65rem 1.1rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.analytics__tab:hover { color: var(--foreground); }
+.analytics__tab--active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
 
 .analytics__loading { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 4rem; color: var(--muted-foreground); }
 

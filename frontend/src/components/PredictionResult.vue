@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
-import Button from '@/components/ui/Button.vue'
-import { ChevronDown, ChevronUp } from 'lucide-vue-next'
+import Progress from '@/components/ui/Progress.vue'
 
 export interface PredictionResultProps {
   prediction: string | number
@@ -18,8 +17,6 @@ const props = withDefaults(defineProps<PredictionResultProps>(), {
   compact: false,
 })
 
-const expanded = ref(false)
-
 const confidencePercent = computed(() => {
   if (props.confidence === undefined) return null
   return Math.round(props.confidence * 100)
@@ -32,14 +29,15 @@ const confidenceColor = computed(() => {
   return 'danger'
 })
 
-const sortedProbabilities = computed(() => {
+const topProbabilities = computed(() => {
   if (!props.probabilities) return []
   return Object.entries(props.probabilities)
     .map(([label, prob]) => ({ label, probability: prob }))
     .sort((a, b) => b.probability - a.probability)
+    .slice(0, 3)
 })
 
-const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
+const hasProbabilities = computed(() => topProbabilities.value.length > 0)
 </script>
 
 <template>
@@ -62,25 +60,10 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
 
     <div class="prediction-result__content">
       <template v-if="showDetails && hasProbabilities">
-        <Button
-          variant="ghost"
-          size="sm"
-          class="prediction-result__toggle"
-          @click="expanded = !expanded"
-        >
-          <template v-if="expanded">
-            <ChevronUp :size="16" />
-            Hide probabilities
-          </template>
-          <template v-else>
-            <ChevronDown :size="16" />
-            Show all probabilities
-          </template>
-        </Button>
-
-        <div v-if="expanded" class="prediction-result__probabilities">
+        <div class="prediction-result__probabilities">
+          <div class="prediction-result__prob-heading">Top {{ topProbabilities.length }} predictions</div>
           <div
-            v-for="item in sortedProbabilities"
+            v-for="item in topProbabilities"
             :key="item.label"
             class="prediction-result__prob-item"
           >
@@ -150,11 +133,6 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
     margin-top: 0.5rem;
   }
 
-  &__toggle {
-    align-self: flex-start;
-    margin-top: 0.5rem;
-  }
-
   &__probabilities {
     display: flex;
     flex-direction: column;
@@ -163,6 +141,15 @@ const hasProbabilities = computed(() => sortedProbabilities.value.length > 0)
     background: var(--muted);
     border-radius: var(--radius);
     margin-top: 0.5rem;
+  }
+
+  &__prob-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted-foreground);
+    margin-bottom: 0.125rem;
   }
 
   &__prob-item {

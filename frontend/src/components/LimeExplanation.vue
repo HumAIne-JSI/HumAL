@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import Progress from '@/components/ui/Progress.vue'
 import Button from '@/components/ui/Button.vue'
 import { ChevronDown, ChevronUp, Lightbulb } from 'lucide-vue-next'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { ExplainLimeResponse } from '@/types/api'
 
 export interface LimeExplanationProps {
@@ -11,6 +12,8 @@ export interface LimeExplanationProps {
   maxWords?: number
   collapsible?: boolean
   defaultExpanded?: boolean
+  ticketRef?: string | null
+  page?: string
 }
 
 const props = withDefaults(defineProps<LimeExplanationProps>(), {
@@ -18,7 +21,11 @@ const props = withDefaults(defineProps<LimeExplanationProps>(), {
   maxWords: 10,
   collapsible: true,
   defaultExpanded: false,
+  ticketRef: null,
+  page: 'queue_aided',
 })
+
+const telemetry = useBenchmarkTelemetry()
 
 const isExpanded = defineModel<boolean>('expanded', { default: false })
 
@@ -26,6 +33,21 @@ const isExpanded = defineModel<boolean>('expanded', { default: false })
 if (props.defaultExpanded && !isExpanded.value) {
   isExpanded.value = true
 }
+
+// Emit view_explanation / dismiss_explanation as the user expands/collapses
+// the LIME panel so the analytics dashboard can compute engagement rates.
+watch(isExpanded, (next, prev) => {
+  if (next === prev) return
+  if (next) {
+    telemetry.recordView('view_explanation', props.ticketRef ?? null, props.page, {
+      explanation_type: 'lime',
+    })
+  } else {
+    telemetry.recordView('dismiss_explanation', props.ticketRef ?? null, props.page, {
+      explanation_type: 'lime',
+    })
+  }
+})
 
 // Process LIME response into sorted features
 interface FeatureImportance {

@@ -8,6 +8,7 @@ import {
   Zap,
   BarChart3,
   Inbox,
+  Pencil,
 } from 'lucide-vue-next'
 
 export interface NavItem {
@@ -27,13 +28,19 @@ const routes = [
     path: '/training',
     name: 'training',
     component: () => import('../pages/Training.vue'),
-    meta: { label: 'Training', icon: Brain, showInNav: true }
+    meta: { label: 'New Instance', icon: Brain, showInNav: true }
   },
     {
     path: '/queue',
     name: 'ticket-queue',
     component: () => import('../pages/TicketQueue.vue'),
     meta: { label: 'Ticket Queue', icon: Inbox, showInNav: true }
+  },
+  {
+    path: '/manual',
+    name: 'manual-queue',
+    component: () => import('../pages/ManualQueue.vue'),
+    meta: { label: 'Manual Queue', icon: Pencil, showInNav: true }
   },
   {
     path: '/analytics',
@@ -78,6 +85,69 @@ export const navItems: NavItem[] = routes
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+})
+
+// Auto page-view telemetry. Records `open_page` on every navigation with the
+// duration the user just spent on the previous page so the analytics
+// dashboard can compute time-on-page without each page wiring it manually.
+// Listener is registered inside the file rather than per-component so we
+// never miss a navigation.
+let prevEntryAt: number | null = null
+let prevPageName: string | null = null
+
+router.afterEach(async (to, from) => {
+  const now = Date.now()
+  const prevDurationS = prevEntryAt != null ? (now - prevEntryAt) / 1000 : null
+  const prevName = prevPageName ?? (from?.name ? String(from.name) : null)
+  const toName = to.name ? String(to.name) : to.path
+
+  prevEntryAt = now
+  prevPageName = toName
+
+  try {
+    const { useInstanceStore } = await import('@/stores/useInstanceStore')
+    const { useMockModeStore } = await import('@/stores/useMockModeStore')
+    const instanceStore = useInstanceStore()
+    const mockStore = useMockModeStore()
+    const instanceId = instanceStore.selectedInstanceId
+    const resolvedInstanceId = instanceId > 0 ? instanceId : null
+
+    if (mockStore.mockEnabled) {
+      const { useTelemetryStore } = await import('@/stores/useTelemetryStore')
+      const telemetryStore = useTelemetryStore()
+      telemetryStore.addEvent({
+        al_instance_id: resolvedInstanceId,
+        action: 'open_page',
+        latency_ms: prevDurationS != null ? Math.round(prevDurationS * 1000) : null,
+        payload: {
+          page: toName,
+          path: to.path,
+          prev_page: prevName,
+          prev_duration_s: prevDurationS,
+          object: 'Ticket',
+        },
+      })
+      return
+    }
+
+    const { apiService } = await import('@/services/api')
+    await apiService.postTelemetryEvent({
+      instance_id: resolvedInstanceId,
+      action: 'open_page',
+      object: 'Ticket',
+      effect: {
+        page: toName,
+        path: to.path,
+        prev_page: prevName,
+        prev_duration_s: prevDurationS,
+      },
+      duration_s: prevDurationS,
+      interaction_id: null,
+    })
+  } catch (err) {
+    // Telemetry must never break navigation.
+    console.warn('[telemetry] page-view event failed', err)
+  }
 })
 
 export default router

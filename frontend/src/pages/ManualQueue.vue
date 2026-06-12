@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
-import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
+import ManualTicketDetailPanel from '@/components/ManualTicketDetailPanel.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
-import type { TicketStatus, SortOrder } from '@/stores/useTicketQueueStore'
 import {
-  Inbox,
+  Pencil,
   RefreshCw,
   CheckSquare,
   CheckCircle,
@@ -32,14 +30,14 @@ const instanceStore = useInstanceStore()
 const telemetry = useBenchmarkTelemetry()
 
 // Track when the user selected the current ticket so we can compute the
-// confirm/override duration when they submit a label.
+// confirm duration when they submit a label.
 const selectionStartMs = ref<number | null>(null)
 
 function selectTicketWithTelemetry(id: string | null) {
   selectTicket(id)
   if (id) {
     selectionStartMs.value = Date.now()
-    telemetry.recordLab('select_ticket', 'Ticket', { ticket_id: id, page: 'queue_aided' })
+    telemetry.recordLab('select_ticket', 'Ticket', { ticket_id: id, page: 'queue_manual' })
   } else {
     selectionStartMs.value = null
   }
@@ -47,16 +45,14 @@ function selectTicketWithTelemetry(id: string | null) {
 
 function setFilterWithTelemetry(...args: Parameters<typeof setFilter>) {
   setFilter(...args)
-  telemetry.recordLab('filter_pool', 'Pool', { filter: args[0], page: 'queue_aided' })
+  telemetry.recordLab('filter_pool', 'Pool', { filter: args[0], page: 'queue_manual' })
 }
 
-// Use store's instance ID
 const selectedInstanceId = computed({
   get: () => instanceStore.selectedInstanceId,
   set: (value: number) => instanceStore.setInstance(value),
 })
 
-// Initialize from route query
 onMounted(() => {
   const instanceParam = route.query.instance
   if (instanceParam) {
@@ -64,21 +60,18 @@ onMounted(() => {
   }
 })
 
-// Sync URL with instance selection
 watch(
   () => instanceStore.selectedInstanceId,
   (newId) => {
     if (newId > 0) {
       router.replace({ query: { ...route.query, instance: String(newId) } })
     }
-  }
+  },
 )
 
-// Ticket queue composable
 const {
   store,
   isLoading,
-  isMockMode,
   tickets,
   selectedTicket,
   teams,
@@ -92,7 +85,6 @@ const {
   setFilter,
   resetFilters,
   labelTicket,
-  isLabeling,
   bulkLabel,
   isBulkLabeling,
   filters,
@@ -103,7 +95,6 @@ const {
   autoFetch: true,
 })
 
-// Keyboard navigation
 const {
   shortcuts,
   isHelpOpen,
@@ -112,48 +103,29 @@ const {
   closeHelp,
 } = useKeyboardNavigation()
 
-// Register keyboard shortcuts
 registerNavigationShortcuts({
-  onNext: () => {
-    if (selectNext()) {
-      // Scrolled to next
-    }
-  },
-  onPrev: () => {
-    if (selectPrevious()) {
-      // Scrolled to previous
-    }
-  },
+  onNext: () => { selectNext() },
+  onPrev: () => { selectPrevious() },
   onClose: () => {
-    if (hasBulkSelection.value) {
-      clearBulkSelection()
-    } else if (selectedTicket.value) {
-      selectTicket(null)
-    }
+    if (hasBulkSelection.value) clearBulkSelection()
+    else if (selectedTicket.value) selectTicket(null)
   },
   onConfirm: () => {
-    // Will be handled by detail panel
+    // handled inside the detail panel's button
   },
   onToggleBulk: () => {
-    if (selectedTicket.value) {
-      toggleBulkSelect(selectedTicket.value.id)
-    }
+    if (selectedTicket.value) toggleBulkSelect(selectedTicket.value.id)
   },
-  onSelectAll: () => {
-    selectAllVisible()
-  },
-  onHelp: () => {
-    openHelp()
-  },
+  onSelectAll: () => { selectAllVisible() },
+  onHelp: () => { openHelp() },
   onTeamAssign: (index: number) => {
     if (teams.value[index] && selectedTicket.value) {
-      handleReassign(teams.value[index])
+      handleConfirm(teams.value[index])
     }
   },
 })
 
-// Handle confirm prediction
-function handleConfirm(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
+function handleConfirm(team: string) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
@@ -161,10 +133,10 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
   void telemetry.recordLabelDecision({
     action: 'confirm_label',
     ticketRef: ticket.ref ?? ticket.id,
-    page: 'queue_aided',
+    page: 'queue_manual',
     label: team,
-    prediction: meta.prediction ?? team,
-    confidence: meta.confidence ?? null,
+    prediction: null,
+    confidence: null,
     durationMs,
   })
 
@@ -181,46 +153,13 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
   )
 }
 
-// Handle reassign
-function handleReassign(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
-  if (!selectedTicket.value) return
-  const ticket = selectedTicket.value
-  const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
-
-  void telemetry.recordLabelDecision({
-    action: 'override_label',
-    ticketRef: ticket.ref ?? ticket.id,
-    page: 'queue_aided',
-    label: team,
-    prediction: meta.prediction ?? null,
-    confidence: meta.confidence ?? null,
-    durationMs,
-  })
-
-  labelTicket(
-    { ticketId: ticket.id, label: team },
-    {
-      onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
-      },
-      onError: () => {
-        toast.error('Failed to reassign ticket')
-      },
-    },
-  )
-}
-
-// Bulk action inline feedback
 const bulkFeedback = ref<string | null>(null)
 let bulkFeedbackTimer: ReturnType<typeof setTimeout> | undefined
 
-// Handle bulk approve
 function handleBulkApprove() {
   if (!hasBulkSelection.value) return
-
   const ticketIds = bulkSelectedTickets.value.map((t) => t.id)
   const defaultTeam = teams.value[0] || 'Default Team'
-
   bulkLabel(
     { ticketIds, label: defaultTeam },
     {
@@ -234,14 +173,10 @@ function handleBulkApprove() {
       onError: () => {
         toast.error('Bulk action failed')
       },
-    }
+    },
   )
 }
 
-// Auto-collapse the list panel when a ticket is selected so the detail view
-// gets focus. The user can override via the toggle; the override is cleared
-// once the ticket is deselected. Skip auto-collapse while a bulk selection is
-// active so the bulk action bar stays reachable.
 const isListCollapsed = ref(false)
 const userOverrodeCollapse = ref(false)
 
@@ -249,21 +184,13 @@ watch(
   () => selectedTicket.value?.id ?? null,
   (newId, oldId) => {
     if (newId && !oldId) {
-      if (!userOverrodeCollapse.value && !hasBulkSelection.value) {
-        isListCollapsed.value = true
-      }
+      if (!userOverrodeCollapse.value) isListCollapsed.value = true
     } else if (!newId) {
       isListCollapsed.value = false
       userOverrodeCollapse.value = false
     }
-  }
+  },
 )
-
-watch(hasBulkSelection, (hasSelection, hadSelection) => {
-  if (hasSelection && !hadSelection && isListCollapsed.value) {
-    isListCollapsed.value = false
-  }
-})
 
 function toggleListCollapse() {
   isListCollapsed.value = !isListCollapsed.value
@@ -271,13 +198,12 @@ function toggleListCollapse() {
 }
 
 // Mount the delegated click listener once for this page.
-useClickTracking('queue_aided', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
+useClickTracking('queue_manual', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
 
 // Emit view_ticket_start / view_ticket_end for time-on-ticket analytics.
 const viewedTicketRef = computed(() => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
-useTicketViewLifecycle({ selectedTicketRef: viewedTicketRef, page: 'queue_aided' })
+useTicketViewLifecycle({ selectedTicketRef: viewedTicketRef, page: 'queue_manual' })
 
-// Grouped shortcuts by category for help modal
 const groupedShortcuts = computed(() => {
   const groups: Record<string, typeof shortcuts.value> = {
     navigation: [],
@@ -295,13 +221,12 @@ const groupedShortcuts = computed(() => {
 </script>
 
 <template>
-  <div class="ticket-queue" data-track-region="queue_aided_page">
-    <!-- Header -->
+  <div class="ticket-queue" data-track-region="queue_manual_page">
     <header class="ticket-queue__header">
       <div class="ticket-queue__header-left">
         <h1 class="ticket-queue__title">
-          <Inbox :size="24" />
-          Ticket Queue
+          <Pencil :size="22" />
+          Manual Queue
         </h1>
       </div>
 
@@ -317,14 +242,11 @@ const groupedShortcuts = computed(() => {
       </div>
     </header>
 
-    <!-- Main Content -->
     <div class="ticket-queue__main">
-      <!-- Left Panel: Ticket List -->
       <div
         class="ticket-queue__list-panel"
         :class="{ 'ticket-queue__list-panel--collapsed': isListCollapsed }"
       >
-        <!-- Collapse/expand toggle (only meaningful when a ticket is selected) -->
         <button
           v-if="selectedTicket"
           type="button"
@@ -336,9 +258,8 @@ const groupedShortcuts = computed(() => {
           <PanelLeftOpen v-if="isListCollapsed" :size="14" />
           <PanelLeftClose v-else :size="14" />
         </button>
-        <!-- Filter Bar (hidden when panel is collapsed) -->
+
         <TicketFilterBar
-          v-if="!isListCollapsed"
           :filters="filters"
           :teams="teams"
           @update:search="(v) => setFilterWithTelemetry('search', v)"
@@ -347,52 +268,43 @@ const groupedShortcuts = computed(() => {
           @reset="resetFilters"
         />
 
-        <!-- Bulk Actions Bar -->
         <Transition name="bulk-bar">
-        <div v-if="hasBulkSelection && !isListCollapsed" class="ticket-queue__bulk-bar">
-          <span class="ticket-queue__bulk-count">
-            <CheckSquare :size="14" />
-            {{ bulkSelectedTickets.length }} selected
-          </span>
-          <div class="ticket-queue__bulk-actions">
-            <Button variant="default" size="sm" @click="handleBulkApprove" :disabled="isBulkLabeling">
-              Approve All
-            </Button>
-            <Button variant="ghost" size="sm" @click="clearBulkSelection">
-              <X :size="14" />
-              Clear
-            </Button>
+          <div v-if="hasBulkSelection" class="ticket-queue__bulk-bar">
+            <span class="ticket-queue__bulk-count">
+              <CheckSquare :size="14" />
+              {{ bulkSelectedTickets.length }} selected
+            </span>
+            <div class="ticket-queue__bulk-actions">
+              <Button variant="default" size="sm" @click="handleBulkApprove" :disabled="isBulkLabeling">
+                Approve All
+              </Button>
+              <Button variant="ghost" size="sm" @click="clearBulkSelection">
+                <X :size="14" />
+                Clear
+              </Button>
+            </div>
           </div>
-        </div>
         </Transition>
 
-        <!-- Bulk Feedback Banner -->
         <Transition name="bulk-bar">
-          <div v-if="bulkFeedback && !isListCollapsed" class="ticket-queue__bulk-feedback">
+          <div v-if="bulkFeedback" class="ticket-queue__bulk-feedback">
             <CheckCircle :size="14" />
             {{ bulkFeedback }}
           </div>
         </Transition>
 
-        <!-- Loading State -->
         <div v-if="isLoading" class="ticket-queue__loading">
           <Progress :value="undefined" />
           <span>Loading tickets...</span>
         </div>
 
-        <!-- Empty State -->
         <div v-else-if="tickets.length === 0" class="ticket-queue__empty">
-          <Inbox :size="48" class="ticket-queue__empty-icon" />
+          <Pencil :size="48" class="ticket-queue__empty-icon" />
           <h3>No tickets found</h3>
-          <p v-if="filters.search">
-            Try adjusting your filters
-          </p>
-          <p v-else>
-            No tickets are available for this instance
-          </p>
+          <p v-if="filters.search">Try adjusting your filters</p>
+          <p v-else>No tickets are available for this instance</p>
         </div>
 
-        <!-- Ticket List -->
         <div v-else class="ticket-queue__list">
           <TransitionGroup name="ticket-list" tag="div">
             <TicketListItem
@@ -411,22 +323,17 @@ const groupedShortcuts = computed(() => {
         </div>
       </div>
 
-      <!-- Right Panel: Detail View -->
       <div class="ticket-queue__detail-panel">
-        <TicketDetailPanel
+        <ManualTicketDetailPanel
           :ticket="selectedTicket"
-          :instance-id="selectedInstanceId"
           :teams="teams"
-          :show-xai="true"
           @close="selectTicket(null)"
           @confirm="handleConfirm"
-          @reassign="handleReassign"
           @next="selectNext"
         />
       </div>
     </div>
 
-    <!-- Keyboard Shortcuts Modal -->
     <Teleport to="body">
       <div v-if="isHelpOpen" class="shortcuts-modal" @click.self="closeHelp">
         <div class="shortcuts-modal__content">
@@ -647,7 +554,6 @@ const groupedShortcuts = computed(() => {
   }
 }
 
-// Keyboard shortcuts modal
 .shortcuts-modal {
   position: fixed;
   inset: 0;
@@ -744,15 +650,10 @@ const groupedShortcuts = computed(() => {
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-// Responsive
 @media (max-width: 768px) {
   .ticket-queue {
     &__main {
@@ -783,7 +684,6 @@ const groupedShortcuts = computed(() => {
   }
 }
 
-// Ticket list TransitionGroup
 .ticket-list-enter-active,
 .ticket-list-leave-active {
   transition: all 0.3s ease;
@@ -804,7 +704,6 @@ const groupedShortcuts = computed(() => {
   transition: transform 0.3s ease;
 }
 
-// Bulk bar transition
 .bulk-bar-enter-active,
 .bulk-bar-leave-active {
   transition: all 0.25s ease;

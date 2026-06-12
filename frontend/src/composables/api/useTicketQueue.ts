@@ -218,7 +218,6 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     tickets: computed(() => store.filteredTickets),
     allTickets: computed(() => store.tickets),
     selectedTicket: computed(() => store.selectedTicket),
-    statusCounts: computed(() => store.statusCounts),
     teams: computed(() => teamsQuery.data.value?.teams ?? []),
 
     // Actions

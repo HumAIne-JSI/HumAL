@@ -315,3 +315,88 @@ export interface TelemetryEventRequest {
   duration_s?: number | null;
   interaction_id?: string | null;
 }
+
+// ======
+// User-behavior analytics types
+// (matches backend/app/data_models/analytics_dm.py user-behavior models)
+// ======
+
+export interface UserBehaviorOverview {
+  total_events: number;
+  events_by_action: Record<string, number>;
+  events_by_page: Record<string, number>;
+  unique_tickets_touched: number;
+  total_active_seconds: number;
+  mean_decision_seconds: number | null;
+}
+
+export interface ConfidenceBucket {
+  label: string;
+  min_confidence: number;
+  max_confidence: number;
+  confirm: number;
+  override: number;
+  abstain: number;
+}
+
+export interface AIImpactMetrics {
+  confirm_count: number;
+  override_count: number;
+  abstain_count: number;
+  acceptance_rate: number | null;
+  mean_decision_time_aided_s: number | null;
+  mean_decision_time_manual_s: number | null;
+  decision_time_delta_s: number | null;
+  confidence_buckets: ConfidenceBucket[];
+}
+
+export interface XAIEngagementMetrics {
+  decisions_with_xai: number;
+  decisions_without_xai: number;
+  acceptance_rate_with_xai: number | null;
+  acceptance_rate_without_xai: number | null;
+  mean_decision_time_with_xai_s: number | null;
+  mean_decision_time_without_xai_s: number | null;
+}
+
+export interface PageEngagementEntry {
+  page: string;
+  views: number;
+  mean_duration_s: number | null;
+  total_duration_s: number;
+}
+
+export interface PageEngagementMetrics {
+  pages: PageEngagementEntry[];
+}
+
+export interface TicketHeatmapEntry {
+  ticket_ref: string;
+  interaction_count: number;
+  total_seconds: number;
+  last_seen_at: string | null;
+}
+
+export interface TicketHeatmap {
+  entries: TicketHeatmapEntry[];
+}
+
+export interface EventTimelineBin {
+  bucket_start: string;
+  count: number;
+  by_action: Record<string, number>;
+}
+
+export interface EventTimeline {
+  bin_seconds: number;
+  bins: EventTimelineBin[];
+}
+
+export interface FunnelMetrics {
+  selected: number;
+  inspected_explanation: number;
+  labeled: number;
+  select_to_explanation_rate: number | null;
+  explanation_to_label_rate: number | null;
+  select_to_label_rate: number | null;
+}

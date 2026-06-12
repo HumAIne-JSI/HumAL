@@ -5,13 +5,14 @@ import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
 import Select from '@/components/ui/Select.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
-import XaiTabs from '@/components/XaiTabs.vue'
-import LabelingInsights from '@/components/LabelingInsights.vue'
+import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
 import { useInferWithModelCheck } from '@/composables/api/useInference'
 import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
 import { useMockModeStore } from '@/stores/useMockModeStore'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
+import { apiService } from '@/services/api'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
-import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse, Ticket } from '@/types/api'
+import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse } from '@/types/api'
 import {
   X,
   FileText,
@@ -34,18 +35,21 @@ const props = withDefaults(defineProps<TicketDetailPanelProps>(), {
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'confirm', team: string): void
-  (e: 'reassign', team: string): void
+  (e: 'confirm', team: string, meta: { prediction?: string | null; confidence?: number | null }): void
+  (e: 'reassign', team: string, meta: { prediction?: string | null; confidence?: number | null }): void
   (e: 'next'): void
   (e: 'labeled'): void
 }>()
 
 const mockStore = useMockModeStore()
+const telemetry = useBenchmarkTelemetry()
 
 // Prediction state
 const prediction = ref<InferenceResponse | null>(null)
 const explanation = ref<ExplainLimeResponse | null>(null)
 const nearestTickets = ref<NearestTicketResponse | null>(null)
+const similarTicketBody = ref<{ title?: string; description?: string } | null>(null)
+const loadingSimilarBody = ref(false)
 const selectedReassignTeam = ref<string>('')
 const showLabeledFlash = ref(false)
 const labeledTeamName = ref('')
@@ -157,6 +161,24 @@ function generateMockNearest(pred: InferenceResponse): NearestTicketResponse {
     similarity_score: Number((0.72 + rng() * 0.18).toFixed(3)),
   }
 }
+function generateMockSimilarBody(): { title: string; description: string } {
+  const rng = mulberry32(mockSeed() ^ 0x9e3779b9)
+  const baseTitle = props.ticket?.title ?? 'Past ticket'
+  const baseDesc = props.ticket?.description ?? 'Past ticket description.'
+  const variations = [
+    'Previously reported — ',
+    'Past case: ',
+    'Earlier ticket: ',
+  ]
+  const tail = [
+    ' Resolved by reassigning to the responsible team.',
+    ' Closed after the requester confirmed the fix.',
+    ' Workaround applied while permanent fix was deployed.',
+  ]
+  const v = variations[Math.floor(rng() * variations.length)] ?? variations[0]!
+  const t = tail[Math.floor(rng() * tail.length)] ?? tail[0]!
+  return { title: `${v}${baseTitle}`, description: `${baseDesc}${t}` }
+}
 
 // Inference mutation
 const {
@@ -166,6 +188,12 @@ const {
 } = useInferWithModelCheck(computed(() => props.instanceId), {
   onSuccess: (data) => {
     prediction.value = data
+    telemetry.recordView(
+      'inspect_ticket',
+      props.ticket?.ref ?? props.ticket?.id ?? null,
+      'queue_aided',
+      { prediction: data.prediction, confidence: data.confidence ?? null },
+    )
     // Auto-trigger XAI after prediction
     if (props.showXai && props.ticket) {
       runXaiAnalysis()
@@ -179,6 +207,12 @@ const { mutate: explainLime, isPending: isExplainingLime } = useExplainLimeMutat
   {
     onSuccess: (data) => {
       explanation.value = data
+      telemetry.recordView(
+        'view_explanation',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        { explanation_type: 'lime' },
+      )
     },
   }
 )
@@ -188,6 +222,16 @@ const { mutate: findNearest, isPending: isFindingNearest } = useNearestTicketMut
   {
     onSuccess: (data) => {
       nearestTickets.value = data
+      telemetry.recordView(
+        'view_nearest_ticket',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        {
+          nearest_ref: Array.isArray(data.nearest_ticket_ref)
+            ? data.nearest_ticket_ref[0]
+            : data.nearest_ticket_ref,
+        },
+      )
     },
   }
 )
@@ -247,13 +291,30 @@ function runXaiAnalysis() {
     const nearest = prediction.value
       ? generateMockNearest(prediction.value)
       : generateMockNearest(generateMockPrediction())
+    const body = generateMockSimilarBody()
     setTimeout(() => {
       explanation.value = lime
       mockExplaining.value = false
+      telemetry.recordView(
+        'view_explanation',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        { explanation_type: 'lime', mock: true },
+      )
     }, 250)
     setTimeout(() => {
       nearestTickets.value = nearest
+      similarTicketBody.value = body
       mockFindingNearest.value = false
+      const nearestRef = Array.isArray(nearest.nearest_ticket_ref)
+        ? nearest.nearest_ticket_ref[0]
+        : nearest.nearest_ticket_ref
+      telemetry.recordView(
+        'view_nearest_ticket',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        { nearest_ref: nearestRef, mock: true },
+      )
     }, 350)
     return
   }
@@ -268,12 +329,19 @@ function handlePredict() {
   prediction.value = null
   explanation.value = null
   nearestTickets.value = null
+  similarTicketBody.value = null
   if (mockStore.mockEnabled) {
     mockInferring.value = true
     const fake = generateMockPrediction()
     setTimeout(() => {
       prediction.value = fake
       mockInferring.value = false
+      telemetry.recordView(
+        'inspect_ticket',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        { prediction: fake.prediction, confidence: fake.confidence ?? null, mock: true },
+      )
       if (props.showXai) runXaiAnalysis()
     }, 300)
     return
@@ -287,7 +355,10 @@ function handleConfirm() {
   const team = String(prediction.value.prediction)
   labeledTeamName.value = team
   showLabeledFlash.value = true
-  emit('confirm', team)
+  emit('confirm', team, {
+    prediction: String(prediction.value.prediction),
+    confidence: prediction.value.confidence ?? null,
+  })
 }
 
 // Reassign to different team
@@ -296,7 +367,10 @@ function handleReassign() {
   const team = selectedReassignTeam.value
   labeledTeamName.value = team
   showLabeledFlash.value = true
-  emit('reassign', team)
+  emit('reassign', team, {
+    prediction: prediction.value ? String(prediction.value.prediction) : null,
+    confidence: prediction.value?.confidence ?? null,
+  })
   selectedReassignTeam.value = ''
 }
 
@@ -320,6 +394,8 @@ watch(
       prediction.value = null
       explanation.value = null
       nearestTickets.value = null
+      similarTicketBody.value = null
+      loadingSimilarBody.value = false
       selectedReassignTeam.value = ''
       showLabeledFlash.value = false
       labeledTeamName.value = ''
@@ -339,25 +415,62 @@ watch(
   { immediate: true }
 )
 
-// Adapter: turn the QueueTicket into the Ticket shape expected by
-// LabelingInsights (uses the Title_anon / Description_anon / Ref keys).
-const ticketForInsights = computed<Ticket | null>(() => {
-  const t = props.ticket
-  if (!t) return null
-  return {
-    Ref: t.ref,
-    Title_anon: t.title,
-    Description_anon: t.description,
-    'Service->Name': t.category,
-    'Team->Name': t.team,
+// Computed singular view of the nearest ticket response (the API returns the
+// same keys with either scalar or array values depending on entry point).
+const nearestSummary = computed(() => {
+  const n = nearestTickets.value
+  if (!n) return null
+  const refVal = Array.isArray(n.nearest_ticket_ref) ? n.nearest_ticket_ref[0] : n.nearest_ticket_ref
+  const labelVal = Array.isArray(n.nearest_ticket_label) ? n.nearest_ticket_label[0] : n.nearest_ticket_label
+  const simVal = Array.isArray(n.similarity_score) ? n.similarity_score[0] : n.similarity_score
+  if (!refVal) return null
+  return { ref: String(refVal), label: labelVal ? String(labelVal) : undefined, similarity: typeof simVal === 'number' ? simVal : undefined }
+})
+
+// When we have a nearest-ticket ref from the real API, fetch its body so the
+// side-by-side view can render the same LIME-highlighted words across both
+// tickets. Mock mode fills similarTicketBody directly inside runXaiAnalysis.
+watch(nearestSummary, async (summary) => {
+  if (!summary || mockStore.mockEnabled) return
+  if (props.instanceId <= 0) return
+  loadingSimilarBody.value = true
+  similarTicketBody.value = null
+  try {
+    const response = await apiService.getTickets(props.instanceId, [summary.ref])
+    const first = response.tickets?.[0]
+    if (first) {
+      similarTicketBody.value = {
+        title: first.Title_anon,
+        description: first.Description_anon,
+      }
+    }
+  } catch {
+    similarTicketBody.value = null
+  } finally {
+    loadingSimilarBody.value = false
   }
 })
-const classListForInsights = computed<string[]>(() => props.teams ?? [])
+
+const similarTicketForView = computed(() => {
+  if (!nearestSummary.value) return null
+  return {
+    ref: nearestSummary.value.ref,
+    label: nearestSummary.value.label,
+    similarity: nearestSummary.value.similarity,
+    title: similarTicketBody.value?.title,
+    description: similarTicketBody.value?.description,
+  }
+})
+
+const currentTicketForView = computed(() => ({
+  title: props.ticket?.title,
+  description: props.ticket?.description,
+}))
 </script>
 
 <template>
   <Transition name="detail-fade" mode="out-in">
-  <div class="detail-panel" v-if="ticket" :key="ticket.id">
+  <div class="detail-panel" v-if="ticket" :key="ticket.id" data-track-region="ticket_detail">
     <!-- Labeled Flash Overlay -->
     <Transition name="flash-fade">
       <div v-if="showLabeledFlash" class="detail-panel__labeled-flash">
@@ -403,7 +516,7 @@ const classListForInsights = computed<string[]>(() => props.teams ?? [])
         </div>
 
         <!-- Prediction Result -->
-        <div v-else-if="prediction" key="result" class="detail-panel__prediction-inner">
+        <div v-else-if="prediction" key="result" class="detail-panel__prediction-inner" data-track-region="prediction_card">
           <PredictionResult
             :prediction="prediction.prediction"
             :confidence="prediction.confidence"
@@ -412,7 +525,7 @@ const classListForInsights = computed<string[]>(() => props.teams ?? [])
             compact
           >
             <template #actions>
-              <Button variant="outline" size="sm" @click="handleConfirm">
+              <Button variant="outline" size="sm" data-track-region="confirm_button" @click="handleConfirm">
                 <Check :size="14" />
                 Confirm
               </Button>
@@ -421,7 +534,7 @@ const classListForInsights = computed<string[]>(() => props.teams ?? [])
 
           <!-- Actions row: Reassign + Re-analyze -->
           <div class="detail-panel__actions">
-            <div class="detail-panel__reassign">
+            <div class="detail-panel__reassign" data-track-region="reassign_select">
               <Select
                 v-model="selectedReassignTeam"
                 placeholder="Reassign to..."
@@ -459,23 +572,17 @@ const classListForInsights = computed<string[]>(() => props.teams ?? [])
         </Transition>
       </section>
 
-      <!-- XAI Tabs -->
-      <XaiTabs
+      <!-- Side-by-side LIME-highlighted comparison (replaces the previous
+           XAI tabs + labeling-context insights). Renders the current ticket
+           body alongside the nearest already-labeled ticket, with the LIME
+           top words highlighted in both columns using the same color scale. -->
+      <SideBySideExplanation
         v-if="showXai && prediction"
-        :explanation="explanation"
-        :nearest-tickets="nearestTickets"
+        :current-ticket="currentTicketForView"
+        :similar-ticket="similarTicketForView"
+        :lime="explanation"
         :loading-lime="isExplainingAny"
-        :loading-nearest="isFindingNearestAny"
-      />
-
-      <!-- Labeling-context insights (top-2 classes, per-class explanation,
-           distinctive features, similar samples, history matches). Always
-           shown so the user has the context while deciding the label. -->
-      <LabelingInsights
-        v-if="ticketForInsights"
-        :ticket="ticketForInsights"
-        :query-index="ticket?.ref ?? ticket?.id ?? ''"
-        :class-list="classListForInsights"
+        :loading-similar="isFindingNearestAny || loadingSimilarBody"
       />
     </div>
   </div>

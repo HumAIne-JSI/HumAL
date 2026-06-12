@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Progress from '@/components/ui/Progress.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Accordion from '@/components/ui/Accordion.vue'
 import { Search } from 'lucide-vue-next'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { NearestTicketResponse, Ticket } from '@/types/api'
 
 export interface NearestTicketDisplay {
@@ -19,13 +20,19 @@ export interface NearestTicketProps {
   ticketDetails?: Ticket | null
   loading?: boolean
   showDetails?: boolean
+  sourceTicketRef?: string | null
+  page?: string
 }
 
 const props = withDefaults(defineProps<NearestTicketProps>(), {
   loading: false,
   showDetails: true,
   ticketDetails: null,
+  sourceTicketRef: null,
+  page: 'queue_aided',
 })
+
+const telemetry = useBenchmarkTelemetry()
 
 // Process response into display format
 const displayData = computed((): NearestTicketDisplay | null => {
@@ -62,6 +69,20 @@ const similarityPercentage = computed(() => {
   if (!displayData.value) return 0
   return Math.round(displayData.value.similarity * 100 * 10) / 10
 })
+
+// Emit `view_nearest_ticket` once when the panel first receives data, so the
+// dashboard can credit XAI engagement against the active ticket.
+watch(
+  () => displayData.value?.ref,
+  (next, prev) => {
+    if (next && next !== prev) {
+      telemetry.recordView('view_nearest_ticket', props.sourceTicketRef ?? null, props.page, {
+        nearest_ref: next,
+        similarity: displayData.value?.similarity ?? null,
+      })
+    }
+  },
+)
 </script>
 
 <template>

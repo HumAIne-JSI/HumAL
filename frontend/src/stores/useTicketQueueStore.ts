@@ -26,7 +26,6 @@ export interface QueueTicket {
 
 // Filter configuration
 export interface QueueFilters {
-  status: TicketStatus | 'all'
   search: string
   team: string | null
   sortOrder: SortOrder
@@ -35,7 +34,6 @@ export interface QueueFilters {
 const STORAGE_KEY_FILTERS = 'humal-queue-filters'
 
 const defaultFilters: QueueFilters = {
-  status: 'all',
   search: '',
   team: null,
   sortOrder: 'newest',
@@ -62,12 +60,9 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
   )
 
   const filteredTickets = computed(() => {
-    let result = [...tickets.value]
-
-    // Filter by status
-    if (filters.value.status !== 'all') {
-      result = result.filter((t) => t.status === filters.value.status)
-    }
+    // Queue always shows only unlabeled tickets — resolved, pending-review and
+    // auto-classified are hidden from the list once a labeling decision lands.
+    let result = tickets.value.filter((t) => t.status === 'unlabeled')
 
     // Filter by team
     if (filters.value.team) {
@@ -102,20 +97,6 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
     }
 
     return result
-  })
-
-  const statusCounts = computed(() => {
-    const counts: Record<TicketStatus | 'all', number> = {
-      all: tickets.value.length,
-      unlabeled: 0,
-      'pending-review': 0,
-      'auto-classified': 0,
-      resolved: 0,
-    }
-    for (const ticket of tickets.value) {
-      counts[ticket.status]++
-    }
-    return counts
   })
 
   const selectedIndex = computed(() => {
@@ -266,7 +247,6 @@ export const useTicketQueueStore = defineStore('ticketQueue', () => {
     // Computed
     selectedTicket,
     filteredTickets,
-    statusCounts,
     selectedIndex,
     hasBulkSelection,
     bulkSelectedTickets,

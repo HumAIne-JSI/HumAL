@@ -2,8 +2,7 @@
 import { computed } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Checkbox from '@/components/ui/Checkbox.vue'
-import { Clock } from 'lucide-vue-next'
-import type { QueueTicket, TicketStatus } from '@/stores/useTicketQueueStore'
+import type { QueueTicket } from '@/stores/useTicketQueueStore'
 
 export interface TicketListItemProps {
   ticket: QueueTicket
@@ -11,6 +10,7 @@ export interface TicketListItemProps {
   bulkSelected?: boolean
   showBulkCheckbox?: boolean
   recentlyLabeled?: boolean
+  compact?: boolean
 }
 
 const props = withDefaults(defineProps<TicketListItemProps>(), {
@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<TicketListItemProps>(), {
   bulkSelected: false,
   showBulkCheckbox: false,
   recentlyLabeled: false,
+  compact: false,
 })
 
 const emit = defineEmits<{
@@ -85,52 +86,67 @@ function truncate(text: string, maxLength: number): string {
         'ticket-item--selected': selected,
         'ticket-item--bulk-selected': bulkSelected,
         'ticket-item--just-labeled': recentlyLabeled,
+        'ticket-item--compact': compact,
       },
     ]"
+    data-track-region="ticket_list_item"
     role="button"
     tabindex="0"
     @click="$emit('select')"
     @keydown.enter="$emit('select')"
     @keydown.space.prevent="$emit('toggle-bulk')"
   >
-    <!-- Bulk Selection Checkbox -->
-    <div
-      v-if="showBulkCheckbox"
-      class="ticket-item__checkbox"
-      @click.stop
-    >
-      <Checkbox
-        :model-value="bulkSelected"
-        @update:model-value="$emit('toggle-bulk')"
-      />
-    </div>
+    <!-- Compact mode: just status dot + ref, fits in a narrow collapsed list -->
+    <template v-if="compact">
+      <span
+        class="ticket-item__dot"
+        :class="`ticket-item__dot--${statusVariant}`"
+        :title="ticket.status.replace('-', ' ')"
+      ></span>
+      <span class="ticket-item__ref ticket-item__ref--compact" :title="ticket.title">{{ ticket.ref }}</span>
+    </template>
 
-    <!-- Main Content -->
-    <div class="ticket-item__content">
-      <!-- Header Row -->
-      <div class="ticket-item__header">
-        <span class="ticket-item__ref">{{ ticket.ref }}</span>
-        <Badge :variant="statusVariant" size="sm">
-          {{ ticket.status.replace('-', ' ') }}
-        </Badge>
+    <!-- Full mode -->
+    <template v-else>
+      <!-- Bulk Selection Checkbox -->
+      <div
+        v-if="showBulkCheckbox"
+        class="ticket-item__checkbox"
+        @click.stop
+      >
+        <Checkbox
+          :model-value="bulkSelected"
+          @update:model-value="$emit('toggle-bulk')"
+        />
       </div>
 
-      <!-- Title -->
-      <h4 class="ticket-item__title">
-        {{ truncate(ticket.title, 80) }}
-      </h4>
+      <!-- Main Content -->
+      <div class="ticket-item__content">
+        <!-- Header Row -->
+        <div class="ticket-item__header">
+          <span class="ticket-item__ref">{{ ticket.ref }}</span>
+          <Badge :variant="statusVariant" size="sm">
+            {{ ticket.status.replace('-', ' ') }}
+          </Badge>
+        </div>
 
-      <!-- Meta Row -->
-      <div class="ticket-item__meta">
-        <span v-if="ticket.team" class="ticket-item__team">
-          {{ ticket.team }}
-        </span>
+        <!-- Title -->
+        <h4 class="ticket-item__title">
+          {{ truncate(ticket.title, 80) }}
+        </h4>
 
-        <span class="ticket-item__time">
-          {{ timeAgo }}
-        </span>
+        <!-- Meta Row -->
+        <div class="ticket-item__meta">
+          <span v-if="ticket.team" class="ticket-item__team">
+            {{ ticket.team }}
+          </span>
+
+          <span class="ticket-item__time">
+            {{ timeAgo }}
+          </span>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -171,6 +187,28 @@ function truncate(text: string, maxLength: number): string {
     animation: label-flash 0.8s ease-out;
   }
 
+  &--compact {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.25rem;
+    padding: 0.5rem 0.25rem;
+    text-align: center;
+  }
+
+  &__dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+
+    &--success { background: var(--success, #22c55e); }
+    &--info { background: var(--info, #3b82f6); }
+    &--warning { background: var(--warning, #f59e0b); }
+    &--secondary { background: var(--muted-foreground); }
+  }
+
   &__checkbox {
     display: flex;
     align-items: flex-start;
@@ -197,6 +235,13 @@ function truncate(text: string, maxLength: number): string {
     font-weight: 600;
     color: var(--muted-foreground);
     text-transform: uppercase;
+  }
+
+  &__ref--compact {
+    font-size: 0.625rem;
+    line-height: 1.1;
+    word-break: break-all;
+    max-width: 100%;
   }
 
   &__title {
