@@ -16,6 +16,7 @@ The `X-API-Key` header has been removed. All authenticated endpoints now use `Au
 **Changes:**
 - `X-API-Key` header is no longer accepted; use `Authorization: Bearer <jwt>` instead
 - `POST /users/register` no longer returns `api_key` in the response
+- The `api_key` column has been removed from the DuckDB `users` table; the persistence service no longer generates, stores, or queries API keys
 - New endpoint `POST /users/login` for obtaining a JWT access token
 - When no token is provided, the request still falls back to the system user as before
 - Invalid or expired tokens return `401 Unauthorized`

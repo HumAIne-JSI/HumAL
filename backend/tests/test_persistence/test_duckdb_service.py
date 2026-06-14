@@ -69,26 +69,20 @@ class TestUsers:
         result = service.get_user_by_username(username="nobody")
         assert result is None
 
-    def test_upsert_user_generates_api_key(self, service):
-        user_id = service.upsert_user(username="keyuser", password="pwd")
-        
+    def test_get_user_does_not_include_api_key(self, service):
+        user_id = service.upsert_user(username="nokey", password="pwd")
         user = service.get_user(user_id=user_id)
-        assert user["api_key"] is not None
-        assert isinstance(user["api_key"], str)
-        assert len(user["api_key"]) == 32  # uuid4 hex is 32 chars
+        assert "api_key" not in user
 
-    def test_get_user_by_api_key(self, service):
-        known_key = "aabbccddee0011223344556677889900"
-        service.upsert_user(username="apiuser", password="pwd", api_key=known_key)
-        
-        user = service.get_user_by_api_key(api_key=known_key)
+    def test_get_user_by_username_does_not_include_api_key(self, service):
+        service.upsert_user(username="nokey2", password="pwd")
+        user = service.get_user_by_username(username="nokey2")
         assert user is not None
-        assert user["username"] == "apiuser"
-        assert user["api_key"] == known_key
+        assert "api_key" not in user
 
-    def test_get_user_by_api_key_missing(self, service):
-        result = service.get_user_by_api_key(api_key="nonexistent_key")
-        assert result is None
+    def test_upsert_user_rejects_api_key_argument(self, service):
+        with pytest.raises(TypeError):
+            service.upsert_user(username="legacy", password="pwd", api_key="should-fail")
 
 
 class TestALInstances:

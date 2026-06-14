@@ -73,25 +73,21 @@ class DuckDbPersistenceService:
         user_id: str | uuid.UUID | None = None,
         username: str,
         password: str,
-        api_key: Optional[str] = None,
     ) -> uuid.UUID:
         """Insert or replace a user row.
 
         If user_id is None, a new random UUID (uuid4) is generated.
-        If api_key is None, a new random hex string is generated.
         """
         user_uuid = uuid.UUID(str(user_id)) if user_id is not None else uuid.uuid4()
-        if api_key is None:
-            api_key = uuid.uuid4().hex
         with connect(self.db_path) as conn:
             # Delete existing user if present to avoid unique constraint issues
             conn.execute("DELETE FROM users WHERE user_id = ?", [str(user_uuid)])
             conn.execute(
                 """
-                INSERT INTO users (user_id, username, password, api_key)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (user_id, username, password)
+                VALUES (?, ?, ?)
                 """,
-                [str(user_uuid), username, password, api_key],
+                [str(user_uuid), username, password],
             )
         return user_uuid
 
@@ -100,7 +96,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT user_id, username, password, api_key, created_at
+                SELECT user_id, username, password, created_at
                 FROM users
                 WHERE user_id = ?
                 """,
@@ -114,15 +110,14 @@ class DuckDbPersistenceService:
             "user_id": str(row[0]),
             "username": row[1],
             "password": row[2],
-            "api_key": row[3],
-            "created_at": row[4],
+            "created_at": row[3],
         }
 
     def get_user_by_username(self, *, username: str) -> Optional[Dict[str, Any]]:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT user_id, username, password, api_key, created_at
+                SELECT user_id, username, password, created_at
                 FROM users
                 WHERE username = ?
                 """,
@@ -136,30 +131,7 @@ class DuckDbPersistenceService:
             "user_id": str(row[0]),
             "username": row[1],
             "password": row[2],
-            "api_key": row[3],
-            "created_at": row[4],
-        }
-
-    def get_user_by_api_key(self, *, api_key: str) -> Optional[Dict[str, Any]]:
-        with connect(self.db_path) as conn:
-            row = conn.execute(
-                """
-                SELECT user_id, username, password, api_key, created_at
-                FROM users
-                WHERE api_key = ?
-                """,
-                [api_key],
-            ).fetchone()
-
-        if not row:
-            return None
-
-        return {
-            "user_id": str(row[0]),
-            "username": row[1],
-            "password": row[2],
-            "api_key": row[3],
-            "created_at": row[4],
+            "created_at": row[3],
         }
 
     # --- AL instances ---

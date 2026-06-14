@@ -37,7 +37,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             user_id UUID PRIMARY KEY,
             username VARCHAR UNIQUE,
             password VARCHAR,
-            api_key VARCHAR UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -228,11 +227,10 @@ def _populate_default_users(conn: duckdb.DuckDBPyConnection) -> None:
     """Insert default system user for deployments without user authentication."""
     conn.execute(
         """
-        INSERT INTO users (user_id, username, password, api_key, created_at)
+        INSERT INTO users (user_id, username, password, created_at)
         VALUES (
             '00000000-0000-0000-0000-000000000000'::UUID,
             'system',
-            NULL,
             NULL,
             CURRENT_TIMESTAMP
         )

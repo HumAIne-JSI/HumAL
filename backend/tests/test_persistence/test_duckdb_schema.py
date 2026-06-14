@@ -166,7 +166,7 @@ class TestInitDatabase:
             assert "path_to_model" in col_dict
             assert "created_at" in col_dict
 
-    def test_users_schema_includes_api_key(self, temp_db):
+    def test_users_schema_excludes_api_key(self, temp_db):
         init_database(temp_db)
         
         with connect(temp_db) as conn:
@@ -181,7 +181,7 @@ class TestInitDatabase:
             
             col_dict = {col[0]: col[1] for col in columns}
             
-            assert "api_key" in col_dict
+            assert "api_key" not in col_dict
 
     def test_al_instances_schema_includes_user_id(self, temp_db):
         init_database(temp_db)
