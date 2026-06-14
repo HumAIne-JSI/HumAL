@@ -13,7 +13,7 @@ from app.persistence.minio_storage import DATA_BUCKET, MODELS_BUCKET, RESULTS_BU
 
 @pytest.fixture
 def mock_client() -> MagicMock:
-    return MagicMock(spec=MinioClient)
+    return MagicMock()
 
 
 def test_save_model_uses_minio_prefix(monkeypatch: pytest.MonkeyPatch, mock_client: MagicMock):
