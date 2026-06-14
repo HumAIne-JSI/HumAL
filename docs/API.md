@@ -174,6 +174,117 @@ curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
 ```
 
 
+## User Management
+
+### POST /users/register
+
+**Description:** Registers a new user.
+
+**Request Body (`application/json`):**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | **Yes** | Display name for the new user |
+| `password` | string | **Yes** | Password for the new user |
+
+**Swagger-style UI Example:**
+*Request Payload*
+```json
+{
+  "username": "my-user",
+  "password": "my-password"
+}
+```
+*HTTP 200 OK*
+```json
+{
+  "user_id": "a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6",
+  "username": "my-user"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/users/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "my-user", "password": "my-password"}'
+```
+
+
+### POST /users/login
+
+**Description:** Authenticates a user and returns a JWT access token.
+
+**Request Body (`application/json`):**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | **Yes** | Username |
+| `password` | string | **Yes** | Password |
+
+**Swagger-style UI Example:**
+*Request Payload*
+```json
+{
+  "username": "my-user",
+  "password": "my-password"
+}
+```
+*HTTP 200 OK*
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/users/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "my-user", "password": "my-password"}'
+```
+
+
+### GET /users/me
+
+**Description:** Returns the identity of the currently authenticated user. If no `Authorization` header is provided, the system user is returned.
+
+**Headers:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `Authorization` | header | string | No | Bearer JWT token for authentication |
+
+**Swagger-style UI Example:**
+*HTTP 200 OK*
+```json
+{
+  "user_id": "00000000-0000-0000-0000-000000000000",
+  "username": "system"
+}
+```
+
+**cURL Example:**
+```bash
+curl "http://localhost:8000/users/me" \
+  -H "Authorization: Bearer <your-jwt>"
+```
+
+
+## Authentication
+
+All endpoints under `/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}/*`, `/xai/jobs/*`, and `/users/me` require authentication via an `Authorization: Bearer <jwt>` header.
+
+1. Register a user with `POST /users/register`.
+2. Obtain a token with `POST /users/login`.
+3. Include the token in subsequent requests:
+   ```bash
+   curl -X POST "http://localhost:8000/activelearning/new" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <your-jwt>" \
+     -d '{"model_name":"svm","qs_strategy":"uncertainty sampling","class_list":["team_a","team_b"]}'
+
+If the `Authorization` header is omitted, the request is treated as the system user (`00000000-0000-0000-0000-000000000000`). Invalid or expired tokens return `401 Unauthorized`. AL instance operations are scoped to the authenticated user's owned instances.
+
+
 ## Active Learning
 
 ### POST /activelearning/new

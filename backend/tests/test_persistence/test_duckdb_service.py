@@ -69,6 +69,27 @@ class TestUsers:
         result = service.get_user_by_username(username="nobody")
         assert result is None
 
+    def test_upsert_user_generates_api_key(self, service):
+        user_id = service.upsert_user(username="keyuser", password="pwd")
+        
+        user = service.get_user(user_id=user_id)
+        assert user["api_key"] is not None
+        assert isinstance(user["api_key"], str)
+        assert len(user["api_key"]) == 32  # uuid4 hex is 32 chars
+
+    def test_get_user_by_api_key(self, service):
+        known_key = "aabbccddee0011223344556677889900"
+        service.upsert_user(username="apiuser", password="pwd", api_key=known_key)
+        
+        user = service.get_user_by_api_key(api_key=known_key)
+        assert user is not None
+        assert user["username"] == "apiuser"
+        assert user["api_key"] == known_key
+
+    def test_get_user_by_api_key_missing(self, service):
+        result = service.get_user_by_api_key(api_key="nonexistent_key")
+        assert result is None
+
 
 class TestALInstances:
     def test_save_and_load_instance(self, service):
@@ -105,6 +126,31 @@ class TestALInstances:
         assert instances[1]["model_name"] == "M1"
         assert instances[2]["model_name"] == "M2"
 
+    def test_save_al_instance_with_user_id(self, service):
+        user_id = service.upsert_user(username="owner", password="pwd")
+        data = {"model_name": "SVC", "qs": "entropy", "classes": [1, 2]}
+        service.save_al_instance(1, data, user_id=user_id)
+        
+        loaded = service.load_al_instance(1)
+        assert loaded["user_id"] == str(user_id)
+
+    def test_get_all_instances_filters_by_user_id(self, service):
+        user_a = service.upsert_user(username="user_a", password="pwd")
+        user_b = service.upsert_user(username="user_b", password="pwd")
+        
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []}, user_id=user_a)
+        service.save_al_instance(2, {"model_name": "M2", "qs": "qs2", "classes": []}, user_id=user_b)
+        service.save_al_instance(3, {"model_name": "M3", "qs": "qs3", "classes": []}, user_id=user_a)
+        
+        instances_a = service.get_all_instances(user_id=user_a)
+        assert 1 in instances_a
+        assert 3 in instances_a
+        assert 2 not in instances_a
+        
+        instances_b = service.get_all_instances(user_id=user_b)
+        assert 2 in instances_b
+        assert 1 not in instances_b
+
     def test_get_all_instances_empty(self, service):
         instances = service.get_all_instances()
         assert instances == {
@@ -112,8 +158,7 @@ class TestALInstances:
                 "model_name": "default_model",
                 "qs": "default_query_strategy",
                 "classes": [1, 2],
-                "train_data_path": None,
-                "test_data_path": None,
+                "user_id": "00000000-0000-0000-0000-000000000000",
             }
         }
 
@@ -592,3 +637,30 @@ class TestIntegration:
         
         metrics = service.load_metrics(1)
         assert metrics["f1_score"] == 0.72
+
+
+class TestXAIJobs:
+    def test_create_xai_job_with_user_id(self, service):
+        # Create prerequisites
+        user_id = service.upsert_user(username="xai_user", password="pwd")
+        service.save_al_instance(1, {"model_name": "SVC", "qs": "entropy", "classes": []}, user_id=user_id)
+        service.upsert_tickets_df(pd.DataFrame({"Ref": ["T001"]}), split="train")
+        
+        job_id = uuid.uuid4()
+        service.create_xai_job(
+            al_instance_id=1,
+            job_id=job_id,
+            model_id=0,
+            ticket_ref_or_sha="sha123",
+            request_ticket_location="tickets/T001",
+            request_model_location="models/1/0",
+            request_preprocessor_location=None,
+            request_one_hot_encoder_location=None,
+            request_raw_tickets_locations=["raw_tickets/test"],
+            user_id=user_id,
+        )
+        
+        job = service.get_xai_job(job_id)
+        assert job is not None
+        assert job["user_id"] == str(user_id)
+        assert job["al_instance_id"] == 1

@@ -517,7 +517,7 @@ class XaiService:
         
         return lime_explanation_outputs
 
-    def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, model_id: int = 0):
+    def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, model_id: int = 0, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         original_text = self._ticket_text(ticket)
         target_embedding = inference(
@@ -547,7 +547,7 @@ class XaiService:
         if self.duckdb_service is not None:
             self.duckdb_service.log_event(
                 al_instance_id=al_instance_id,
-                user_id=SYSTEM_USER_ID,
+                user_id=user_id,
                 action="similar_tickets",
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
                 payload={
@@ -569,6 +569,7 @@ class XaiService:
                 self.duckdb_service.upsert_label_decision(
                     al_instance_id=al_instance_id,
                     ref=str(ticket_ref),
+                    user_id=user_id,
                     similar_tickets=sanitized_results,
                 )
 
@@ -577,7 +578,7 @@ class XaiService:
             "historical_neighbors": historical_neighbors,
         }
 
-    def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, model_id: int = 0):
+    def find_nearest_by_idx(self, al_instance_id: int, index: str, top_k: int = 2, model_id: int = 0, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         if self.duckdb_service is None:
             raise ValueError("DuckDB service is not configured")
@@ -621,7 +622,7 @@ class XaiService:
         if self.duckdb_service is not None:
             self.duckdb_service.log_event(
                 al_instance_id=al_instance_id,
-                user_id=SYSTEM_USER_ID,
+                user_id=user_id,
                 action="similar_tickets",
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
                 payload={
@@ -642,6 +643,7 @@ class XaiService:
                 self.duckdb_service.upsert_label_decision(
                     al_instance_id=al_instance_id, 
                     ref=str(index),
+                    user_id=user_id,
                     similar_tickets=sanitized_results,
                 )
 
@@ -789,7 +791,7 @@ class XaiService:
             "similarity_score": similarity_scores
         }
 
-    async def create_xai_request(self, al_instance_id: int, ticket_data: Data, model_id: int, ticket_ref: Optional[str] = None):
+    async def create_xai_request(self, al_instance_id: int, ticket_data: Data, model_id: int, ticket_ref: Optional[str] = None, user_id: str = SYSTEM_USER_ID):
         """Saves the ticket and vectorizer to MinIO.
            If ticket_ref is provided, it uses the ticket_ref as the object name in MinIO,
            otherwise, the minio method generates a sha256 hash.
@@ -853,7 +855,7 @@ class XaiService:
             publish_payload = {**xai_job_payload}
             await self.rabbitmq_client.publish(queue_name=task_queue, message=publish_payload)
 
-        self.duckdb_service.create_xai_job(**xai_job_duckdb_args)
+        self.duckdb_service.create_xai_job(**xai_job_duckdb_args, user_id=user_id)
 
 
         return job_id
@@ -931,9 +933,10 @@ class XaiService:
                     latency_ms = int((job_info["finished_at"] - job_info["created_at"]).total_seconds() * 1000)
 
                 if job_info is not None:
+                    job_user_id = job_info.get("user_id", SYSTEM_USER_ID)
                     self.duckdb_service.log_event(
                         al_instance_id=job_info["al_instance_id"],
-                        user_id=SYSTEM_USER_ID,
+                        user_id=job_user_id,
                         action="lime",
                         latency_ms=latency_ms,
                         payload={

@@ -17,9 +17,10 @@ logging.basicConfig(
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router
+from app.routers import inference_router, active_learning_router, config_router, data_router, xai_router, user_router
 
 from contextlib import asynccontextmanager
+from app.config.config import JWT_SECRET_KEY
 from app.core.dependencies import get_startup_service, get_xai_service, get_rabbitmq_client
 
 if os.getenv("USE_RABBITMQ", "0") == "1":
@@ -27,6 +28,8 @@ if os.getenv("USE_RABBITMQ", "0") == "1":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not JWT_SECRET_KEY:
+        raise RuntimeError("JWT_SECRET_KEY environment variable is not set")
     get_startup_service().load_data_from_minio_into_duckdb()
     use_rabbitmq = os.getenv("USE_RABBITMQ", "0") == "1"
 
@@ -73,6 +76,7 @@ app.include_router(active_learning_router.router)
 app.include_router(config_router.router)
 app.include_router(data_router.router)
 app.include_router(xai_router.router)
+app.include_router(user_router.router)
 
 # Entry point for running the application
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Query, Body
-from app.core.dependencies import get_xai_service, get_data_service
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from app.core.dependencies import get_xai_service, get_data_service, get_current_user
 from app.data_models.active_learning_dm import Data, Neighbor, NearestTicketResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -11,6 +11,15 @@ router = APIRouter(prefix="/xai", tags=["xai"])
 xai_service = get_xai_service()
 data_service = get_data_service()
 
+
+def _require_instance_owner(al_instance_id: int, current_user: dict):
+    instance = xai_service.storage.al_instances_dict.get(al_instance_id)
+    if instance is None:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    if instance.get("user_id") != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this instance")
+
+
 @router.post("/{al_instance_id}/nearest", response_model=List[NearestTicketResponse])
 def nearest(
     al_instance_id: int, 
@@ -18,10 +27,9 @@ def nearest(
     query_idx: Optional[list[str]] = Query(None), 
     top_k: int = Query(1),
     model_id: int = Query(0),
+    current_user: dict = Depends(get_current_user),
 ):
-    # check if the instance id is valid
-    if al_instance_id not in xai_service.storage.al_instances_dict:
-        raise HTTPException(status_code=404, detail="Instance not found")
+    _require_instance_owner(al_instance_id, current_user)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -32,7 +40,7 @@ def nearest(
         raise HTTPException(status_code=400, detail="Provide exactly one of ticket_data or query_idx")
     
     if ticket_data is not None:
-        neighbors = xai_service.find_nearest(al_instance_id, ticket_data, top_k, model_id)
+        neighbors = xai_service.find_nearest(al_instance_id, ticket_data, top_k, model_id, user_id=current_user["user_id"])
         return [NearestTicketResponse(
             predicted_class_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["predicted_class_neighbors"]],
             historical_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["historical_neighbors"]],
@@ -41,7 +49,7 @@ def nearest(
         assert query_idx is not None
         results = []
         for q_idx in query_idx:
-            neighbors = xai_service.find_nearest_by_idx(al_instance_id, q_idx, top_k, model_id)
+            neighbors = xai_service.find_nearest_by_idx(al_instance_id, q_idx, top_k, model_id, user_id=current_user["user_id"])
             results.append(NearestTicketResponse(
                 query_idx=str(q_idx),
                 predicted_class_neighbors=[Neighbor(**neighbor) for neighbor in neighbors["predicted_class_neighbors"]],
@@ -54,11 +62,10 @@ def explain_lime(
     al_instance_id: int, 
     ticket_data: Optional[Data] = Body(None), 
     query_idx: Optional[list[str]] = Query(None), 
-    model_id: int = Query(0)
+    model_id: int = Query(0),
+    current_user: dict = Depends(get_current_user),
     ):
-    # check if the instance id is valid
-    if al_instance_id not in xai_service.storage.al_instances_dict:
-        raise HTTPException(status_code=404, detail="Instance not found")
+    _require_instance_owner(al_instance_id, current_user)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -95,11 +102,10 @@ def find_nearest_ticket(
     al_instance_id: int, 
     ticket_data: Optional[Data] = Body(None), 
     query_idx: Optional[list[str]] = Query(None), 
-    model_id: int = Query(0)
+    model_id: int = Query(0),
+    current_user: dict = Depends(get_current_user),
     ):
-    # check if the instance id is valid
-    if al_instance_id not in xai_service.storage.al_instances_dict:
-        raise HTTPException(status_code=404, detail="Instance not found")
+    _require_instance_owner(al_instance_id, current_user)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -121,24 +127,23 @@ async def create_xai_request(
     al_instance_id: int,
     ticket_data: Data,
     model_id: int = 0,
-    ticket_ref: Optional[str] = None
+    ticket_ref: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
 ):
     """Saves the ticket to MinIO and returns the job_id for tracking the XAI request."""
+
+    _require_instance_owner(al_instance_id, current_user)
 
     # check if rabbitmq is enabled
     rabbitmq_enabled = os.getenv("USE_RABBITMQ", "0") == "1"
     if not rabbitmq_enabled:
         raise HTTPException(status_code=503, detail="XAI request handling is not available because RabbitMQ is not enabled")
     
-    # check if the instance id is valid
-    if al_instance_id not in xai_service.storage.al_instances_dict:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    
-    job_id = await xai_service.create_xai_request(al_instance_id=al_instance_id, ticket_data=ticket_data, model_id=model_id, ticket_ref=ticket_ref)
+    job_id = await xai_service.create_xai_request(al_instance_id=al_instance_id, ticket_data=ticket_data, model_id=model_id, ticket_ref=ticket_ref, user_id=current_user["user_id"])
     return {"job_id": job_id}
 
 @router.get("/jobs/{job_id}")
-def get_xai_job(job_id: uuid.UUID):
+def get_xai_job(job_id: uuid.UUID, current_user: dict = Depends(get_current_user)):
     """Endpoint to retrieve the status and results of an XAI job."""
 
     # check if rabbitmq is enabled
@@ -149,7 +154,10 @@ def get_xai_job(job_id: uuid.UUID):
     job_info = xai_service.get_xai_job(job_id)
     if job_info is None:
         raise HTTPException(status_code=404, detail="XAI job not found")
-    elif job_info['status'] in ['queued', 'processing', 'failed']:
+
+    _require_instance_owner(job_info["al_instance_id"], current_user)
+
+    if job_info['status'] in ['queued', 'processing', 'failed']:
         return {"status": job_info['status'], "result": None}
 
     if job_info['status'] == 'completed':
@@ -171,6 +179,7 @@ def get_xai_job(job_id: uuid.UUID):
             xai_service.duckdb_service.upsert_label_decision(
                 al_instance_id=job_info["al_instance_id"],
                 ref=str(job_info["ticket_ref_or_sha"]),
+                user_id=current_user["user_id"],
                 xai_result=result_payload,
             )
 

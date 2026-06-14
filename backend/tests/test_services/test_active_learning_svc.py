@@ -193,6 +193,35 @@ class TestCreateInstance:
         mock_local_artifacts.save_model.assert_called_once()
         mock_local_artifacts.load_model.assert_called_once_with(instance_id, 0)
 
+    def test_create_instance_stores_user_id(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
+        custom_user_id = "11111111-1111-1111-1111-111111111111"
+
+        def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
+            if not test_set:
+                refs = [f"T{i:03d}" for i in range(50)]
+                x_train = pd.DataFrame([[i, i + 1] for i in range(50)], index=refs)
+                y_train = pd.Series([0 if i % 2 == 0 else 1 for i in range(50)], index=refs)
+                return x_train, y_train, _FakeLabelEncoder(), MagicMock()
+
+            x_test = pd.DataFrame([[1, 2], [3, 4]], index=["S001", "S002"])
+            y_test = pd.Series(["Team A", "Team B"], index=["S001", "S002"])
+            return x_test, y_test, _FakeLabelEncoder(), MagicMock()
+
+        monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", fake_dispatch_team)
+        service = _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts)
+
+        new_instance = NewInstance(
+            model_name="svm",
+            qs_strategy="random sampling",
+            class_list=["Team A", "Team B"],
+        )
+
+        instance_id = service.create_instance(new_instance, user_id=custom_user_id)
+
+        assert storage.al_instances_dict[instance_id]["user_id"] == custom_user_id
+        mock_duckdb_service.save_al_instance.assert_called_once()
+        assert mock_duckdb_service.save_al_instance.call_args.kwargs["user_id"] == custom_user_id
+
     def test_create_instance_ignores_optional_data_paths(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
         """Deprecated train_data_path / test_data_path are accepted but ignored."""
         def fake_dispatch_team(duckdb_service, test_set=False, le=None, oh=None, classes=None):
@@ -362,8 +391,43 @@ class TestLabelInstanceLogging:
         assert second_call["latency_ms"] == 3000
         assert second_call["explanation"] is None
         assert second_call["most_helpful_feature"] is None
-        benchmarking_service.export_if_needed.assert_called_once_with(1)
+        benchmarking_service.export_if_needed.assert_called_once_with(1, user_id='00000000-0000-0000-0000-000000000000')
         minio_service.save_labels.assert_called_once()
+
+    def test_label_instance_uses_user_id(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        custom_user_id = "22222222-2222-2222-2222-222222222222"
+
+        le_mock = MagicMock()
+        le_mock.classes_ = np.array(["Team A", "Team B"], dtype=object)
+        le_mock.transform.return_value = np.array([0])
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan], index=["T001"]),
+            "le": le_mock,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+        )
+
+        service.label_instance(1, LabelRequest(query_idx=["T001"], labels=["Team A"]), user_id=custom_user_id)
+
+        duckdb_service.save_labels.assert_called_once()
+        assert duckdb_service.save_labels.call_args.kwargs["user_id"] == custom_user_id
 
 
 class TestLoadFromPersistence:

@@ -25,3 +25,4 @@ aio-pika
 requests
 pyarrow
 openpyxl
+pyjwt

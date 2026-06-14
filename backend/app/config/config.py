@@ -67,3 +67,9 @@ def _get_minio_prefix() -> str:
     """Get an optional object-key prefix used to namespace MinIO paths."""
     raw_prefix = (os.getenv("MINIO_PREFIX") or "").strip()
     return raw_prefix.strip("/")
+
+
+# ============ JWT Authentication ============
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))

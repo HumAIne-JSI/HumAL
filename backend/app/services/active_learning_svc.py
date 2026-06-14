@@ -62,7 +62,7 @@ class ActiveLearningService:
         )
 
     # Logic for creating a new active learning instance
-    def create_instance(self, new_instance: NewInstance):
+    def create_instance(self, new_instance: NewInstance, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Get next available instance ID
         instance_id = self.storage.get_next_instance_id()
@@ -91,7 +91,8 @@ class ActiveLearningService:
             'model': model_dict[new_instance.model_name],
             'model_name': new_instance.model_name,
             'qs': new_instance.qs_strategy,
-            'classes': classes
+            'classes': classes,
+            'user_id': user_id,
         }
         
         # save the data to the dataset dictionary
@@ -110,7 +111,8 @@ class ActiveLearningService:
 
             self.duckdb_service.save_al_instance(
                 al_instance_id=instance_id,
-                instance_data = al_instance_data
+                instance_data=al_instance_data,
+                user_id=user_id,
             )
 
             self.local_artifacts_store.save_encoders(
@@ -182,7 +184,8 @@ class ActiveLearningService:
                 "embedding_model": SENTENCE_TRANSFORMERS_MODEL,
                 "train_data_path": self.minio_service.return_data_names("train") if self.minio_service is not None else "",
                 "test_data_path": self.minio_service.return_data_names("test") if self.minio_service is not None else "",
-            }
+            },
+            user_id=user_id,
         )
 
 
@@ -230,6 +233,7 @@ class ActiveLearningService:
                 "model_name": model_name,
                 "qs": qs_name,
                 "classes": classes,
+                "user_id": instance_data.get("user_id"),
             }
 
             self.storage.dataset_dict[instance_id] = {
@@ -311,7 +315,7 @@ class ActiveLearningService:
         # encoded[mask] = labels[mask].apply(lambda x: label_encoder.transform([x])[0])
         return encoded
 
-    def _apply_label_request(self, al_instance_id: int, query_idx: list[int | str], labels: list[str | int | None]) -> None:
+    def _apply_label_request(self, al_instance_id: int, query_idx: list[int | str], labels: list[str | int | None], user_id: str = SYSTEM_USER_ID) -> None:
         y = self.storage.dataset_dict[al_instance_id]['y_train']
 
         normalized_labels = [np.nan if label is None else label for label in labels]
@@ -326,7 +330,7 @@ class ActiveLearningService:
         if self.duckdb_service is not None:
             self.duckdb_service.save_labels(
                 al_instance_id=al_instance_id,
-                user_id=SYSTEM_USER_ID,
+                user_id=user_id,
                 labels_dict={str(ticket_id): label for ticket_id, label in zip(query_idx, normalized_labels)},
                 split="train",
             )
@@ -340,7 +344,7 @@ class ActiveLearningService:
             )
 
     # Logic for getting the next instances
-    def get_next_instances(self, al_instance_id: int, batch_size: int = 1):        
+    def get_next_instances(self, al_instance_id: int, batch_size: int = 1, user_id: str = SYSTEM_USER_ID):        
         start_time = time.perf_counter()
         # Get the data
         X = self.storage.dataset_dict[al_instance_id]['X_train']
@@ -362,6 +366,7 @@ class ActiveLearningService:
                 "strategy": qs_name,
                 "pool_size": int(len(X)),
             },
+            user_id=user_id,
         )
         
         # Initialize classifier
@@ -389,16 +394,17 @@ class ActiveLearningService:
                 "ids": query_idx,
                 "uncertainties": None,
             },
+            user_id=user_id,
         )
         
         # Return the query indices
         return query_idx
 
     # Logic for labeling instances
-    def label_instance(self, al_instance_id: int, label_request: LabelRequest):
+    def label_instance(self, al_instance_id: int, label_request: LabelRequest, user_id: str = SYSTEM_USER_ID):
         if al_instance_id not in self.storage.al_instances_dict:
             return {"error": "Instance not found"}
-        self._apply_label_request(al_instance_id, label_request.query_idx, label_request.labels)
+        self._apply_label_request(al_instance_id, label_request.query_idx, label_request.labels, user_id=user_id)
 
     def label_with_info(self, al_instance_id: int, label_info: list[LabelInfo], user_id: str = SYSTEM_USER_ID):
         """Label tickets and log the human review metadata.
@@ -418,7 +424,7 @@ class ActiveLearningService:
         query_idx = [item.ticket_id for item in label_info]
         labels = [item.label for item in label_info]
 
-        self._apply_label_request(al_instance_id, query_idx, labels)
+        self._apply_label_request(al_instance_id, query_idx, labels, user_id=user_id)
 
         if self.duckdb_service is not None:
             for item in label_info:
@@ -459,12 +465,12 @@ class ActiveLearningService:
                 )
 
         if self.duckdb_service is not None and self.benchmarking_service is not None:
-            self.benchmarking_service.export_if_needed(al_instance_id)
+            self.benchmarking_service.export_if_needed(al_instance_id, user_id=user_id)
 
         return {"message": "Labels updated"}
 
     # Logic for updating the model
-    def update_model(self, al_instance_id: int):
+    def update_model(self, al_instance_id: int, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Instance
         instance = self.storage.al_instances_dict[al_instance_id]
@@ -490,6 +496,7 @@ class ActiveLearningService:
                 "train_samples": int(len(X)),
                 "model_id": 0,
             },
+            user_id=user_id,
         )
         
         # save the model (the clf object)
@@ -520,7 +527,7 @@ class ActiveLearningService:
             )
 
 
-    def calculate_metrics(self, al_instance_id: int):
+    def calculate_metrics(self, al_instance_id: int, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Get the data
         X_test = self.storage.dataset_dict[al_instance_id]['X_test']
@@ -581,6 +588,7 @@ class ActiveLearningService:
                 "mean_entropy": float(mean_entropy),
                 "num_labeled": int(num_labeled),
             },
+            user_id=user_id,
         )
 
     def get_instance_info(self, al_instance_id: int):
@@ -605,7 +613,7 @@ class ActiveLearningService:
         return info
 
     # Logic for saving the model
-    def save_model(self, al_instance_id: int):
+    def save_model(self, al_instance_id: int, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         if al_instance_id not in self.storage.model_paths_dict:
             self.storage.model_paths_dict[al_instance_id] = {}
@@ -676,6 +684,7 @@ class ActiveLearningService:
                     "local_path": model_path,
                     "minio_object": minio_model_info["object"],
                 },
+                user_id=user_id,
             )
 
         return model_id

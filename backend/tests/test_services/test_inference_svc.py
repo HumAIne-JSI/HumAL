@@ -169,3 +169,45 @@ def test_infer_logs_prediction(mock_inference, inference_service):
     assert result == ["Team A"]
     duckdb_service.log_event.assert_called_once()
     assert duckdb_service.log_event.call_args.kwargs["action"] == "predict"
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_logs_with_user_id(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+    custom_user_id = "33333333-3333-3333-3333-333333333333"
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
+
+    result = inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id)
+
+    assert result == ["Team A"]
+    duckdb_service.log_event.assert_called_once()
+    assert duckdb_service.log_event.call_args.kwargs["user_id"] == custom_user_id
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_proba_logs_with_user_id(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+    custom_user_id = "44444444-4444-4444-4444-444444444444"
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = np.array([[0.7, 0.3]])
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.classes_ = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
+
+    result = inference_service.infer_proba(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id)
+
+    assert result["classes"] == ["Team A", "Team B"]
+    duckdb_service.log_event.assert_called_once()
+    assert duckdb_service.log_event.call_args.kwargs["user_id"] == custom_user_id

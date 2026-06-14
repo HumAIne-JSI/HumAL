@@ -166,6 +166,57 @@ class TestInitDatabase:
             assert "path_to_model" in col_dict
             assert "created_at" in col_dict
 
+    def test_users_schema_includes_api_key(self, temp_db):
+        init_database(temp_db)
+        
+        with connect(temp_db) as conn:
+            columns = conn.execute(
+                """
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'users'
+                ORDER BY ordinal_position
+                """
+            ).fetchall()
+            
+            col_dict = {col[0]: col[1] for col in columns}
+            
+            assert "api_key" in col_dict
+
+    def test_al_instances_schema_includes_user_id(self, temp_db):
+        init_database(temp_db)
+        
+        with connect(temp_db) as conn:
+            columns = conn.execute(
+                """
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'al_instances'
+                ORDER BY ordinal_position
+                """
+            ).fetchall()
+            
+            col_dict = {col[0]: col[1] for col in columns}
+            
+            assert "user_id" in col_dict
+
+    def test_xai_jobs_schema_includes_user_id(self, temp_db):
+        init_database(temp_db)
+        
+        with connect(temp_db) as conn:
+            columns = conn.execute(
+                """
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'xai_jobs'
+                ORDER BY ordinal_position
+                """
+            ).fetchall()
+            
+            col_dict = {col[0]: col[1] for col in columns}
+            
+            assert "user_id" in col_dict
+
     def test_idempotent_initialization(self, temp_db):
         """Test that running init_database multiple times doesn't error."""
         init_database(temp_db)

@@ -88,3 +88,23 @@ class NearestTicketResponse(BaseModel):
     query_idx: Optional[str] = None
     predicted_class_neighbors: list[Neighbor] = Field(default_factory=list)
     historical_neighbors: list[Neighbor] = Field(default_factory=list)
+
+
+class UserRegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    user_id: str
+    username: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"

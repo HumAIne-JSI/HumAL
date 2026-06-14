@@ -14,7 +14,7 @@ class BenchmarkingService:
         self.duckdb_service = duckdb_service
         self.minio_service = minio_service
 
-    def export_if_needed(self, al_instance_id: int, label_threshold: int = 10) -> Optional[Dict[str, str]]:
+    def export_if_needed(self, al_instance_id: int, label_threshold: int = 10, user_id: str = SYSTEM_USER_ID) -> Optional[Dict[str, str]]:
         last_export_ts = self.duckdb_service.get_last_benchmark_export(al_instance_id)
         label_count = self.duckdb_service.count_label_events_since(al_instance_id, last_export_ts)
 
@@ -48,7 +48,7 @@ class BenchmarkingService:
 
         self.duckdb_service.log_event(
             al_instance_id=al_instance_id,
-            user_id=SYSTEM_USER_ID,
+            user_id=user_id,
             action="benchmark_export",
             latency_ms=latency_ms,
             payload={

@@ -25,6 +25,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             model_name VARCHAR,
             query_strategy VARCHAR,
             classes INTEGER[],
+            user_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'::UUID NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -36,6 +37,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             user_id UUID PRIMARY KEY,
             username VARCHAR UNIQUE,
             password VARCHAR,
+            api_key VARCHAR UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -144,6 +146,7 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS xai_jobs (
             job_id UUID PRIMARY KEY,
             al_instance_id INTEGER NOT NULL,
+            user_id UUID,
             model_id INTEGER NOT NULL,
             ticket_ref_or_sha VARCHAR NOT NULL,
             status VARCHAR NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
@@ -156,7 +159,8 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             result_file_names VARCHAR[],
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             finished_at TIMESTAMP,
-            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id)
+            FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
         """
     )
@@ -224,10 +228,11 @@ def _populate_default_users(conn: duckdb.DuckDBPyConnection) -> None:
     """Insert default system user for deployments without user authentication."""
     conn.execute(
         """
-        INSERT INTO users (user_id, username, password, created_at)
+        INSERT INTO users (user_id, username, password, api_key, created_at)
         VALUES (
             '00000000-0000-0000-0000-000000000000'::UUID,
             'system',
+            NULL,
             NULL,
             CURRENT_TIMESTAMP
         )
@@ -239,12 +244,13 @@ def _populate_default_al_instance(conn: duckdb.DuckDBPyConnection) -> None:
     """Insert default AL instance for deployments without multiple AL instances."""
     conn.execute(
         """
-        INSERT INTO al_instances (al_instance_id, model_name, query_strategy, classes, created_at)
+        INSERT INTO al_instances (al_instance_id, model_name, query_strategy, classes, user_id, created_at)
         VALUES (
             0,
             'default_model',
             'default_query_strategy',
             ARRAY[1, 2],
+            '00000000-0000-0000-0000-000000000000'::UUID,
             CURRENT_TIMESTAMP
         )
         ON CONFLICT DO NOTHING

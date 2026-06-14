@@ -1,7 +1,7 @@
 import time
 
-from fastapi import APIRouter, HTTPException, Query
-from app.core.dependencies import get_inference_service, get_duckdb_persistence_service
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.core.dependencies import get_inference_service, get_duckdb_persistence_service, get_current_user
 from app.data_models.active_learning_dm import Data, InferProbaResponse
 from app.config.config import SYSTEM_USER_ID
 
@@ -9,12 +9,19 @@ router = APIRouter(prefix="/activelearning", tags=["inference"])
 inference_service = get_inference_service()
 duckdb_service = get_duckdb_persistence_service()
 
-@router.post("/{al_instance_id}/infer")
-def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None)):
-    request_start = time.perf_counter()
-    # check if the instance id is valid
-    if al_instance_id not in inference_service.storage.al_instances_dict:
+
+def _require_instance_owner(al_instance_id: int, current_user: dict):
+    instance = inference_service.storage.al_instances_dict.get(al_instance_id)
+    if instance is None:
         raise HTTPException(status_code=404, detail="Instance not found")
+    if instance.get("user_id") != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this instance")
+
+
+@router.post("/{al_instance_id}/infer")
+def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None), current_user: dict = Depends(get_current_user)):
+    request_start = time.perf_counter()
+    _require_instance_owner(al_instance_id, current_user)
     
     # check if the model is trained
     if al_instance_id not in inference_service.storage.model_paths_dict:
@@ -23,7 +30,7 @@ def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(
     if duckdb_service is not None:
         duckdb_service.log_event(
             al_instance_id=al_instance_id,
-            user_id=SYSTEM_USER_ID,
+            user_id=current_user["user_id"],
             action="request_prediction",
             latency_ms=int((time.perf_counter() - request_start) * 1000),
             payload={
@@ -31,10 +38,10 @@ def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(
                 **({"ref": ref} if ref is not None else {}),
             },
         )
-    return inference_service.infer(al_instance_id, data)
+    return inference_service.infer(al_instance_id, data, user_id=current_user["user_id"])
 
 @router.post("/{al_instance_id}/infer_proba", response_model=InferProbaResponse)
-def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None)):
+def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None), current_user: dict = Depends(get_current_user)):
     """Return class probabilities for inference requests.
 
     Args:
@@ -48,9 +55,7 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
         HTTPException: When the instance or model is missing, or model lacks predict_proba.
     """
     request_start = time.perf_counter()
-    # check if the instance id is valid
-    if al_instance_id not in inference_service.storage.al_instances_dict:
-        raise HTTPException(status_code=404, detail="Instance not found")
+    _require_instance_owner(al_instance_id, current_user)
 
     # check if the model is trained
     if al_instance_id not in inference_service.storage.model_paths_dict:
@@ -59,7 +64,7 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
     if duckdb_service is not None:
         duckdb_service.log_event(
             al_instance_id=al_instance_id,
-            user_id=SYSTEM_USER_ID,
+            user_id=current_user["user_id"],
             action="request_prediction",
             latency_ms=int((time.perf_counter() - request_start) * 1000),
             payload={
@@ -69,6 +74,6 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
         )
 
     try:
-        return inference_service.infer_proba(al_instance_id, data)
+        return inference_service.infer_proba(al_instance_id, data, user_id=current_user["user_id"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

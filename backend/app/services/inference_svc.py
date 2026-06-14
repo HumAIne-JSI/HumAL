@@ -28,20 +28,20 @@ class InferenceService:
         self.local_artifacts_store = local_artifacts_store
         self.duckdb_service = duckdb_service
 
-    def _log_event(self, *, al_instance_id: int, action: str, latency_ms: int, payload: dict) -> None:
+    def _log_event(self, *, al_instance_id: int, action: str, latency_ms: int, payload: dict, user_id: str = SYSTEM_USER_ID) -> None:
         if self.duckdb_service is None:
             return
 
         self.duckdb_service.log_event(
             al_instance_id=al_instance_id,
-            user_id=SYSTEM_USER_ID,
+            user_id=user_id,
             action=action,
             latency_ms=latency_ms,
             payload=payload,
         )
 
     # Logic for inference
-    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0):
+    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Convert Data object(s) to pandas DataFrame
         if isinstance(X, list):
@@ -75,12 +75,13 @@ class InferenceService:
             action="predict",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
             payload={"predictions": predictions.tolist()},
+            user_id=user_id,
         )
 
         # Return the predictions
         return predictions.tolist()
 
-    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0):
+    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID):
         """Run probability inference for the provided samples.
 
         Args:
@@ -134,6 +135,7 @@ class InferenceService:
                 "classes": classes,
                 "probabilities": probabilities,
             },
+            user_id=user_id,
         )
 
         return {

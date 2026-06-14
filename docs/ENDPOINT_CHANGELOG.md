@@ -1,7 +1,139 @@
 # HumAL API Endpoint Changelog
 
-**Date:** April 22, 2026  
-**Summary:** Updates to data router endpoints, new configuration endpoint, and async XAI request handling.
+**Date:** June 13, 2026  
+**Summary:** JWT-based authentication replacing API-key auth.
+
+---
+
+## Latest Update
+
+**Date:** June 13, 2026
+
+### ❌ BREAKING CHANGE: API-Key Authentication Replaced with JWT
+
+The `X-API-Key` header has been removed. All authenticated endpoints now use `Authorization: Bearer <jwt>`.
+
+**Changes:**
+- `X-API-Key` header is no longer accepted; use `Authorization: Bearer <jwt>` instead
+- `POST /users/register` no longer returns `api_key` in the response
+- New endpoint `POST /users/login` for obtaining a JWT access token
+- When no token is provided, the request still falls back to the system user as before
+- Invalid or expired tokens return `401 Unauthorized`
+
+### ✅ NEW ENDPOINT: POST /users/login
+
+```
+Method: POST
+Path: /users/login
+Request body: {"username": "string", "password": "string"}
+Returns: {"access_token": "string", "token_type": "bearer"}
+```
+
+**Purpose:** Authenticate a user and receive a JWT access token for subsequent requests.
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/users/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "my-user", "password": "my-password"}'
+```
+
+**Example Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+```
+
+### ❌ CHANGED: POST /users/register
+
+`api_key` is no longer returned in the registration response. The response body is now `{"user_id": "uuid", "username": "string"}`.
+
+### ❌ CHANGED: Authentication mechanism
+
+All protected endpoints (`/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}/*`, `/xai/jobs/*`, `/users/me`) now expect `Authorization: Bearer <jwt>` instead of `X-API-Key`. Missing tokens still fall back to the system user.
+
+---
+
+## Previous Updates
+
+**Date:** June 11, 2026  
+**Summary:** User authentication, API-key-based ownership enforcement on AL instances, and user management endpoints.
+
+---
+
+### ✅ NEW ENDPOINTS: User Management
+
+Two new endpoints under `/users/` for API-key-based user management.
+
+#### `POST /users/register`
+
+```
+Method: POST
+Path: /users/register
+Request body: {"username": "string"}
+Returns: {"user_id": "uuid", "username": "string", "api_key": "string"}
+```
+
+**Purpose:** Register a new user and receive an auto-generated API key. The API key must be sent as the `X-API-Key` header on subsequent requests to authenticated endpoints.
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/users/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "my-user"}'
+```
+
+**Example Response:**
+```json
+{
+  "user_id": "a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6",
+  "username": "my-user",
+  "api_key": "abcdef1234567890abcdef1234567890"
+}
+```
+
+#### `GET /users/me`
+
+```
+Method: GET
+Path: /users/me
+Headers: X-API-Key (string, optional)
+Returns: {"user_id": "uuid", "username": "string"}
+```
+
+**Purpose:** Return the identity of the authenticated user. When no `X-API-Key` is sent, returns the system user identity.
+
+**Example Request:**
+```bash
+curl "http://localhost:8000/users/me" \
+  -H "X-API-Key: abcdef1234567890abcdef1234567890"
+```
+
+---
+
+### ✅ NEW BEHAVIOR: API-Key Authentication for Protected Endpoints
+
+All endpoints under `/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}/*`, and `/xai/jobs/*` now require valid AL instance ownership.
+
+**Behavior changes:**
+- Add `X-API-Key` header to requests to associate actions with your user
+- When `X-API-Key` is absent, the system user (`00000000-0000-0000-0000-000000000000`) is used
+- Operations on an AL instance are only allowed if the instance's `user_id` matches the authenticated user
+- `GET /activelearning/instances` only returns instances owned by the authenticated user
+- Invalid API keys return `401 Unauthorized`
+
+**Error Response:**
+```json
+{
+  "detail": "Invalid API Key"
+}
+```
+
+---
+
+## Previous Updates
 
 ---
 

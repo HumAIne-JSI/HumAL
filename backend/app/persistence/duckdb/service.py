@@ -13,7 +13,7 @@ from .schema import init_database
 
 from datetime import datetime
 
-from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, TEAM_NAME
+from app.config.config import GROUND_TRUTH_AL_INSTANCE_ID, SYSTEM_USER_ID, TEAM_NAME
 
 
 def _deserialize_varchar_array(value: Any) -> Optional[list[str]]:
@@ -73,21 +73,25 @@ class DuckDbPersistenceService:
         user_id: str | uuid.UUID | None = None,
         username: str,
         password: str,
+        api_key: Optional[str] = None,
     ) -> uuid.UUID:
         """Insert or replace a user row.
 
         If user_id is None, a new random UUID (uuid4) is generated.
+        If api_key is None, a new random hex string is generated.
         """
         user_uuid = uuid.UUID(str(user_id)) if user_id is not None else uuid.uuid4()
+        if api_key is None:
+            api_key = uuid.uuid4().hex
         with connect(self.db_path) as conn:
             # Delete existing user if present to avoid unique constraint issues
             conn.execute("DELETE FROM users WHERE user_id = ?", [str(user_uuid)])
             conn.execute(
                 """
-                INSERT INTO users (user_id, username, password)
-                VALUES (?, ?, ?)
+                INSERT INTO users (user_id, username, password, api_key)
+                VALUES (?, ?, ?, ?)
                 """,
-                [str(user_uuid), username, password],
+                [str(user_uuid), username, password, api_key],
             )
         return user_uuid
 
@@ -96,7 +100,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT user_id, username, password, created_at
+                SELECT user_id, username, password, api_key, created_at
                 FROM users
                 WHERE user_id = ?
                 """,
@@ -110,14 +114,15 @@ class DuckDbPersistenceService:
             "user_id": str(row[0]),
             "username": row[1],
             "password": row[2],
-            "created_at": row[3],
+            "api_key": row[3],
+            "created_at": row[4],
         }
 
     def get_user_by_username(self, *, username: str) -> Optional[Dict[str, Any]]:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT user_id, username, password, created_at
+                SELECT user_id, username, password, api_key, created_at
                 FROM users
                 WHERE username = ?
                 """,
@@ -131,23 +136,48 @@ class DuckDbPersistenceService:
             "user_id": str(row[0]),
             "username": row[1],
             "password": row[2],
-            "created_at": row[3],
+            "api_key": row[3],
+            "created_at": row[4],
+        }
+
+    def get_user_by_api_key(self, *, api_key: str) -> Optional[Dict[str, Any]]:
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, username, password, api_key, created_at
+                FROM users
+                WHERE api_key = ?
+                """,
+                [api_key],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "user_id": str(row[0]),
+            "username": row[1],
+            "password": row[2],
+            "api_key": row[3],
+            "created_at": row[4],
         }
 
     # --- AL instances ---
-    def save_al_instance(self, al_instance_id: int, instance_data: Dict[str, Any]) -> None:
+    def save_al_instance(self, al_instance_id: int, instance_data: Dict[str, Any], user_id: Optional[str | uuid.UUID] = None) -> None:
+        resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else uuid.UUID(SYSTEM_USER_ID)
         with connect(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO al_instances
-                (al_instance_id, model_name, query_strategy, classes)
-                VALUES (?, ?, ?, ?)
+                (al_instance_id, model_name, query_strategy, classes, user_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 [
                     al_instance_id,
                     instance_data.get("model_name"),
                     instance_data.get("qs"),
                     instance_data.get("classes"),
+                    str(resolved_user_id),
                 ],
             )
 
@@ -155,7 +185,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             result = conn.execute(
                 """
-                SELECT model_name, query_strategy, classes, created_at
+                SELECT model_name, query_strategy, classes, user_id, created_at
                 FROM al_instances
                 WHERE al_instance_id = ?
                 """,
@@ -169,18 +199,24 @@ class DuckDbPersistenceService:
             "model_name": result[0],
             "qs": result[1],
             "classes": result[2],
-            "created_at": result[3],
+            "user_id": str(result[3]) if result[3] is not None else None,
+            "created_at": result[4],
         }
 
-    def get_all_instances(self) -> Dict[int, Dict[str, Any]]:
+    def get_all_instances(
+        self, user_id: Optional[str | uuid.UUID] = None
+    ) -> Dict[int, Dict[str, Any]]:
+        query = """
+            SELECT al_instance_id, model_name, query_strategy, classes, user_id
+            FROM al_instances
+        """
+        params = []
+        if user_id is not None:
+            query += " WHERE user_id = ?"
+            params.append(str(uuid.UUID(str(user_id))))
+        query += " ORDER BY al_instance_id"
         with connect(self.db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT al_instance_id, model_name, query_strategy, classes
-                FROM al_instances
-                ORDER BY al_instance_id
-                """
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
 
         instances: Dict[int, Dict[str, Any]] = {}
         for row in rows:
@@ -188,6 +224,7 @@ class DuckDbPersistenceService:
                 "model_name": row[1],
                 "qs": row[2],
                 "classes": row[3],
+                "user_id": str(row[4]) if row[4] is not None else None,
             }
         return instances
 
@@ -828,11 +865,13 @@ class DuckDbPersistenceService:
             request_preprocessor_location: Optional[str],
             request_one_hot_encoder_location: Optional[str],
             request_raw_tickets_locations: list[str],
-            status: str = "queued"
+            status: str = "queued",
+            user_id: Optional[str | uuid.UUID] = None,
             ) -> None:
 
         """Create a new XAI job entry in the database."""
         import json
+        resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else None
         
         # Convert Python list to JSON string for DuckDB (arrays stored as JSON strings)
         request_raw_tickets_locations_serialized = json.dumps(request_raw_tickets_locations)
@@ -841,11 +880,11 @@ class DuckDbPersistenceService:
             conn.execute(
                 """
                 INSERT INTO xai_jobs 
-                (job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, 
+                (job_id, al_instance_id, user_id, model_id, ticket_ref_or_sha, status, request_ticket_location, 
                  request_model_location, request_preprocessor_location, request_one_hot_encoder_location, request_raw_tickets_locations)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [str(job_id), al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location,
+                [str(job_id), al_instance_id, str(resolved_user_id) if resolved_user_id is not None else None, model_id, ticket_ref_or_sha, status, request_ticket_location,
                  request_model_location, request_preprocessor_location, request_one_hot_encoder_location, request_raw_tickets_locations_serialized]
             )
             
@@ -884,7 +923,7 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_preprocessor_location, request_raw_tickets_locations, result_location, result_file_names, created_at, finished_at
+                SELECT job_id, al_instance_id, model_id, ticket_ref_or_sha, status, request_ticket_location, request_model_location, request_preprocessor_location, request_raw_tickets_locations, result_location, result_file_names, created_at, finished_at, user_id
                 FROM xai_jobs
                 WHERE job_id = ?
                 """,
@@ -908,6 +947,7 @@ class DuckDbPersistenceService:
             "result_file_names": _deserialize_varchar_array(row[10]),
             "created_at": row[11],
             "finished_at": row[12],
+            "user_id": str(row[13]) if row[13] is not None else None,
         }
 
     # --- Deletes ---

@@ -50,18 +50,27 @@ backend/
 
 **Key Routers:**
 
+- **user_router.py**: User management
+  - Register new users
+  - Authenticate users and issue JWT access tokens
+  - Return authenticated user identity
+  
 - **active_learning_router.py**: Manages AL instance lifecycle
-  - Create new instances
+  - Create new instances (auto-associated with authenticated user)
   - Get next samples for labeling
   - Submit labels and trigger training
+  - Endpoints enforce AL-instance ownership via `user_id` match
   
 - **inference_router.py**: Model prediction endpoints
   - Run inference on new tickets
   - Batch prediction support
+  - Endpoints enforce AL-instance ownership via `user_id` match
   
 - **xai_router.py**: Explainability features
   - LIME explanations
   - Similar ticket search
+  - Async XAI job management
+  - Endpoints enforce AL-instance ownership via `user_id` match
   
 - **data_router.py**: Data access and management
   - Ticket retrieval
@@ -118,13 +127,20 @@ class Storage:
 - Data and embeddings caching
 
 #### Dependencies (`core/dependencies.py`)
-**Purpose**: Dependency injection for services.
+**Purpose**: Dependency injection for services and authentication.
 
 ```python
 def get_al_service() -> ActiveLearningService
 def get_inference_service() -> InferenceService
 def get_xai_service() -> XAIService
+def get_current_user() -> dict
 ```
+
+**Authentication:**
+- `get_current_user` resolves the `Authorization: Bearer <jwt>` header to a user dict via the `sub` claim and `DuckDbPersistenceService.get_user`
+- Returns the system user (`00000000-0000-0000-0000-000000000000`) when no token is sent
+- Raises `401` for invalid or expired tokens
+- All AL instance and XAI endpoints use `get_current_user` via FastAPI `Depends()` and enforce that the instance's `user_id` matches the current user
 
 ---
 
@@ -147,6 +163,15 @@ class NewInstance(BaseModel):
 class LabelRequest(BaseModel):
     indices: List[str]
     labels: List[str]
+
+# User Management
+class UserRegisterRequest(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(BaseModel):
+    user_id: str
+    username: str
 ```
 
 
@@ -224,6 +249,10 @@ flowchart TD
 ## Storage and Persistence
 
 The DuckDB persistence layer stores active-learning and XAI metadata in staged tables so partial updates can be merged without losing earlier non-null values.
+
+### User-Aware Ownership
+
+All AL instances are owned by a user via the `user_id` column (`UUID NOT NULL DEFAULT system_user`). The system user UUID is `00000000-0000-0000-0000-000000000000`. JWT authentication binds requests to a user, and AL-instance operations are scoped to the owner. When no token is provided, requests fall back to the system user.
 
 ### Label Decision Metadata
 - `label_decisions` keeps decision metadata from `/activelearning/{al_instance_id}/label-with-info`, `/xai/{al_instance_id}/nearest_ticket`, and `/xai/jobs/{job_id}`.
