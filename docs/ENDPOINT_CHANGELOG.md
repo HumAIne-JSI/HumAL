@@ -7,6 +7,20 @@
 
 ## Latest Update
 
+**Date:** June 14, 2026
+
+### ❌ BREAKING CHANGE: `explanation` field removed, `most_helpful_feature` constrained
+
+The `explanation` input field has been removed from `POST /activelearning/{al_instance_id}/label-with-info`. It is no longer stored in `label_decisions` or returned in historical neighbors.
+
+The `most_helpful_feature` field is now constrained to one of `"lime"`, `"predicted_class_neighbors"`, `"historical_neighbors"`, or `"model_prediction"`. Previously it accepted any free text.
+
+**Changes:**
+- `explanation` removed from `LabelInfo` request model, `Neighbor` response model, `label_decisions` DB table, and all related code
+- `most_helpful_feature` type changed from `Optional[str]` to `Optional[Literal["lime", "predicted_class_neighbors", "historical_neighbors", "model_prediction"]]`
+
+---
+
 **Date:** June 13, 2026
 
 ### ❌ BREAKING CHANGE: API-Key Authentication Replaced with JWT
@@ -172,7 +186,7 @@ The nearest-neighbor endpoint now returns two result lists in one response: `pre
 - `historical_neighbors` returns the most similar rows from `label_decisions` that already have non-empty `xai_result` or `similar_tickets`
 - Neighbor scoring now includes `best_sentence`, `best_sentence_score`, and `sentence_score_components` using the weighted formula `0.7 * embedding_similarity + 0.2 * keyword_overlap + 0.1 * entity_overlap`
 - Deprecated neighbor fields `reason` and `overlapping_terms` are no longer returned
-- Historical neighbors now include persisted metadata fields: `xai_result`, `similar_tickets`, `model_prediction`, `explanation`, and `most_helpful_feature`
+- Historical neighbors now include persisted metadata fields: `xai_result`, `similar_tickets`, `model_prediction`, and `most_helpful_feature`
 - Stored `label_decisions.similar_tickets` payloads are now structured with `title` and `description` preserved for readability, while recursive `xai_result` and `similar_tickets` content is stripped to avoid duplication and bloat
 
 ---

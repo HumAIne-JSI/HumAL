@@ -98,8 +98,7 @@ Exactly one of the following must be provided:
         "xai_result": {"top_words": [["vpn", 0.42]]},
         "similar_tickets": [{"ref": "R-111111", "similarity": 0.75}],
         "model_prediction": "team_b",
-        "explanation": "Matched the historical decision",
-        "most_helpful_feature": "title"
+        "most_helpful_feature": "lime"
       }
     ]
   }
@@ -113,7 +112,7 @@ Exactly one of the following must be provided:
 
 **Neighbor Fields:**
 - `reason` and `overlapping_terms` are no longer returned
-- Historical neighbors include the persisted `xai_result`, `similar_tickets`, `model_prediction`, `explanation`, and `most_helpful_feature` metadata
+- Historical neighbors include the persisted `xai_result`, `similar_tickets`, `model_prediction`, and `most_helpful_feature` metadata
 
 **cURL Example:**
 ```bash
@@ -389,7 +388,7 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 
 ### POST /activelearning/{al_instance_id}/label-with-info
 
-**Description:** Submits human-assigned labels together with metadata such as review duration, model prediction, and optional explanation fields. The API logs one event per labeled ticket, persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed.
+**Description:** Submits human-assigned labels together with metadata such as review duration and model prediction. The API logs one event per labeled ticket, persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -405,10 +404,9 @@ Array of `label_info` objects.
 | `model_prediction` | string or null | No | Model prediction shown to the reviewer |
 | `start_time` | string (date-time) | **Yes** | RFC3339 timestamp when review started |
 | `end_time` | string (date-time) | **Yes** | RFC3339 timestamp when review ended |
-| `explanation` | string or null | No | Optional reviewer explanation |
-| `most_helpful_feature` | string or null | No | Optional feature that helped the decision |
+| `most_helpful_feature` | string or null | No | One of: `"lime"`, `"predicted_class_neighbors"`, `"historical_neighbors"`, `"model_prediction"` |
 
-The stored `label_decisions` row is updated in stages and keeps the latest non-null values for `label`, `labeled_at`, `model_prediction`, `latency_ms`, `explanation`, and `most_helpful_feature`.
+The stored `label_decisions` row is updated in stages and keeps the latest non-null values for `label`, `labeled_at`, `model_prediction`, `latency_ms`, and `most_helpful_feature`.
 
 **Swagger-style UI Example:**
 *Request Payload*
@@ -420,8 +418,7 @@ The stored `label_decisions` row is updated in stages and keeps the latest non-n
     "model_prediction": "team_a",
     "start_time": "2026-05-20T10:00:00Z",
     "end_time": "2026-05-20T10:00:03Z",
-    "explanation": "Confirmed the model output",
-    "most_helpful_feature": "title"
+    "most_helpful_feature": "lime"
   },
   {
     "ticket_id": "R-544315",

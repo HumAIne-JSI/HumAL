@@ -148,8 +148,7 @@ def _historical_neighbors():
             "xai_result": {"top_words": [["printer", 0.15]]},
             "similar_tickets": [{"ref": "ref9", "similarity": 0.5}],
             "model_prediction": "Team B",
-            "explanation": "Historical explanation",
-            "most_helpful_feature": "title",
+            "most_helpful_feature": "lime",
         }
     ]
 
@@ -172,7 +171,7 @@ def test_find_nearest_returns_predicted_and_historical_neighbors(mock_inference,
     }
 
     mock_inference.return_value = pd.DataFrame(np.array([[0.4, 0.6]]))
-    xai_service.duckdb_service.load_label_decisions_with_xai.return_value = [{"ref": "ref2", "xai_result": {"a": 1}, "similar_tickets": [{"b": 2}], "model_prediction": "Team B", "explanation": "exp", "most_helpful_feature": "title"}]
+    xai_service.duckdb_service.load_label_decisions_with_xai.return_value = [{"ref": "ref2", "xai_result": {"a": 1}, "similar_tickets": [{"b": 2}], "model_prediction": "Team B", "most_helpful_feature": "lime"}]
 
     with patch.object(XaiService, "_build_predicted_class_neighbors", return_value=_predicted_neighbors()) as mock_predicted, patch.object(XaiService, "_build_historical_neighbors", return_value=_historical_neighbors()) as mock_historical:
         result = xai_service.find_nearest(1, ticket_with_ref, top_k=1)

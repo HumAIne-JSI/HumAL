@@ -408,7 +408,6 @@ class DuckDbPersistenceService:
         labeled_at: Optional[datetime] = None,
         model_prediction: Optional[str] = None,
         latency_ms: Optional[int] = None,
-        explanation: Optional[str] = None,
         most_helpful_feature: Optional[str] = None,
         xai_result: Optional[Any] = None,
         similar_tickets: Optional[Any] = None,
@@ -427,19 +426,17 @@ class DuckDbPersistenceService:
                     labeled_at,
                     model_prediction,
                     latency_ms,
-                    explanation,
                     most_helpful_feature,
                     xai_result,
                     similar_tickets
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (al_instance_id, ref) DO UPDATE SET
                     user_id = COALESCE(EXCLUDED.user_id, label_decisions.user_id),
                     label = COALESCE(EXCLUDED.label, label_decisions.label),
                     labeled_at = COALESCE(EXCLUDED.labeled_at, label_decisions.labeled_at),
                     model_prediction = COALESCE(EXCLUDED.model_prediction, label_decisions.model_prediction),
                     latency_ms = COALESCE(EXCLUDED.latency_ms, label_decisions.latency_ms),
-                    explanation = COALESCE(EXCLUDED.explanation, label_decisions.explanation),
                     most_helpful_feature = COALESCE(EXCLUDED.most_helpful_feature, label_decisions.most_helpful_feature),
                     xai_result = COALESCE(EXCLUDED.xai_result, label_decisions.xai_result),
                     similar_tickets = COALESCE(EXCLUDED.similar_tickets, label_decisions.similar_tickets)
@@ -452,7 +449,6 @@ class DuckDbPersistenceService:
                     labeled_at,
                     model_prediction,
                     latency_ms,
-                    explanation,
                     most_helpful_feature,
                     json.dumps(xai_result, default=_json_default) if xai_result is not None else None,
                     json.dumps(similar_tickets, default=_json_default) if similar_tickets is not None else None,
@@ -465,7 +461,7 @@ class DuckDbPersistenceService:
             row = conn.execute(
                 """
                 SELECT al_instance_id, ref, user_id, label, labeled_at, model_prediction,
-                       latency_ms, explanation, most_helpful_feature, xai_result, similar_tickets
+                       latency_ms, most_helpful_feature, xai_result, similar_tickets
                 FROM label_decisions
                 WHERE al_instance_id = ? AND ref = ?
                 """,
@@ -483,10 +479,9 @@ class DuckDbPersistenceService:
             "labeled_at": row[4],
             "model_prediction": row[5],
             "latency_ms": row[6],
-            "explanation": row[7],
-            "most_helpful_feature": row[8],
-            "xai_result": _deserialize_json(row[9]),
-            "similar_tickets": _deserialize_json(row[10]),
+            "most_helpful_feature": row[7],
+            "xai_result": _deserialize_json(row[8]),
+            "similar_tickets": _deserialize_json(row[9]),
         }
 
     def load_label_decisions_with_xai(self, *, al_instance_id: int) -> list[Dict[str, Any]]:
@@ -497,12 +492,12 @@ class DuckDbPersistenceService:
 
         Returns:
             A list of dictionaries containing ref, xai_result, similar_tickets,
-            model_prediction, explanation, most_helpful_feature, and label when present.
+            model_prediction, most_helpful_feature, and label when present.
         """
         with connect(self.db_path) as conn:
             rows = conn.execute(
                 """
-                SELECT ref, label, xai_result, similar_tickets, model_prediction, explanation, most_helpful_feature
+                SELECT ref, label, xai_result, similar_tickets, model_prediction, most_helpful_feature
                 FROM label_decisions
                 WHERE al_instance_id = ?
                                     AND label IS NOT NULL
@@ -526,8 +521,7 @@ class DuckDbPersistenceService:
                     "xai_result": xai_result,
                     "similar_tickets": similar_tickets,
                     "model_prediction": row[4],
-                    "explanation": row[5],
-                    "most_helpful_feature": row[6],
+                    "most_helpful_feature": row[5],
                 }
             )
 

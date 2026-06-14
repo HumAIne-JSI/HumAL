@@ -469,7 +469,6 @@ class XaiService:
                     "xai_result": candidate.get("xai_result"),
                     "similar_tickets": candidate.get("similar_tickets"),
                     "model_prediction": candidate.get("model_prediction"),
-                    "explanation": candidate.get("explanation"),
                     "most_helpful_feature": candidate.get("most_helpful_feature"),
                 }
             )

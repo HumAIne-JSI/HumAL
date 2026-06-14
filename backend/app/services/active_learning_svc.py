@@ -439,8 +439,6 @@ class ActiveLearningService:
                 }
                 if item.model_prediction is not None:
                     payload["model_prediction"] = item.model_prediction
-                if item.explanation is not None:
-                    payload["explanation"] = item.explanation
                 if item.most_helpful_feature is not None:
                     payload["most_helpful_feature"] = item.most_helpful_feature
 
@@ -460,7 +458,6 @@ class ActiveLearningService:
                     labeled_at=item.end_time,
                     model_prediction=item.model_prediction,
                     latency_ms=int(duration_s * 1000),
-                    explanation=item.explanation,
                     most_helpful_feature=item.most_helpful_feature,
                 )
 

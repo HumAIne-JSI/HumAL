@@ -355,8 +355,7 @@ class TestLabelInstanceLogging:
                     model_prediction=None,
                     start_time=pd.Timestamp("2026-05-20T10:00:00"),
                     end_time=pd.Timestamp("2026-05-20T10:00:02"),
-                    explanation="Matched the expected label",
-                    most_helpful_feature="title",
+                    most_helpful_feature="lime",
                 ),
                 LabelInfo(
                     ticket_id="T002",
@@ -380,8 +379,7 @@ class TestLabelInstanceLogging:
         assert first_call["labeled_at"] == pd.Timestamp("2026-05-20T10:00:02")
         assert first_call["model_prediction"] is None
         assert first_call["latency_ms"] == 2000
-        assert first_call["explanation"] == "Matched the expected label"
-        assert first_call["most_helpful_feature"] == "title"
+        assert first_call["most_helpful_feature"] == "lime"
 
         second_call = duckdb_service.upsert_label_decision.call_args_list[1].kwargs
         assert second_call["ref"] == "T002"
@@ -389,7 +387,6 @@ class TestLabelInstanceLogging:
         assert second_call["labeled_at"] == pd.Timestamp("2026-05-20T10:01:03")
         assert second_call["model_prediction"] == "Network"
         assert second_call["latency_ms"] == 3000
-        assert second_call["explanation"] is None
         assert second_call["most_helpful_feature"] is None
         benchmarking_service.export_if_needed.assert_called_once_with(1, user_id='00000000-0000-0000-0000-000000000000')
         minio_service.save_labels.assert_called_once()

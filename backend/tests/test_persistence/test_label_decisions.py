@@ -71,8 +71,7 @@ def test_load_label_decisions_with_xai_returns_metadata_fields(tmp_path):
         ref="T020",
         label="Team A",
         model_prediction="Team A",
-        explanation="Historical explanation",
-        most_helpful_feature="title",
+        most_helpful_feature="lime",
         xai_result={"top_words": [["printer", 0.15]]},
     )
 
@@ -82,9 +81,8 @@ def test_load_label_decisions_with_xai_returns_metadata_fields(tmp_path):
     row = rows[0]
     assert row["label"] == "Team A"
     assert row["model_prediction"] == "Team A"
-    assert row["explanation"] == "Historical explanation"
-    assert row["most_helpful_feature"] == "title"
-    assert {"model_prediction", "explanation", "most_helpful_feature"}.issubset(row.keys())
+    assert row["most_helpful_feature"] == "lime"
+    assert {"model_prediction", "most_helpful_feature"}.issubset(row.keys())
 
 
 def test_load_label_decisions_with_xai_excludes_unlabeled(tmp_path):

@@ -67,8 +67,7 @@ def test_label_with_info_endpoint_accepts_list_and_triggers_export():
                 "model_prediction": None,
                 "start_time": "2026-05-20T10:00:00Z",
                 "end_time": "2026-05-20T10:00:02Z",
-                "explanation": "Matched the ticket description",
-                "most_helpful_feature": "title",
+                "most_helpful_feature": "lime",
             },
             {
                 "ticket_id": "T-2",
@@ -76,7 +75,6 @@ def test_label_with_info_endpoint_accepts_list_and_triggers_export():
                 "model_prediction": "Network",
                 "start_time": "2026-05-20T10:01:00Z",
                 "end_time": "2026-05-20T10:01:03Z",
-                "explanation": None,
                 "most_helpful_feature": None,
             },
         ],

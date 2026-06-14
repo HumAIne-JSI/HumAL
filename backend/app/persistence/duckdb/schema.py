@@ -86,7 +86,6 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             labeled_at TIMESTAMP,
             model_prediction VARCHAR,
             latency_ms INTEGER,
-            explanation VARCHAR,
             most_helpful_feature VARCHAR,
             xai_result JSON,
             similar_tickets JSON,

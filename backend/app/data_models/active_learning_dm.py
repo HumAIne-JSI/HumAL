@@ -3,6 +3,13 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
 
+MostHelpfulFeature = Literal[
+    "lime",
+    "predicted_class_neighbors",
+    "historical_neighbors",
+    "model_prediction",
+]
+
 # Deprecated request fields remain accepted for backward compatibility but are unused.
 class NewInstance(BaseModel):
     model_name: str
@@ -23,8 +30,7 @@ class LabelInfo(BaseModel):
     model_prediction: Optional[str] = None
     start_time: datetime
     end_time: datetime
-    explanation: Optional[str] = None
-    most_helpful_feature: Optional[str] = None
+    most_helpful_feature: Optional[MostHelpfulFeature] = None
 
     @validator("ticket_id", "label")
     def _ensure_non_empty_string(cls, value: str) -> str:
@@ -80,8 +86,7 @@ class Neighbor(BaseModel):
     xai_result: Optional[Any] = None
     similar_tickets: Optional[Any] = None
     model_prediction: Optional[str] = None
-    explanation: Optional[str] = None
-    most_helpful_feature: Optional[str] = None
+    most_helpful_feature: Optional[MostHelpfulFeature] = None
 
 # Response model for nearest neighbor query
 class NearestTicketResponse(BaseModel):
