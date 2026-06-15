@@ -780,16 +780,6 @@ class ActiveLearningService:
             granted_by=owner_user_id,
         )
         
-        self.duckdb_service.log_event(
-            al_instance_id=al_instance_id,
-            user_id=owner_user_id,
-            action="delegate_instance",
-            payload={
-                "delegate_user_id": delegate_user_id,
-                "delegate_username": delegate_username,
-            },
-        )
-        
         delegates = self.duckdb_service.get_delegates_for_instance(al_instance_id=al_instance_id)
         for delegate in delegates:
             if delegate["delegate_user_id"] == delegate_user_id:
@@ -830,16 +820,6 @@ class ActiveLearningService:
         self.duckdb_service.revoke_delegation(
             al_instance_id=al_instance_id,
             delegate_user_id=delegate_user_id,
-        )
-        
-        self.duckdb_service.log_event(
-            al_instance_id=al_instance_id,
-            user_id=owner_user_id,
-            action="revoke_delegation",
-            payload={
-                "delegate_user_id": delegate_user_id,
-                "delegate_username": delegate_username,
-            },
         )
 
     def get_delegates(

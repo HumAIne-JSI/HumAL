@@ -790,7 +790,6 @@ class TestDelegation:
         result = service.delegate_instance(al_instance_id=1, delegate_username="bob", owner_user_id="alice-uuid")
         assert result["username"] == "bob"
         mock_duckdb_service.delegate_instance.assert_called_once()
-        mock_duckdb_service.log_event.assert_called_once()
 
     def test_revoke_rejects_non_owner(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
         storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
@@ -804,7 +803,6 @@ class TestDelegation:
         service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
         service.revoke_delegation(al_instance_id=1, delegate_username="bob", owner_user_id="alice-uuid")
         mock_duckdb_service.revoke_delegation.assert_called_once()
-        mock_duckdb_service.log_event.assert_called_once()
 
     def test_get_delegates_rejects_non_owner(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
         storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
