@@ -5,6 +5,19 @@
 
 ---
 
+**Date:** June 15, 2026
+
+### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/explain_lime`
+
+**Purpose:** Now supports multi-class LIME explanations and automatic persistence.
+
+**Behavior update:**
+- New query parameter `top_k` (default: 1) controls how many top predicted classes receive a LIME explanation.
+- The response shape is now a list of lists: outer list = one entry per ticket; inner list = one class explanation per predicted class. Each class explanation contains `class`, `top_words`, and `error`.
+- When `query_idx` is provided, the result is logged to `al_events` with `action="lime"` and also persisted into `label_decisions.xai_result` keyed by the `query_idx` value.
+- When `ticket_data` is provided, the result is logged to `al_events` but **not** upserted into `label_decisions` because no ticket ref is available.
+- Removed the idea of an explicit `ticket_ref` parameter; `query_idx` values serve as the persistence key.
+
 ## Latest Update
 
 **Date:** June 15, 2026

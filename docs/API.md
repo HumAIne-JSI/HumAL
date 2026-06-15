@@ -649,42 +649,49 @@ Array of string ticket references, e.g. `["R-544314","R-544315"]`.
 
 ### POST /xai/{al_instance_id}/explain_lime
 
-**Description:** Calculates a token-by-token (LIME algorithm) feature attribution to highlight which exact words influenced the selected model's output heavily.
+**Description:** Calculates token-by-token (LIME) feature attribution for the top-k predicted classes of each ticket.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
 | `model_id` | query | integer | No (Default: 0) | Version ID of the persisted model |
-| `query_idx` | query | array | No | Pass multiple indices via multiple params (e.g. `?query_idx=A&query_idx=B`) |
+| `top_k` | query | integer | No (Default: 1) | Number of top predicted classes to explain |
+| `query_idx` | query | array | No | Pass multiple ticket indices (e.g. `?query_idx=A&query_idx=B`) |
 
 **Request Body (`application/json`):**
 Accepts a single `Data` structure representing ticket text. Provide **exactly one** of `ticket_data` (body) or `query_idx` (query parameter).
 
-**Swagger-style UI Example:**
-*Request Payload*
-```json
-{
-  "title_anon": "VPN not working",
-  "description_anon": "Cannot connect to VPN"
-}
-```
-*HTTP 200 OK*
+**Response Shape:**
 ```json
 [
-  {
-    "top_words": [
-      ["vpn", 0.42], 
-      ["connect", 0.18]
-    ],
-    "error": null
-  }
+  [
+    {
+      "class": "Team A",
+      "top_words": [
+        ["vpn", 0.42],
+        ["connect", 0.18]
+      ],
+      "error": null
+    },
+    {
+      "class": "Team B",
+      "top_words": [
+        ["network", 0.12]
+      ],
+      "error": null
+    }
+  ]
 ]
 ```
 
+**Persistence Behavior:**
+- When `query_idx` is provided, each `query_idx` value is used as the ticket ref. The result is logged to `al_events` (action="lime") and upserted into `label_decisions.xai_result`.
+- When `ticket_data` is provided, there is no ref. The result is logged to `al_events` but not persisted to `label_decisions`.
+
 **cURL Example:**
 ```bash
-curl -X POST "http://localhost:8000/xai/1/explain_lime" \
+curl -X POST "http://localhost:8000/xai/1/explain_lime?top_k=2" \
 	-H "Content-Type: application/json" \
 	-d "{\"title_anon\":\"VPN not working\",\"description_anon\":\"Cannot connect to VPN\"}"
 ```

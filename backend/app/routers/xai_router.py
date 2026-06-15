@@ -55,6 +55,7 @@ def explain_lime(
     ticket_data: Optional[Data] = Body(None), 
     query_idx: Optional[list[str]] = Query(None), 
     model_id: int = Query(0),
+    top_k: int = Query(1),
     current_user: dict = Depends(get_current_user),
     ):
     require_instance_access(al_instance_id, current_user, xai_service.storage)
@@ -64,6 +65,7 @@ def explain_lime(
         raise HTTPException(status_code=404, detail="Model not trained yet, please train the model first")
 
     tickets = []
+    ticket_refs = []
 
     # require exactly one source
     if (ticket_data is None) == (query_idx is None):
@@ -71,6 +73,7 @@ def explain_lime(
 
     if ticket_data is not None:
         tickets.append(ticket_data)
+        ticket_refs.append(None)
     else:
         assert query_idx is not None
         for idx in query_idx:
@@ -85,9 +88,17 @@ def explain_lime(
                 service_subcategory_name = ticket['Service subcategory->Name']
             )
             tickets.append(ticket_data_obj)
+            ticket_refs.append(idx)
    
     # explain the ticket_data
-    return xai_service.explain_lime(al_instance_id, tickets, model_id)
+    return xai_service.explain_lime(
+        al_instance_id=al_instance_id,
+        tickets=tickets,
+        model_id=model_id,
+        top_k=top_k,
+        user_id=current_user["user_id"],
+        ticket_refs=ticket_refs,
+    )
 
 @router.post("/{al_instance_id}/nearest_ticket")
 def find_nearest_ticket(

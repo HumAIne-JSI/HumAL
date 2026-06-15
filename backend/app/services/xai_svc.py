@@ -475,10 +475,19 @@ class XaiService:
 
         return results
 
-    def explain_lime(self, al_instance_id: int, tickets: list[Data], model_id: int = 0):
+    def explain_lime(
+        self,
+        al_instance_id: int,
+        tickets: list[Data],
+        model_id: int = 0,
+        top_k: int = 1,
+        user_id: str = SYSTEM_USER_ID,
+        ticket_refs: Optional[list[str]] = None,
+    ):
         """
         This function returns a Lime explanation for the texts.
         """
+        start_time = time.perf_counter()
         le = self.storage.dataset_dict[al_instance_id]['le']
         lime_explainer = LimeTextExplainer(class_names = le.classes_)
         lime_explanation_outputs = []
@@ -488,10 +497,13 @@ class XaiService:
                 def _predict_probabilities_wrapper(texts):
                     return self._predict_probabilities(al_instance_id=al_instance_id, texts=texts, ticket=ticket, model_id=model_id)
 
-                # Predict the class of the ticket
+                # Predict probabilities and select top-k classes
+                res = self.inference_service.infer_proba(al_instance_id, ticket, model_id)
+                probabilities = res["probabilities"][0]
+                classes = res["classes"]
+                top_k = min(top_k, len(classes))
+                sorted_class_idx = np.argsort(probabilities)[::-1][:top_k]
 
-                pred_class_idx = le.transform(self.inference_service.infer(al_instance_id=al_instance_id, X=ticket, model_id=model_id))[0]
-                
                 # Extract the text of the ticket (Title + Description)
                 text = (ticket.title_anon or "") + " " + (ticket.description_anon or "")
 
@@ -501,19 +513,58 @@ class XaiService:
                     _predict_probabilities_wrapper,
                     num_features=10,
                     num_samples=1000,
-                    labels=(pred_class_idx,) # Explain only the predicted class index
+                    labels=tuple(sorted_class_idx),
                 )
-                # Extract (word, weight) pairs
-                lime_explanation_outputs.append({
-                    "top_words": [(w, float(s)) for w, s in lime_explanation.as_list(label=pred_class_idx)],
-                    "error": None
-                })
+                # Extract (word, weight) pairs for each top class
+                ticket_explanations = []
+                for idx in sorted_class_idx:
+                    ticket_explanations.append({
+                        "class": classes[idx],
+                        "top_words": [(w, float(s)) for w, s in lime_explanation.as_list(label=idx)],
+                        "error": None,
+                    })
+                lime_explanation_outputs.append(ticket_explanations)
             except Exception as e:
-                lime_explanation_outputs.append({
+                lime_explanation_outputs.append([{
+                    "class": None,
                     "top_words": [],
-                    "error": f"LIME error: {str(e)}"
-                })
-        
+                    "error": f"LIME error: {str(e)}",
+                }])
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+        if self.duckdb_service is not None:
+            top_features = []
+            errors = None
+            for ticket_result in lime_explanation_outputs:
+                for item in ticket_result:
+                    if item.get("top_words"):
+                        top_features.append(item["top_words"][:10])
+                    if item.get("error"):
+                        errors = (errors or []) + [item["error"]]
+
+            self.duckdb_service.log_event(
+                al_instance_id=al_instance_id,
+                user_id=user_id,
+                action="lime",
+                latency_ms=latency_ms,
+                payload={
+                    "ticket_ids": [ref for ref in (ticket_refs or []) if ref],
+                    "top_features": top_features,
+                    "errors": errors,
+                },
+            )
+
+            if ticket_refs:
+                for ticket_ref, ticket_result in zip(ticket_refs, lime_explanation_outputs):
+                    if ticket_ref:
+                        self.duckdb_service.upsert_label_decision(
+                            al_instance_id=al_instance_id,
+                            ref=str(ticket_ref),
+                            user_id=user_id,
+                            xai_result=ticket_result,
+                        )
+
         return lime_explanation_outputs
 
     def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, model_id: int = 0, user_id: str = SYSTEM_USER_ID):

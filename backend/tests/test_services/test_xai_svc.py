@@ -422,3 +422,134 @@ def test_update_xai_job(xai_service):
     )
     xai_service.duckdb_service.log_event.assert_called_once()
 
+
+def test_explain_lime_top_k_classes(xai_service, test_data):
+    """Happy path: explain_lime returns one inner list per ticket with top-k class explanations."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5), ("word2", 0.3)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        res = xai_service.explain_lime(
+            1, [test_data], model_id=0, top_k=2, user_id="u1", ticket_refs=["ref1"]
+        )
+
+    assert len(res) == 1
+    ticket_result = res[0]
+    assert len(ticket_result) == 2
+    assert "class" in ticket_result[0]
+    assert "top_words" in ticket_result[0]
+    assert "error" in ticket_result[0]
+    assert ticket_result[0]["error"] is None
+    assert ticket_result[1]["error"] is None
+
+
+def test_explain_lime_top_k_capped_by_num_classes(xai_service, test_data):
+    """top_k larger than num_classes is silently capped."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        res = xai_service.explain_lime(
+            1, [test_data], model_id=0, top_k=10, user_id="u1", ticket_refs=["ref1"]
+        )
+
+    assert len(res[0]) == 2
+
+
+def test_explain_lime_logs_event(xai_service, test_data):
+    """A lime event is always logged to DuckDB."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        xai_service.explain_lime(
+            1, [test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=["ref1"]
+        )
+
+    xai_service.duckdb_service.log_event.assert_called_once()
+    call_kwargs = xai_service.duckdb_service.log_event.call_args.kwargs
+    assert call_kwargs["action"] == "lime"
+    assert call_kwargs["al_instance_id"] == 1
+    assert call_kwargs["user_id"] == "u1"
+    assert call_kwargs["latency_ms"] >= 0
+    assert "top_features" in call_kwargs["payload"]
+    assert call_kwargs["payload"]["ticket_ids"] == ["ref1"]
+
+
+def test_explain_lime_upserts_label_decision_with_ref(xai_service, test_data):
+    """When a ticket_ref is provided, the result is upserted into label_decisions."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        xai_service.explain_lime(
+            1, [test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=["ref1"]
+        )
+
+    xai_service.duckdb_service.upsert_label_decision.assert_called_once()
+    call_kwargs = xai_service.duckdb_service.upsert_label_decision.call_args.kwargs
+    assert call_kwargs["al_instance_id"] == 1
+    assert call_kwargs["ref"] == "ref1"
+    assert call_kwargs["user_id"] == "u1"
+    assert call_kwargs["xai_result"] is not None
+
+
+def test_explain_lime_no_upsert_without_ref(xai_service, test_data):
+    """When ticket_refs contains only None, only log_event is called, no upsert_label_decision."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        xai_service.explain_lime(
+            1, [test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=[None]
+        )
+
+    xai_service.duckdb_service.log_event.assert_called_once()
+    xai_service.duckdb_service.upsert_label_decision.assert_not_called()
+
+
+def test_explain_lime_no_persistence_when_duckdb_none(mock_storage, mock_inference_svc, test_data):
+    """If duckdb_service is None, explain_lime still returns results without crashing."""
+    from unittest.mock import MagicMock, patch
+
+    with patch("app.services.xai_svc.SentenceTransformer") as mock_st:
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.array([[0.1, 0.2, 0.3]])
+        mock_st.return_value = mock_model
+
+        mock_explanation = MagicMock()
+        mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+        with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+            mock_explainer = MagicMock()
+            mock_explainer.explain_instance.return_value = mock_explanation
+            mock_cls.return_value = mock_explainer
+
+            svc = XaiService(
+                storage=mock_storage,
+                inference_service=mock_inference_svc,
+                local_artifacts_store=MagicMock(),
+                duckdb_service=None,
+            )
+            res = svc.explain_lime(1, [test_data], model_id=0, top_k=1, user_id="u1")
+            assert len(res) == 1
