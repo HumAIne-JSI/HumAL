@@ -933,6 +933,7 @@ class DuckDbPersistenceService:
             ("model_paths", "DELETE FROM model_paths WHERE al_instance_id = ?"),
             ("metrics", "DELETE FROM metrics WHERE al_instance_id = ?"),
             ("xai_jobs", "DELETE FROM xai_jobs WHERE al_instance_id = ?"),
+            ("instance_delegations", "DELETE FROM instance_delegations WHERE al_instance_id = ?"),
             ("al_instances", "DELETE FROM al_instances WHERE al_instance_id = ?"),
         ]
         
@@ -942,3 +943,113 @@ class DuckDbPersistenceService:
                     conn.execute(query, [al_instance_id])
             except Exception as e:
                 logger.warning(f"Failed to delete instance {al_instance_id} from {table_name}: {e}")
+
+    def delegate_instance(
+        self,
+        *,
+        al_instance_id: int,
+        delegate_user_id: str,
+        granted_by: str,
+    ) -> None:
+        """Grant a user access to an AL instance."""
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO instance_delegations (al_instance_id, delegate_user_id, granted_by)
+                VALUES (?, ?::UUID, ?::UUID)
+                ON CONFLICT (al_instance_id, delegate_user_id) DO NOTHING
+                """,
+                [al_instance_id, delegate_user_id, granted_by],
+            )
+
+    def revoke_delegation(
+        self,
+        *,
+        al_instance_id: int,
+        delegate_user_id: str,
+    ) -> None:
+        """Remove a user's delegated access to an instance."""
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                DELETE FROM instance_delegations
+                WHERE al_instance_id = ? AND delegate_user_id = ?::UUID
+                """,
+                [al_instance_id, delegate_user_id],
+            )
+
+    def get_delegates_for_instance(
+        self,
+        *,
+        al_instance_id: int,
+    ) -> list[dict]:
+        """Get all users delegated access to an instance."""
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                SELECT 
+                    d.delegate_user_id,
+                    d.granted_by,
+                    d.granted_at,
+                    u.username
+                FROM instance_delegations d
+                LEFT JOIN users u ON u.user_id = d.delegate_user_id
+                WHERE d.al_instance_id = ?
+                ORDER BY d.granted_at
+                """,
+                [al_instance_id],
+            ).fetchall()
+            return [
+                {
+                    "delegate_user_id": str(row[0]),
+                    "granted_by": str(row[1]),
+                    "granted_at": row[2],
+                    "username": row[3],
+                }
+                for row in result
+            ]
+
+    def is_user_delegate(
+        self,
+        *,
+        al_instance_id: int,
+        user_id: str,
+    ) -> bool:
+        """Check if a user has been delegated access to an instance."""
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                SELECT 1 FROM instance_delegations
+                WHERE al_instance_id = ? AND delegate_user_id = ?::UUID
+                """,
+                [al_instance_id, user_id],
+            ).fetchone()
+            return result is not None
+
+    def get_delegated_instance_ids(
+        self,
+        *,
+        user_id: str,
+    ) -> set[int]:
+        """Get all instance IDs delegated to a user."""
+        with connect(self.db_path) as conn:
+            result = conn.execute(
+                """
+                SELECT al_instance_id FROM instance_delegations
+                WHERE delegate_user_id = ?::UUID
+                """,
+                [user_id],
+            ).fetchall()
+            return {row[0] for row in result}
+
+    def delete_all_delegations_for_instance(
+        self,
+        *,
+        al_instance_id: int,
+    ) -> None:
+        """Remove all delegations for an instance (called when instance is deleted)."""
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM instance_delegations WHERE al_instance_id = ?",
+                [al_instance_id],
+            )

@@ -15,7 +15,8 @@ os.environ.setdefault("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 from app.config.config import SYSTEM_USER_ID
 from app.core import dependencies
-from app.core.dependencies import create_access_token, get_current_user
+from app.core.dependencies import create_access_token, get_current_user, require_instance_access
+from app.core.storage import ActiveLearningStorage
 from app.persistence.duckdb import DuckDbPersistenceService
 
 
@@ -120,3 +121,41 @@ class TestGetCurrentUser:
         with pytest.raises(HTTPException) as exc_info:
             get_current_user(credentials=credentials)
         assert exc_info.value.status_code == 401
+
+
+from unittest.mock import MagicMock
+
+
+class TestRequireInstanceAccess:
+    def test_owner_has_access(self, monkeypatch):
+        storage = ActiveLearningStorage()
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid"}
+        current_user = {"user_id": "alice-uuid", "username": "alice"}
+        require_instance_access(1, current_user, storage)
+
+    def test_delegate_has_access(self, monkeypatch):
+        storage = ActiveLearningStorage()
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid"}
+        mock_duckdb = MagicMock()
+        mock_duckdb.is_user_delegate.return_value = True
+        monkeypatch.setattr(dependencies, "duckdb_persistence_service", mock_duckdb)
+        current_user = {"user_id": "bob-uuid", "username": "bob"}
+        require_instance_access(1, current_user, storage)
+
+    def test_non_owner_non_delegate_raises_403(self, monkeypatch):
+        storage = ActiveLearningStorage()
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid"}
+        mock_duckdb = MagicMock()
+        mock_duckdb.is_user_delegate.return_value = False
+        monkeypatch.setattr(dependencies, "duckdb_persistence_service", mock_duckdb)
+        current_user = {"user_id": "mallory-uuid", "username": "mallory"}
+        with pytest.raises(HTTPException) as exc_info:
+            require_instance_access(1, current_user, storage)
+        assert exc_info.value.status_code == 403
+
+    def test_nonexistent_instance_raises_404(self):
+        storage = ActiveLearningStorage()
+        current_user = {"user_id": "alice-uuid", "username": "alice"}
+        with pytest.raises(HTTPException) as exc_info:
+            require_instance_access(999, current_user, storage)
+        assert exc_info.value.status_code == 404

@@ -2,19 +2,17 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from pydantic import ValidationError
 
-from app.core.dependencies import get_al_service, get_current_user
-from app.data_models.active_learning_dm import LabelInfo, LabelRequest, NewInstance
+from app.core import dependencies
+from app.core.dependencies import get_al_service, get_current_user, require_instance_access
+from app.data_models.active_learning_dm import (
+    DelegateRequest,
+    LabelInfo,
+    LabelRequest,
+    NewInstance,
+)
 
 router = APIRouter(prefix="/activelearning", tags=["active_learning"])
 al_service = get_al_service()
-
-
-def _require_instance_owner(al_instance_id: int, current_user: dict):
-    instance = al_service.storage.al_instances_dict.get(al_instance_id)
-    if instance is None:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    if instance.get("user_id") != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="Not authorized to access this instance")
 
 
 @router.post("/new")
@@ -27,7 +25,7 @@ def activelearning_init(new_instance: NewInstance, current_user: dict = Depends(
 
 @router.get("/{al_instance_id}/next")
 def next_instance(al_instance_id: int, batch_size: int = 1, current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
     
     # Get the next instances
     next_instances = al_service.get_next_instances(al_instance_id, batch_size, user_id=current_user["user_id"])
@@ -35,7 +33,7 @@ def next_instance(al_instance_id: int, batch_size: int = 1, current_user: dict =
 
 @router.put("/{al_instance_id}/label")
 def label_instance(al_instance_id: int, label_request: LabelRequest, current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
     try:
         al_service.label_instance(al_instance_id, label_request, user_id=current_user["user_id"])
     except ValueError as exc:
@@ -64,7 +62,7 @@ def _coerce_label_info_items(label_info):
 
 @router.post("/{al_instance_id}/label-with-info")
 def label_with_info(al_instance_id: int, label_info: list[LabelInfo] = Body(...), current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
 
     try:
         coerced_items = _coerce_label_info_items(label_info)
@@ -78,27 +76,91 @@ def label_with_info(al_instance_id: int, label_info: list[LabelInfo] = Body(...)
 
 @router.get("/{al_instance_id}/info")
 def get_info(al_instance_id: int, current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
     return al_service.get_instance_info(al_instance_id)
 
 @router.post("/{al_instance_id}/save")
 def save_model(al_instance_id: int, current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
 
     model_id = al_service.save_model(al_instance_id, user_id=current_user["user_id"])
     return {"model_id": model_id}
 
 @router.get("/instances")
 def get_instances(current_user: dict = Depends(get_current_user)):
-    instances = {
+    """Get all AL instances owned by or delegated to the current user."""
+    user_id = current_user["user_id"]
+    
+    owned_instances = {
         k: v for k, v in al_service.storage.al_instances_dict.items()
-        if v.get("user_id") == current_user["user_id"]
+        if v.get("user_id") == user_id
     }
-    return {"instances": instances}
+    
+    delegated_ids = dependencies.duckdb_persistence_service.get_delegated_instance_ids(
+        user_id=user_id
+    )
+    delegated_instances = {
+        k: v for k, v in al_service.storage.al_instances_dict.items()
+        if k in delegated_ids
+    }
+    
+    all_instances = {**owned_instances, **delegated_instances}
+    return {"instances": all_instances}
 
 @router.delete("/{al_instance_id}")
 def delete_instance(al_instance_id: int, current_user: dict = Depends(get_current_user)):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, al_service.storage)
     
     al_service.delete_instance(al_instance_id)
     return {"message": "Instance deleted"}
+
+@router.post("/{al_instance_id}/delegate")
+def delegate_instance(
+    al_instance_id: int,
+    request: DelegateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delegate an AL instance to another user. Only the instance owner can delegate."""
+    try:
+        delegate_info = al_service.delegate_instance(
+            al_instance_id=al_instance_id,
+            delegate_username=request.username,
+            owner_user_id=current_user["user_id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return delegate_info
+
+
+@router.delete("/{al_instance_id}/delegate/{username}")
+def revoke_delegation(
+    al_instance_id: int,
+    username: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Revoke a user's delegated access. Only the instance owner can revoke."""
+    try:
+        al_service.revoke_delegation(
+            al_instance_id=al_instance_id,
+            delegate_username=username,
+            owner_user_id=current_user["user_id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": f"Delegation revoked for user '{username}'"}
+
+
+@router.get("/{al_instance_id}/delegates")
+def list_delegates(
+    al_instance_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """List all users delegated access to an instance. Only the owner can view."""
+    try:
+        delegates = al_service.get_delegates(
+            al_instance_id=al_instance_id,
+            owner_user_id=current_user["user_id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"delegates": delegates}

@@ -283,3 +283,27 @@ backend/embeddings_cache/
 ### Data Storage
 - **Format**: CSV files
 - **Location**: `backend/data/`
+
+#### Instance Delegation
+
+The system supports **instance delegation**, allowing owners to share their AL instances with other users. Delegated users gain full access (label, infer, XAI, save, delete) while the owner retains access.
+
+**Delegation Model:**
+- Delegations are tracked in the `instance_delegations` DuckDB table with columns: `al_instance_id`, `delegate_user_id`, `granted_by`, `granted_at`.
+- A user can be delegated an instance only once (composite primary key prevents duplicates).
+- Delegation is by username (user-friendly) but stored as UUID internally.
+- Delegations are automatically cleaned up when an instance is deleted.
+
+**Authorization Flow:**
+1. Check if the current user is the instance owner (`instance.user_id == current_user.user_id`).
+2. If not, check if the user is a delegate (`instance_delegations` table lookup).
+3. If neither, reject with HTTP 403.
+
+**Instance Listing:**
+- `GET /activelearning/instances` returns both owned and delegated instances, indistinguishable from each other.
+- This allows delegates to work with delegated instances seamlessly.
+
+**Management Endpoints:**
+- `POST /activelearning/{id}/delegate` — Grant access to a user by username.
+- `DELETE /activelearning/{id}/delegate/{username}` — Revoke a user's access.
+- `GET /activelearning/{id}/delegates` — List all delegates (owner-only).

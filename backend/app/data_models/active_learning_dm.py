@@ -113,3 +113,21 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class DelegateRequest(BaseModel):
+    """Request body for delegating an instance to another user."""
+    username: str
+
+
+class DelegateResponse(BaseModel):
+    """Response for a single delegate."""
+    username: str
+    delegate_user_id: str
+    granted_by: str
+    granted_at: datetime
+
+
+class DelegateListResponse(BaseModel):
+    """Response for listing all delegates of an instance."""
+    delegates: list[DelegateResponse]

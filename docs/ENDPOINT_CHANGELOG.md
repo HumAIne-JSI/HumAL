@@ -7,6 +7,94 @@
 
 ## Latest Update
 
+**Date:** June 15, 2026
+
+### ✅ NEW ENDPOINT: `POST /activelearning/{al_instance_id}/delegate`
+
+**Purpose:** Allows an instance owner to delegate (share) their AL instance with another user by username. The delegate gains full access (label, infer, XAI, save, delete) while the owner retains access.
+
+**Example Request:**
+```json
+{
+  "username": "bob"
+}
+```
+
+**Example Response:**
+```json
+{
+  "username": "bob",
+  "delegate_user_id": "123e4567-e89b-12d3-a456-426614174000",
+  "granted_by": "987fcdeb-51a2-43d7-9012-3456789abcde",
+  "granted_at": "2026-06-15T10:30:00"
+}
+```
+
+**Behavior:**
+- Only the instance owner can delegate access.
+- Delegation is by username (not UUID) for user-friendliness.
+- Self-delegation is rejected with a clear error message.
+- Delegated instances appear in the delegate's `GET /activelearning/instances` list indistinguishably from owned instances.
+- Delegation is idempotent: delegating the same user twice does not error.
+
+### ✅ NEW ENDPOINT: `DELETE /activelearning/{al_instance_id}/delegate/{username}`
+
+**Purpose:** Revokes a user's delegated access to an instance. Only the instance owner can revoke delegation.
+
+**Example Response:**
+```json
+{
+  "message": "Delegation revoked for user 'bob'"
+}
+```
+
+**Behavior:**
+- Only the instance owner can revoke delegation.
+- Revoking a non-existent delegation succeeds silently (no error).
+- After revocation, the user can no longer access the instance.
+
+### ✅ NEW ENDPOINT: `GET /activelearning/{al_instance_id}/delegates`
+
+**Purpose:** Lists all users who have been delegated access to an instance.
+
+**Example Response:**
+```json
+{
+  "delegates": [
+    {
+      "username": "bob",
+      "delegate_user_id": "123e4567-e89b-12d3-a456-426614174000",
+      "granted_by": "987fcdeb-51a2-43d7-9012-3456789abcde",
+      "granted_at": "2026-06-15T10:30:00"
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Only the instance owner can view the delegate list.
+- Returns an empty list if no delegations exist.
+
+### ✅ UPDATED BEHAVIOR: `GET /activelearning/instances`
+
+**Purpose:** Now includes both owned instances and delegated instances in the response.
+
+**Behavior Change:**
+- Previously: Only returned instances owned by the current user.
+- Now: Returns instances owned by the current user OR delegated to the current user.
+- Delegated instances appear indistinguishably from owned instances (no flag or marker).
+
+### ✅ UPDATED BEHAVIOR: All AL instance endpoints
+
+**Purpose:** Authorization now checks both ownership and delegation status.
+
+**Behavior Change:**
+- Previously: Only the instance owner could access instance-scoped endpoints.
+- Now: Both the owner and any delegates can access instance-scoped endpoints with full permissions.
+- Affected endpoints: `GET /{id}/next`, `PUT /{id}/label`, `POST /{id}/label-with-info`, `GET /{id}/info`, `POST /{id}/save`, `DELETE /{id}`, `POST /{id}/infer`, `POST /{id}/infer_proba`, `POST /xai/{id}/*`.
+
+---
+
 **Date:** June 14, 2026
 
 ### ❌ BREAKING CHANGE: `explanation` field removed, `most_helpful_feature` constrained

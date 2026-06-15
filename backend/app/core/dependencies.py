@@ -143,3 +143,31 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+def require_instance_access(al_instance_id: int, current_user: dict, storage) -> None:
+    """Verify that the current user has access to an AL instance (as owner or delegate).
+    
+    Args:
+        al_instance_id: The instance ID to check access for.
+        current_user: The current user dict (from get_current_user).
+        storage: The ActiveLearningStorage instance.
+        
+    Raises:
+        HTTPException: 404 if instance not found, 403 if user lacks access.
+    """
+    instance = storage.al_instances_dict.get(al_instance_id)
+    if instance is None:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    user_id = current_user["user_id"]
+    
+    if instance.get("user_id") == user_id:
+        return
+    
+    if duckdb_persistence_service.is_user_delegate(
+        al_instance_id=al_instance_id, user_id=user_id
+    ):
+        return
+    
+    raise HTTPException(status_code=403, detail="Not authorized to access this instance")

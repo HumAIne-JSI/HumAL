@@ -1,7 +1,7 @@
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.core.dependencies import get_inference_service, get_duckdb_persistence_service, get_current_user
+from app.core.dependencies import get_inference_service, get_duckdb_persistence_service, get_current_user, require_instance_access
 from app.data_models.active_learning_dm import Data, InferProbaResponse
 from app.config.config import SYSTEM_USER_ID
 
@@ -10,18 +10,10 @@ inference_service = get_inference_service()
 duckdb_service = get_duckdb_persistence_service()
 
 
-def _require_instance_owner(al_instance_id: int, current_user: dict):
-    instance = inference_service.storage.al_instances_dict.get(al_instance_id)
-    if instance is None:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    if instance.get("user_id") != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="Not authorized to access this instance")
-
-
 @router.post("/{al_instance_id}/infer")
 def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None), current_user: dict = Depends(get_current_user)):
     request_start = time.perf_counter()
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, inference_service.storage)
     
     # check if the model is trained
     if al_instance_id not in inference_service.storage.model_paths_dict:
@@ -55,7 +47,7 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
         HTTPException: When the instance or model is missing, or model lacks predict_proba.
     """
     request_start = time.perf_counter()
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, inference_service.storage)
 
     # check if the model is trained
     if al_instance_id not in inference_service.storage.model_paths_dict:

@@ -658,3 +658,92 @@ class TestXAIJobs:
         assert job is not None
         assert job["user_id"] == str(user_id)
         assert job["al_instance_id"] == 1
+
+
+class TestInstanceDelegation:
+    @pytest.fixture
+    def service(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield DuckDbPersistenceService(db_path=Path(tmpdir) / "test.duckdb")
+
+    def test_delegate_instance_creates_record(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        delegate_id = service.upsert_user(username="bob", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        
+        assert service.is_user_delegate(al_instance_id=1, user_id=str(delegate_id))
+
+    def test_delegate_instance_is_idempotent(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        delegate_id = service.upsert_user(username="bob", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        
+        assert service.is_user_delegate(al_instance_id=1, user_id=str(delegate_id))
+
+    def test_revoke_delegation_removes_access(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        delegate_id = service.upsert_user(username="bob", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        
+        service.revoke_delegation(al_instance_id=1, delegate_user_id=str(delegate_id))
+        
+        assert not service.is_user_delegate(al_instance_id=1, user_id=str(delegate_id))
+
+    def test_revoke_delegation_succeeds_if_not_delegated(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        delegate_id = service.upsert_user(username="bob", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        service.revoke_delegation(al_instance_id=1, delegate_user_id=str(delegate_id))
+        
+        assert not service.is_user_delegate(al_instance_id=1, user_id=str(delegate_id))
+
+    def test_get_delegates_returns_all_delegates(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        bob_id = service.upsert_user(username="bob", password="pwd")
+        charlie_id = service.upsert_user(username="charlie", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(bob_id), granted_by=str(owner_id))
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(charlie_id), granted_by=str(owner_id))
+        
+        delegates = service.get_delegates_for_instance(al_instance_id=1)
+        assert len(delegates) == 2
+        assert {d["username"] for d in delegates} == {"bob", "charlie"}
+
+    def test_get_delegated_instance_ids(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        delegate_id = service.upsert_user(username="bob", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        service.save_al_instance(2, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        service.save_al_instance(3, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        service.delegate_instance(al_instance_id=3, delegate_user_id=str(delegate_id), granted_by=str(owner_id))
+        
+        assert service.get_delegated_instance_ids(user_id=str(delegate_id)) == {1, 3}
+
+    def test_delete_all_delegations_cleans_up(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        bob_id = service.upsert_user(username="bob", password="pwd")
+        charlie_id = service.upsert_user(username="charlie", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(bob_id), granted_by=str(owner_id))
+        service.delegate_instance(al_instance_id=1, delegate_user_id=str(charlie_id), granted_by=str(owner_id))
+        
+        service.delete_all_delegations_for_instance(al_instance_id=1)
+        
+        assert not service.is_user_delegate(al_instance_id=1, user_id=str(bob_id))
+        assert not service.is_user_delegate(al_instance_id=1, user_id=str(charlie_id))
+
+    def test_is_user_delegate_returns_false_for_owner(self, service):
+        owner_id = service.upsert_user(username="alice", password="pwd")
+        service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
+        
+        assert not service.is_user_delegate(al_instance_id=1, user_id=str(owner_id))

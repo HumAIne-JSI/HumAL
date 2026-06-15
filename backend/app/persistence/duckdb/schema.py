@@ -162,7 +162,19 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS instance_delegations (
+            al_instance_id INTEGER NOT NULL,
+            delegate_user_id UUID NOT NULL,
+            granted_by UUID NOT NULL,
+            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (al_instance_id, delegate_user_id)
+        )
+        """
+    )
+
 
 def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
@@ -218,6 +230,19 @@ def _create_indexes(conn: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_xai_jobs_instance
         ON xai_jobs(al_instance_id)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_instance_delegations_delegate
+        ON instance_delegations(delegate_user_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_instance_delegations_instance
+        ON instance_delegations(al_instance_id)
         """
     )
 

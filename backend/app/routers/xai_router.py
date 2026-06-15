@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
-from app.core.dependencies import get_xai_service, get_data_service, get_current_user
+from app.core.dependencies import get_xai_service, get_data_service, get_current_user, require_instance_access
 from app.data_models.active_learning_dm import Data, Neighbor, NearestTicketResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -12,14 +12,6 @@ xai_service = get_xai_service()
 data_service = get_data_service()
 
 
-def _require_instance_owner(al_instance_id: int, current_user: dict):
-    instance = xai_service.storage.al_instances_dict.get(al_instance_id)
-    if instance is None:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    if instance.get("user_id") != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="Not authorized to access this instance")
-
-
 @router.post("/{al_instance_id}/nearest", response_model=List[NearestTicketResponse])
 def nearest(
     al_instance_id: int, 
@@ -29,7 +21,7 @@ def nearest(
     model_id: int = Query(0),
     current_user: dict = Depends(get_current_user),
 ):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, xai_service.storage)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -65,7 +57,7 @@ def explain_lime(
     model_id: int = Query(0),
     current_user: dict = Depends(get_current_user),
     ):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, xai_service.storage)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -105,7 +97,7 @@ def find_nearest_ticket(
     model_id: int = Query(0),
     current_user: dict = Depends(get_current_user),
     ):
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, xai_service.storage)
     
     # check if the model is trained
     if al_instance_id not in xai_service.storage.model_paths_dict:
@@ -132,7 +124,7 @@ async def create_xai_request(
 ):
     """Saves the ticket to MinIO and returns the job_id for tracking the XAI request."""
 
-    _require_instance_owner(al_instance_id, current_user)
+    require_instance_access(al_instance_id, current_user, xai_service.storage)
 
     # check if rabbitmq is enabled
     rabbitmq_enabled = os.getenv("USE_RABBITMQ", "0") == "1"
@@ -155,7 +147,7 @@ def get_xai_job(job_id: uuid.UUID, current_user: dict = Depends(get_current_user
     if job_info is None:
         raise HTTPException(status_code=404, detail="XAI job not found")
 
-    _require_instance_owner(job_info["al_instance_id"], current_user)
+    require_instance_access(job_info["al_instance_id"], current_user, xai_service.storage)
 
     if job_info['status'] in ['queued', 'processing', 'failed']:
         return {"status": job_info['status'], "result": None}

@@ -7,6 +7,9 @@ from unittest.mock import patch, MagicMock
 # any app modules are imported.
 _ST_CACHE = str(Path(__file__).resolve().parent.parent / "sentence_transformers_cache")
 os.environ.setdefault("USE_RABBITMQ", "0")
+os.environ.setdefault("JWT_SECRET_KEY", "unit-test-secret-key")
+os.environ.setdefault("JWT_ALGORITHM", "HS256")
+os.environ.setdefault("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 os.environ.setdefault("SENTENCE_TRANSFORMERS_CACHE_DIR", _ST_CACHE)
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")

@@ -1,6 +1,7 @@
 """Tests for ActiveLearningService persistence loading."""
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -12,6 +13,7 @@ from skactiveml.utils import MISSING_LABEL
 from app.core.storage import ActiveLearningStorage
 from app.persistence.duckdb import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
+from app.persistence.minio_storage import MinioService
 from app.services.active_learning_svc import ActiveLearningService
 from app.data_models.active_learning_dm import LabelInfo, LabelRequest, NewInstance
 
@@ -725,3 +727,97 @@ class TestLoadFromPersistence:
         assert 2 in storage.al_instances_dict
         assert 1 in storage.dataset_dict
         assert 2 in storage.dataset_dict
+
+
+class TestDelegation:
+    @pytest.fixture
+    def storage(self):
+        return ActiveLearningStorage()
+
+    @pytest.fixture
+    def mock_duckdb_service(self):
+        return MagicMock(spec=DuckDbPersistenceService)
+
+    @pytest.fixture
+    def mock_local_artifacts(self):
+        return MagicMock(spec=LocalArtifactsStore)
+
+    @pytest.fixture
+    def mock_minio_service(self):
+        return MagicMock(spec=MinioService)
+
+    def _build_service(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        mock_duckdb_service.get_all_instances.return_value = {}
+        return ActiveLearningService(
+            storage,
+            duckdb_service=mock_duckdb_service,
+            local_artifacts_store=mock_local_artifacts,
+            minio_service=mock_minio_service,
+        )
+
+    def test_delegate_rejects_nonexistent_instance(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="Instance 999 not found"):
+            service.delegate_instance(al_instance_id=999, delegate_username="bob", owner_user_id="owner-uuid")
+
+    def test_delegate_rejects_non_owner(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="Only the instance owner"):
+            service.delegate_instance(al_instance_id=1, delegate_username="bob", owner_user_id="mallory-uuid")
+
+    def test_delegate_rejects_nonexistent_user(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        mock_duckdb_service.get_user_by_username.return_value = None
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="User 'nonexistent' not found"):
+            service.delegate_instance(al_instance_id=1, delegate_username="nonexistent", owner_user_id="alice-uuid")
+
+    def test_delegate_rejects_self_delegation(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        mock_duckdb_service.get_user_by_username.return_value = {"user_id": "alice-uuid", "username": "alice"}
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="Cannot delegate to yourself"):
+            service.delegate_instance(al_instance_id=1, delegate_username="alice", owner_user_id="alice-uuid")
+
+    def test_delegate_success(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        mock_duckdb_service.get_user_by_username.return_value = {"user_id": "bob-uuid", "username": "bob"}
+        mock_duckdb_service.get_delegates_for_instance.return_value = [
+            {"delegate_user_id": "bob-uuid", "username": "bob", "granted_by": "alice-uuid", "granted_at": datetime.now()}
+        ]
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        result = service.delegate_instance(al_instance_id=1, delegate_username="bob", owner_user_id="alice-uuid")
+        assert result["username"] == "bob"
+        mock_duckdb_service.delegate_instance.assert_called_once()
+        mock_duckdb_service.log_event.assert_called_once()
+
+    def test_revoke_rejects_non_owner(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="Only the instance owner"):
+            service.revoke_delegation(al_instance_id=1, delegate_username="bob", owner_user_id="mallory-uuid")
+
+    def test_revoke_success(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        mock_duckdb_service.get_user_by_username.return_value = {"user_id": "bob-uuid", "username": "bob"}
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        service.revoke_delegation(al_instance_id=1, delegate_username="bob", owner_user_id="alice-uuid")
+        mock_duckdb_service.revoke_delegation.assert_called_once()
+        mock_duckdb_service.log_event.assert_called_once()
+
+    def test_get_delegates_rejects_non_owner(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        with pytest.raises(ValueError, match="Only the instance owner"):
+            service.get_delegates(al_instance_id=1, owner_user_id="mallory-uuid")
+
+    def test_get_delegates_success(self, storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service):
+        storage.al_instances_dict[1] = {"user_id": "alice-uuid", "model_name": "rf", "qs": "random", "classes": [0, 1]}
+        mock_duckdb_service.get_delegates_for_instance.return_value = [
+            {"delegate_user_id": "bob-uuid", "username": "bob", "granted_by": "alice-uuid", "granted_at": datetime.now()}
+        ]
+        service = self._build_service(storage, mock_duckdb_service, mock_local_artifacts, mock_minio_service)
+        delegates = service.get_delegates(al_instance_id=1, owner_user_id="alice-uuid")
+        assert len(delegates) == 1
+        assert delegates[0]["username"] == "bob"

@@ -731,3 +731,140 @@ class ActiveLearningService:
                 self.minio_service.delete_instance_objects(al_instance_id)
             except Exception as e:
                 logger.warning(f"Failed to delete instance objects from MinIO: {e}")
+
+        # Clean up delegations
+        try:
+            self.duckdb_service.delete_all_delegations_for_instance(al_instance_id=al_instance_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete delegations for instance {al_instance_id}: {e}")
+
+    def delegate_instance(
+        self,
+        *,
+        al_instance_id: int,
+        delegate_username: str,
+        owner_user_id: str,
+    ) -> dict:
+        """Delegate an AL instance to another user.
+        
+        Args:
+            al_instance_id: The instance to delegate.
+            delegate_username: Username of the user to grant access to.
+            owner_user_id: UUID of the current user (must be the owner).
+            
+        Returns:
+            Dict with delegate info.
+            
+        Raises:
+            ValueError: If instance not found, user not owner, or delegate user doesn't exist.
+        """
+        instance = self.storage.al_instances_dict.get(al_instance_id)
+        if instance is None:
+            raise ValueError(f"Instance {al_instance_id} not found")
+        
+        if instance.get("user_id") != owner_user_id:
+            raise ValueError("Only the instance owner can delegate access")
+        
+        delegate_user = self.duckdb_service.get_user_by_username(username=delegate_username)
+        if delegate_user is None:
+            raise ValueError(f"User '{delegate_username}' not found")
+        
+        delegate_user_id = str(delegate_user["user_id"])
+        
+        if delegate_user_id == owner_user_id:
+            raise ValueError("Cannot delegate to yourself")
+        
+        self.duckdb_service.delegate_instance(
+            al_instance_id=al_instance_id,
+            delegate_user_id=delegate_user_id,
+            granted_by=owner_user_id,
+        )
+        
+        self.duckdb_service.log_event(
+            al_instance_id=al_instance_id,
+            user_id=owner_user_id,
+            action="delegate_instance",
+            payload={
+                "delegate_user_id": delegate_user_id,
+                "delegate_username": delegate_username,
+            },
+        )
+        
+        delegates = self.duckdb_service.get_delegates_for_instance(al_instance_id=al_instance_id)
+        for delegate in delegates:
+            if delegate["delegate_user_id"] == delegate_user_id:
+                return delegate
+        
+        raise ValueError("Delegation succeeded but failed to retrieve delegate info")
+
+    def revoke_delegation(
+        self,
+        *,
+        al_instance_id: int,
+        delegate_username: str,
+        owner_user_id: str,
+    ) -> None:
+        """Revoke a user's delegated access to an instance.
+        
+        Args:
+            al_instance_id: The instance to revoke access from.
+            delegate_username: Username of the user to revoke access from.
+            owner_user_id: UUID of the current user (must be the owner).
+            
+        Raises:
+            ValueError: If instance not found or user not owner.
+        """
+        instance = self.storage.al_instances_dict.get(al_instance_id)
+        if instance is None:
+            raise ValueError(f"Instance {al_instance_id} not found")
+        
+        if instance.get("user_id") != owner_user_id:
+            raise ValueError("Only the instance owner can revoke delegation")
+        
+        delegate_user = self.duckdb_service.get_user_by_username(username=delegate_username)
+        if delegate_user is None:
+            raise ValueError(f"User '{delegate_username}' not found")
+        
+        delegate_user_id = str(delegate_user["user_id"])
+        
+        self.duckdb_service.revoke_delegation(
+            al_instance_id=al_instance_id,
+            delegate_user_id=delegate_user_id,
+        )
+        
+        self.duckdb_service.log_event(
+            al_instance_id=al_instance_id,
+            user_id=owner_user_id,
+            action="revoke_delegation",
+            payload={
+                "delegate_user_id": delegate_user_id,
+                "delegate_username": delegate_username,
+            },
+        )
+
+    def get_delegates(
+        self,
+        *,
+        al_instance_id: int,
+        owner_user_id: str,
+    ) -> list[dict]:
+        """Get all delegates for an instance.
+        
+        Args:
+            al_instance_id: The instance to query.
+            owner_user_id: UUID of the current user (must be the owner).
+            
+        Returns:
+            List of delegate dicts.
+            
+        Raises:
+            ValueError: If instance not found or user not owner.
+        """
+        instance = self.storage.al_instances_dict.get(al_instance_id)
+        if instance is None:
+            raise ValueError(f"Instance {al_instance_id} not found")
+        
+        if instance.get("user_id") != owner_user_id:
+            raise ValueError("Only the instance owner can view delegates")
+        
+        return self.duckdb_service.get_delegates_for_instance(al_instance_id=al_instance_id)

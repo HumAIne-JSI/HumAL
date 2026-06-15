@@ -773,3 +773,116 @@ Accepts a single `Data` ticket representation chunk.
   }
 }
 ```
+
+---
+
+## Instance Delegation
+
+### POST /activelearning/{al_instance_id}/delegate
+
+**Description:**  
+Delegates an AL instance to another user, granting them full access (label, infer, XAI, save, delete). Only the instance owner can delegate access.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance to delegate |
+
+**Request Body (`application/json`):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | **Yes** | Username of the user to grant access to |
+
+**Swagger-style UI Example:**
+
+*Request Payload*
+```json
+{
+  "username": "bob"
+}
+```
+*HTTP 200 OK*
+```json
+{
+  "username": "bob",
+  "delegate_user_id": "123e4567-e89b-12d3-a456-426614174000",
+  "granted_by": "987fcdeb-51a2-43d7-9012-3456789abcde",
+  "granted_at": "2026-06-15T10:30:00"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/delegate" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "bob"}'
+```
+
+### DELETE /activelearning/{al_instance_id}/delegate/{username}
+
+**Description:**  
+Revokes a user's delegated access to an AL instance. Only the instance owner can revoke delegation.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+| `username` | path | string | **Yes** | Username of the user to revoke access from |
+
+**Swagger-style UI Example:**
+
+*HTTP 200 OK*
+```json
+{
+  "message": "Delegation revoked for user 'bob'"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X DELETE "http://localhost:8000/activelearning/1/delegate/bob" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### GET /activelearning/{al_instance_id}/delegates
+
+**Description:**  
+Lists all users who have been delegated access to an instance. Only the instance owner can view the delegate list.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+
+**Swagger-style UI Example:**
+
+*HTTP 200 OK*
+```json
+{
+  "delegates": [
+    {
+      "username": "bob",
+      "delegate_user_id": "123e4567-e89b-12d3-a456-426614174000",
+      "granted_by": "987fcdeb-51a2-43d7-9012-3456789abcde",
+      "granted_at": "2026-06-15T10:30:00"
+    },
+    {
+      "username": "charlie",
+      "delegate_user_id": "456e7890-e89b-12d3-a456-426614174001",
+      "granted_by": "987fcdeb-51a2-43d7-9012-3456789abcde",
+      "granted_at": "2026-06-15T11:00:00"
+    }
+  ]
+}
+```
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:8000/activelearning/1/delegates" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
