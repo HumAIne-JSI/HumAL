@@ -1,86 +1,35 @@
 # HumAL API Endpoint Changelog
 
-**Date:** June 23, 2026  
-**Summary:** HAIC artifact format, meta-block tracking, and enriched AL event logging.
+**Date:** June 25, 2026  
+**Summary:** Per-ticket ref handling for inference, per-ticket LIME logging, and correction of prior fictional entries.
 
 ---
 
-### ✅ NEW COLUMNS: `al_events` table
-
-**Purpose:** Support HAIC artifact generation.
-
-**Added columns:**
-- `predicted_class` (VARCHAR) — the model's predicted class at the time of the event
-- `ticket_ref` (VARCHAR) — the ticket reference associated with the event
-- `meta_block` (VARCHAR) — a HAIC meta-block string `key=hash` that groups related events into an evaluation block
-
-**Behavior:**
-- `predicted_class` is captured automatically during `infer`, `infer_proba`, and any XAI event that has a prediction available
-- `ticket_ref` is captured wherever a ticket reference is available (label, infer, XAI)
-- `meta_block` is a join token: the first event in a block (e.g. a label action) generates it; subsequent events (infer, XAI) reuse it by matching on timestamp proximity. A `meta_block` encodes the event category (`label`, `infer`, `xai`, `export`) and a deterministic hash of the first event's details.
-- `al_events` rows are now returned in `INSERTION` order (`sort_keys = False` in MinIO JSON dumps).
-
-### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer`
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer` and `POST /activelearning/{al_instance_id}/infer_proba`
 
 **Behavior update:**
-- Each inference result is now logged to `al_events` with `action="infer"`, the predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when available via `query_idx`).
-- A `meta_block` value is attached based on a 2-second proximity window — if a recent label-with-info event occurred within the window, its `meta_block` is reused, otherwise a new block is generated.
-
-### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer_proba`
-
-**Behavior update:**
-- Same event logging as `infer` above (action=`"infer_proba"`).
-
-### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/label-with-info`
-
-**Behavior update:**
-- Label events are now logged to `al_events` with a generated `meta_block` and the ticket ref in `ticket_ref`.
-- The `username` of the reviewer is now automatically captured from the authenticated JWT token and passed through to the persistence layer.
+- The single request-level `ref` query parameter has been **removed**.
+- Each endpoint now takes **mutually exclusive** parameters: either a `data` body (a `Data` object or `list[Data]`) OR a `query_idx` query parameter (a `list[str]` of ticket refs). Providing both or neither returns HTTP 400.
+- **Body path (ad-hoc data, no `query_idx`):** no events are logged. The predictions are returned but nothing is written to `al_events`.
+- **`query_idx` path (refs only, no body):** the router resolves the tickets by ref via the data service (404 if any ref is missing), then logs **two tiers** of events:
+  - **One** batch-level `request_prediction` event (`actor_type="system"`, `agent="orchestrator"`, `object_id=null`, `payload={"request_size": N, "ticket_ids": [refs...]}`).
+  - **One** `predict` event per ticket (`actor_type="ai"`, `agent="classifier_model"`, `object_id=<ref>`, `payload={"prediction": ...}` for `/infer` or `{"classes": [...], "probabilities": [<row>]}` for `/infer_proba`).
 
 ### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/explain_lime`
 
 **Behavior update:**
-- LIME events are now logged with `action="lime"`, the predicted class in `predicted_class`, the ticket ref in `ticket_ref`, and a `meta_block`.
-- The `meta_block` reuses a recent block from infer/label events within a 2-second window.
+- LIME events are now logged **per ticket** rather than per batch. For each non-`None` ticket ref, one `lime` event is written with `object_id=<ref>`, `payload={"ticket_id": <ref>, "top_features": [...], "error": <str|null>}`.
+- When all `ticket_refs` are `None` (ad-hoc body path), no `lime` events are logged.
+- The per-ticket `upsert_label_decision(ref=<ref>, xai_result=...)` is unchanged.
 
-### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest`
+### ⚠️ RETRACTED: June 23, 2026 entry
 
-**Behavior update:**
-- Nearest-neighbor events are now logged with `action="nearest"`, the predicted class in `predicted_class`, the ticket ref in `ticket_ref`, and a `meta_block`.
-- The `meta_block` reuses a recent block from infer/label events within a 2-second window.
+The earlier June 23, 2026 block described:
+- A `GET /activelearning/{al_instance_id}/benchmarking-report` HTTP endpoint — this endpoint **does not exist** in the codebase. Benchmarking is an automatic internal MinIO export triggered by `BenchmarkingService.export_if_needed` when a label count threshold is met.
+- `predicted_class`, `ticket_ref`, and `meta_block` columns on `al_events` — these columns **do not exist**. The actual schema has only `object_id` (where refs live) and a JSON `payload` column.
+- A 2-second proximity window for `meta_block` — this concept is not implemented anywhere in the source.
 
-### ✅ NEW ENDPOINT: `GET /activelearning/{al_instance_id}/benchmarking-report`
-
-**Purpose:** Exports a HAIC-compliant benchmarking artifact for all labeled events in an AL instance.
-
-**Query Parameters:**
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `classifier_name` | string | **Yes** | Name of the classifier being benchmarked |
-| `evaluated_by` | string | **Yes** | Entity evaluating (e.g. `"human"`, `"system"`) |
-
-**Response:** Downloads a JSON file with the HAIC artifact structure:
-
-```json
-{
-  "classifier_name": "...",
-  "evaluated_by": "...",
-  "evaluation_timestamp": "2026-06-23T12:00:00Z",
-  "events": [
-    {
-      "ticket_ref": "R-544314",
-      "predicted_class": "Team A",
-      "true_label": "Team A",
-      "confidence": 0.85,
-      "meta_block": "label_a1b2c3d4",
-      "model_prediction": "Team A",
-      "most_helpful_feature": "lime",
-      "latency_ms": 3200,
-      "action": "label"
-    }
-  ]
-}
-```
+The real HAIC artifact shape is `{artifact_schema, schema_version, session_id, meta, decisions, events}` — see `docs/ARCHITECTURE.md` § HAIC Benchmarking Artifact.
 
 ---
 

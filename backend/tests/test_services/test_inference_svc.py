@@ -152,7 +152,7 @@ def test_infer_proba_missing_predict_proba(mock_inference, inference_service):
 
 
 @patch('app.services.inference_svc.inference')
-def test_infer_logs_prediction(mock_inference, inference_service):
+def test_infer_without_refs_logs_nothing(mock_inference, inference_service):
     duckdb_service = MagicMock()
     inference_service.duckdb_service = duckdb_service
 
@@ -167,14 +167,11 @@ def test_infer_logs_prediction(mock_inference, inference_service):
     result = inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0)
 
     assert result == ["Team A"]
-    duckdb_service.log_event.assert_called_once()
-    assert duckdb_service.log_event.call_args.kwargs["action"] == "predict"
-    assert duckdb_service.log_event.call_args.kwargs["actor_type"] == "ai"
-    assert duckdb_service.log_event.call_args.kwargs["agent"] == "classifier_model"
+    duckdb_service.log_event.assert_not_called()
 
 
 @patch('app.services.inference_svc.inference')
-def test_infer_with_ref_sets_object_id(mock_inference, inference_service):
+def test_infer_with_refs_logs_per_ticket(mock_inference, inference_service):
     duckdb_service = MagicMock()
     inference_service.duckdb_service = duckdb_service
 
@@ -186,10 +183,191 @@ def test_infer_with_ref_sets_object_id(mock_inference, inference_service):
     mock_le.inverse_transform.return_value = np.array(["Team A"])
     mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
 
-    inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, ref="R-123")
+    inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, refs=["R-123"])
 
     duckdb_service.log_event.assert_called_once()
+    assert duckdb_service.log_event.call_args.kwargs["action"] == "predict"
+    assert duckdb_service.log_event.call_args.kwargs["actor_type"] == "ai"
+    assert duckdb_service.log_event.call_args.kwargs["agent"] == "classifier_model"
     assert duckdb_service.log_event.call_args.kwargs["object_id"] == "R-123"
+    assert duckdb_service.log_event.call_args.kwargs["payload"] == {"prediction": "Team A"}
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_batch_with_refs_logs_one_event_per_ticket(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0, 1]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+    result = inference_service.infer(1, [data1, data2], model_id=0, refs=["R-1", "R-2"])
+
+    assert result == ["Team A", "Team B"]
+    assert duckdb_service.log_event.call_count == 2
+
+    first = duckdb_service.log_event.call_args_list[0]
+    assert first.kwargs["action"] == "predict"
+    assert first.kwargs["actor_type"] == "ai"
+    assert first.kwargs["agent"] == "classifier_model"
+    assert first.kwargs["object_id"] == "R-1"
+    assert first.kwargs["payload"] == {"prediction": "Team A"}
+
+    second = duckdb_service.log_event.call_args_list[1]
+    assert second.kwargs["object_id"] == "R-2"
+    assert second.kwargs["payload"] == {"prediction": "Team B"}
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_with_refs_skips_none_refs(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0, 1]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+    inference_service.infer(1, [data1, data2], model_id=0, refs=[None, "R-2"])
+
+    assert duckdb_service.log_event.call_count == 1
+    assert duckdb_service.log_event.call_args.kwargs["object_id"] == "R-2"
+    assert duckdb_service.log_event.call_args.kwargs["payload"] == {"prediction": "Team B"}
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_refs_length_mismatch_raises(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0, 1]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+
+    with pytest.raises(AssertionError):
+        inference_service.infer(1, [data1, data2], model_id=0, refs=["R-1"])
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_proba_without_refs_logs_nothing(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = np.array([[0.7, 0.3]])
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.classes_ = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
+
+    result = inference_service.infer_proba(1, Data(title_anon="A", description_anon="B"), model_id=0)
+
+    assert result["classes"] == ["Team A", "Team B"]
+    duckdb_service.log_event.assert_not_called()
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_proba_batch_with_refs_logs_one_event_per_ticket(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = np.array([
+        [0.7, 0.3],
+        [0.1, 0.9],
+    ])
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.classes_ = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+    result = inference_service.infer_proba(1, [data1, data2], model_id=0, refs=["R-1", "R-2"])
+
+    assert result["classes"] == ["Team A", "Team B"]
+    assert duckdb_service.log_event.call_count == 2
+
+    first = duckdb_service.log_event.call_args_list[0]
+    assert first.kwargs["action"] == "predict"
+    assert first.kwargs["actor_type"] == "ai"
+    assert first.kwargs["agent"] == "classifier_model"
+    assert first.kwargs["object_id"] == "R-1"
+    assert first.kwargs["payload"]["classes"] == ["Team A", "Team B"]
+    assert first.kwargs["payload"]["probabilities"] == [0.7, 0.3]
+
+    second = duckdb_service.log_event.call_args_list[1]
+    assert second.kwargs["object_id"] == "R-2"
+    assert second.kwargs["payload"]["probabilities"] == [0.1, 0.9]
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_proba_with_refs_skips_none_refs(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = np.array([
+        [0.7, 0.3],
+        [0.1, 0.9],
+    ])
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.classes_ = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+    inference_service.infer_proba(1, [data1, data2], model_id=0, refs=[None, "R-2"])
+
+    assert duckdb_service.log_event.call_count == 1
+    assert duckdb_service.log_event.call_args.kwargs["object_id"] == "R-2"
+    assert duckdb_service.log_event.call_args.kwargs["payload"]["probabilities"] == [0.1, 0.9]
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_proba_refs_length_mismatch_raises(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = np.array([
+        [0.7, 0.3],
+        [0.1, 0.9],
+    ])
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.classes_ = np.array(["Team A", "Team B"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"], ["feat3", "feat4"]])
+
+    data1 = Data(title_anon="T1", description_anon="D1")
+    data2 = Data(title_anon="T2", description_anon="D2")
+
+    with pytest.raises(AssertionError):
+        inference_service.infer_proba(1, [data1, data2], model_id=0, refs=["R-1"])
 
 
 @patch('app.services.inference_svc.inference')
@@ -206,7 +384,7 @@ def test_infer_logs_with_user_id(mock_inference, inference_service):
     mock_le.inverse_transform.return_value = np.array(["Team A"])
     mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
 
-    result = inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id)
+    result = inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id, refs=["R-1"])
 
     assert result == ["Team A"]
     duckdb_service.log_event.assert_called_once()
@@ -227,7 +405,7 @@ def test_infer_proba_logs_with_user_id(mock_inference, inference_service):
     mock_le.classes_ = np.array(["Team A", "Team B"])
     mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
 
-    result = inference_service.infer_proba(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id)
+    result = inference_service.infer_proba(1, Data(title_anon="A", description_anon="B"), model_id=0, user_id=custom_user_id, refs=["R-1"])
 
     assert result["classes"] == ["Team A", "Team B"]
     duckdb_service.log_event.assert_called_once()

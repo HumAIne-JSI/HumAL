@@ -42,7 +42,7 @@ See [API.md](API.md) for detailed endpoint documentation.
 
 The labeling workflow:
 1. Query the next sample to label: `GET /activelearning/{al_instance_id}/next`
-2. Retrieve ticket data: `POST /data/{al_instance_id}/tickets`
+2. Retrieve ticket data: `POST /data/tickets`
 3. Submit labels: `PUT /activelearning/{al_instance_id}/label`
 4. Get explanations: `POST /xai/{al_instance_id}/explain_lime`
 

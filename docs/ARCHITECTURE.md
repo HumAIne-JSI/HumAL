@@ -156,15 +156,14 @@ def get_current_user() -> dict
 # Active Learning
 class NewInstance(BaseModel):
     model_name: str
-    query_strategy: str
-    batch_size: int
-    n_iterations: int
-  train_data_path: str | None = None   # deprecated, unused
-  test_data_path: str | None = None    # deprecated, unused
+    qs_strategy: str
+    class_list: List[str]
+    train_data_path: str | None = None
+    test_data_path: str | None = None
 
 class LabelRequest(BaseModel):
-    indices: List[str]
-    labels: List[str]
+    query_idx: List[str | int]
+    labels: List[str | int | None]
 
 # User Management
 class UserRegisterRequest(BaseModel):
@@ -209,22 +208,31 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[New ticket data]
+    A[New ticket data or query_idx refs]
     B["POST /activelearning/{id}/infer"]
-    C[Load trained model from storage]
-    D[Preprocess ticket text]
-    E["Generate features (embeddings)"]
-    F[Model predicts class]
-    G[Return predictions]
-    H[Generate LIME explanation]
+    C{query_idx provided?}
+    D[Resolve tickets via data service]
+    E[Load trained model from storage]
+    F[Preprocess ticket text]
+    G["Generate features (embeddings)"]
+    H[Model predicts class per ticket]
+    I[Return predictions]
+    J[Log one request_prediction event batch-level]
+    K[Log one predict event per ticket object_id=ref]
+    L[Generate LIME explanation]
 
     A --> B
     B --> C
-    C --> D
+    C -- yes --> D
+    C -- no body path --> E
     D --> E
     E --> F
     F --> G
     G --> H
+    H --> I
+    C -- yes --> J
+    J --> K
+    H --> L
 
 ```
 
@@ -262,19 +270,38 @@ All AL instances are owned by a user via the `user_id` column (`UUID NOT NULL DE
 - `similar_tickets` and `xai_result` are stored as JSON payloads, while the human review fields stay as regular columns for querying.
 
 ### AL Events (Audit Trail)
-- `al_events` stores a chronological audit trail of every action (label, infer, lime, nearest, export) in an AL instance.
+- `al_events` stores a chronological audit trail of every action in an AL instance.
 - Each event carries:
-  - `action` — the event type (`"label"`, `"infer"`, `"infer_proba"`, `"lime"`, `"nearest"`, `"export_report"`)
-  - `predicted_class` — the model's predicted class at the time of the event (nullable)
-  - `ticket_ref` — the associated ticket reference (nullable)
-  - `meta_block` — a HAIC meta-block string `category=hash` that groups related events (e.g. a label + infer + lime for the same ticket within a 2-second window)
-  - `details` — optional JSON payload with contextual data (latency, confidence, etc.)
+  - `action` — the event type. Actual values used in code: `"confirm_label"`, `"override_label"`, `"request_prediction"`, `"predict"`, `"lime"`, `"similar_tickets"`, `"benchmark_export"`, `"create_al_instance"`, `"request_batch"`, `"select_batch"`, `"train"`, `"evaluate"`, `"model_checkpoint"`.
+  - `actor_type` — `"system"` (orchestrator) or `"ai"` (model/agent) or `"human"` (label).
+  - `agent` — e.g. `"orchestrator"`, `"classifier_model"`, `"xai_lime"`, `"xai_nearest"`, `"human_reviewer"`.
+  - `object_id` — the associated ticket reference (nullable). For per-ticket events, this is the ticket ref. For batch-level events (e.g. `request_prediction`), this is `null` and the refs are in `payload.ticket_ids`.
+  - `payload` — JSON column with contextual data: predictions, probabilities, top features, ticket lists, request sizes, etc.
+- There are no dedicated `predicted_class`, `ticket_ref`, or `meta_block` columns; predicted class and per-ticket refs live inside the JSON `payload` (or in the per-ref `object_id`).
 
 ### HAIC Benchmarking Artifact
-- `GET /activelearning/{id}/benchmarking-report` generates a HAIC-compliant JSON artifact from `al_events`.
-- The artifact includes `classifier_name`, `evaluated_by`, `evaluation_timestamp`, and a flat `events` array with all enriched fields.
-- Meta-block encoding: `category=sha256_prefix(instance_id|timestamp|ticket_ref|action)[:12]` — deterministic so blocks survive re-export.
-- The `haic_artifact.py` utility module assembles the artifact from raw DuckDB queries.
+- Benchmarking is an **automatic internal MinIO export** triggered by `BenchmarkingService.export_if_needed` when the labeled-event count threshold is met (no HTTP endpoint exists).
+- The export is assembled by `app/utils/haic_artifact.py::build_decisions_artifact`.
+- The actual artifact shape is:
+  ```json
+  {
+    "artifact_schema": "haic.active_learning.v1",
+    "schema_version": "1.0.0",
+    "session_id": "<uuid>",
+    "meta": {
+      "pilot_tag": "...",
+      "application": "...",
+      "ai_system": "...",
+      "task": "...",
+      "human": "...",
+      "t_start": "...",
+      "t_end": "..."
+    },
+    "decisions": [ ... per-ticket decision rows ... ],
+    "events": [ ... per system event row ... ]
+  }
+  ```
+- There is no `classifier_name`, `evaluated_by`, `evaluation_timestamp`, or `meta_block` field in the artifact. The `meta` dict supplies session metadata.
 
 ### Model Storage
 ```

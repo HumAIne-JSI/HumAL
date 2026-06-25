@@ -465,7 +465,7 @@ def test_explain_lime_top_k_capped_by_num_classes(xai_service, test_data):
 
 
 def test_explain_lime_logs_event(xai_service, test_data):
-    """A lime event is always logged to DuckDB."""
+    """One lime event per ticket is logged to DuckDB (per-ticket logging)."""
     mock_explanation = MagicMock()
     mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
 
@@ -488,7 +488,7 @@ def test_explain_lime_logs_event(xai_service, test_data):
     assert call_kwargs["agent"] == "xai_lime"
     assert call_kwargs["object_id"] == "ref1"
     assert "top_features" in call_kwargs["payload"]
-    assert call_kwargs["payload"]["ticket_ids"] == ["ref1"]
+    assert call_kwargs["payload"]["ticket_id"] == "ref1"
 
 
 def test_explain_lime_upserts_label_decision_with_ref(xai_service, test_data):
@@ -514,7 +514,7 @@ def test_explain_lime_upserts_label_decision_with_ref(xai_service, test_data):
 
 
 def test_explain_lime_no_upsert_without_ref(xai_service, test_data):
-    """When ticket_refs contains only None, only log_event is called, no upsert_label_decision."""
+    """When ticket_refs contains only None, no log_event and no upsert_label_decision."""
     mock_explanation = MagicMock()
     mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
 
@@ -527,8 +527,52 @@ def test_explain_lime_no_upsert_without_ref(xai_service, test_data):
             1, [test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=[None]
         )
 
-    xai_service.duckdb_service.log_event.assert_called_once()
+    xai_service.duckdb_service.log_event.assert_not_called()
     xai_service.duckdb_service.upsert_label_decision.assert_not_called()
+
+
+def test_explain_lime_logs_one_event_per_ref(xai_service, test_data):
+    """When 2 ticket_refs are provided, 2 log_event calls are made (one per ticket)."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5), ("word2", 0.3)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        xai_service.explain_lime(
+            1, [test_data, test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=["refA", "refB"]
+        )
+
+    assert xai_service.duckdb_service.log_event.call_count == 2
+    first = xai_service.duckdb_service.log_event.call_args_list[0]
+    second = xai_service.duckdb_service.log_event.call_args_list[1]
+    assert first.kwargs["object_id"] == "refA"
+    assert first.kwargs["payload"]["ticket_id"] == "refA"
+    assert second.kwargs["object_id"] == "refB"
+    assert second.kwargs["payload"]["ticket_id"] == "refB"
+
+
+def test_explain_lime_skips_none_refs_in_mixed_batch(xai_service, test_data):
+    """None refs in a mixed batch are skipped, truthy refs are logged."""
+    mock_explanation = MagicMock()
+    mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5)]
+
+    with patch("app.services.xai_svc.LimeTextExplainer") as mock_cls:
+        mock_explainer = MagicMock()
+        mock_explainer.explain_instance.return_value = mock_explanation
+        mock_cls.return_value = mock_explainer
+
+        xai_service.explain_lime(
+            1, [test_data, test_data], model_id=0, top_k=1, user_id="u1", ticket_refs=["refA", None]
+        )
+
+    assert xai_service.duckdb_service.log_event.call_count == 1
+    assert xai_service.duckdb_service.log_event.call_args.kwargs["object_id"] == "refA"
+    # upsert_label_decision only for the truthy ref
+    xai_service.duckdb_service.upsert_label_decision.assert_called_once()
+    assert xai_service.duckdb_service.upsert_label_decision.call_args.kwargs["ref"] == "refA"
 
 
 def test_explain_lime_no_persistence_when_duckdb_none(mock_storage, mock_inference_svc, test_data):

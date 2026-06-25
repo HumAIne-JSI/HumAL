@@ -533,31 +533,31 @@ class XaiService:
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-        if self.duckdb_service is not None:
-            top_features = []
-            errors = None
-            for ticket_result in lime_explanation_outputs:
+        if self.duckdb_service is not None and ticket_refs:
+            for ticket_ref, ticket_result in zip(ticket_refs, lime_explanation_outputs):
+                if not ticket_ref:
+                    continue
+                ticket_top_features = []
+                ticket_error = None
                 for item in ticket_result:
                     if item.get("top_words"):
-                        top_features.append(item["top_words"][:10])
+                        ticket_top_features.append(item["top_words"][:10])
                     if item.get("error"):
-                        errors = (errors or []) + [item["error"]]
-
-            ticket_ids = [ref for ref in (ticket_refs or []) if ref]
-            self.duckdb_service.log_event(
-                al_instance_id=al_instance_id,
-                user_id=user_id,
-                action="lime",
-                latency_ms=latency_ms,
-                actor_type="ai",
-                agent="xai_lime",
-                object_id=ticket_ids[0] if ticket_ids else None,
-                payload={
-                    "ticket_ids": ticket_ids,
-                    "top_features": top_features,
-                    "errors": errors,
-                },
-            )
+                        ticket_error = item["error"]
+                self.duckdb_service.log_event(
+                    al_instance_id=al_instance_id,
+                    user_id=user_id,
+                    action="lime",
+                    latency_ms=latency_ms,
+                    actor_type="ai",
+                    agent="xai_lime",
+                    object_id=str(ticket_ref),
+                    payload={
+                        "ticket_id": str(ticket_ref),
+                        "top_features": ticket_top_features,
+                        "error": ticket_error,
+                    },
+                )
 
             if ticket_refs:
                 for ticket_ref, ticket_result in zip(ticket_refs, lime_explanation_outputs):

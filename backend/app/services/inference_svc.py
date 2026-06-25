@@ -49,24 +49,24 @@ class InferenceService:
         )
 
     # Logic for inference
-    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, ref: Optional[str] = None):
+    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, refs: Optional[list[str]] = None):
         start_time = time.perf_counter()
         # Convert Data object(s) to pandas DataFrame
         if isinstance(X, list):
             data_dicts = [item.model_dump() for item in X]
         else:
             data_dicts = [X.model_dump()]
-        
+
         X = pd.DataFrame(data_dicts)
 
         # Preprocess the data for inference
         X = inference(
-            df=X, 
-            le=self.storage.dataset_dict[al_instance_id]['le'], 
+            df=X,
+            le=self.storage.dataset_dict[al_instance_id]['le'],
             oh=self.storage.dataset_dict[al_instance_id]['oh'],
             sentence_model=self.sentence_model
         )
-        
+
         # Load the model
         model = self.local_artifacts_store.load_model(al_instance_id, model_id)
 
@@ -78,27 +78,37 @@ class InferenceService:
         # Transform the predictions to the original labels
         predictions = le.inverse_transform(predictions)
 
-        self._log_event(
-            al_instance_id=al_instance_id,
-            action="predict",
-            latency_ms=int((time.perf_counter() - start_time) * 1000),
-            actor_type="ai",
-            agent="classifier_model",
-            object_id=ref,
-            payload={"predictions": predictions.tolist()},
-            user_id=user_id,
-        )
+        predictions_list = predictions.tolist()
+
+        if refs is not None and self.duckdb_service is not None:
+            assert len(refs) == len(predictions_list), (
+                f"refs/predictions length mismatch: {len(refs)} vs {len(predictions_list)}"
+            )
+            for ref, pred in zip(refs, predictions_list):
+                if ref is None:
+                    continue
+                self._log_event(
+                    al_instance_id=al_instance_id,
+                    action="predict",
+                    latency_ms=int((time.perf_counter() - start_time) * 1000),
+                    actor_type="ai",
+                    agent="classifier_model",
+                    object_id=str(ref),
+                    payload={"prediction": pred},
+                    user_id=user_id,
+                )
 
         # Return the predictions
-        return predictions.tolist()
+        return predictions_list
 
-    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, ref: Optional[str] = None):
+    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, refs: Optional[list[str]] = None):
         """Run probability inference for the provided samples.
 
         Args:
             al_instance_id: Active learning instance id.
             X: Input data instance(s).
             model_id: Model id to load.
+            refs: Optional list of ticket refs (one per row of X) for per-ticket event logging.
 
         Returns:
             dict: Classes list and probability matrix.
@@ -138,19 +148,26 @@ class InferenceService:
         probabilities = probabilities.tolist() if hasattr(probabilities, "tolist") else probabilities
         classes = le.classes_.tolist() if hasattr(le, "classes_") else []
 
-        self._log_event(
-            al_instance_id=al_instance_id,
-            action="predict",
-            latency_ms=int((time.perf_counter() - start_time) * 1000),
-            actor_type="ai",
-            agent="classifier_model",
-            object_id=ref,
-            payload={
-                "classes": classes,
-                "probabilities": probabilities,
-            },
-            user_id=user_id,
-        )
+        if refs is not None and self.duckdb_service is not None:
+            assert len(refs) == len(probabilities), (
+                f"refs/probabilities length mismatch: {len(refs)} vs {len(probabilities)}"
+            )
+            for ref, prob_row in zip(refs, probabilities):
+                if ref is None:
+                    continue
+                self._log_event(
+                    al_instance_id=al_instance_id,
+                    action="predict",
+                    latency_ms=int((time.perf_counter() - start_time) * 1000),
+                    actor_type="ai",
+                    agent="classifier_model",
+                    object_id=str(ref),
+                    payload={
+                        "classes": classes,
+                        "probabilities": prob_row,
+                    },
+                    user_id=user_id,
+                )
 
         return {
             "classes": classes,

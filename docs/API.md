@@ -14,10 +14,11 @@ All endpoints accept and return JSON unless noted. Path and query parameters are
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
-| `query_idx` | query | array | No | Ticket references for event logging (parallel to body array) |
+| `query_idx` | query | array (string) | No | List of ticket references. Mutually exclusive with the request body. When provided, tickets are resolved by ref via the data service, predicted, and per-ticket events are logged. |
 
 **Request Body (`application/json`):**  
-Single `Data` object or an array of `Data` objects.
+Single `Data` object or an array of `Data` objects. **Mutually exclusive with `query_idx`:** provide either the body OR `query_idx`, never both, never neither (returns 400).
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title_anon` | string | No | Anonymized ticket title |
@@ -28,33 +29,47 @@ Single `Data` object or an array of `Data` objects.
 | `last_team_id_name` | string | No | Previous team assignment |
 | `public_log_anon` | string | No | Public communication logs |
 
-**Event Logging:** Each inference is logged to `al_events` with `action="infer"`, the predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when `query_idx` is provided). A `meta_block` is attached using a 2-second proximity window to label events.
+**Event Logging:**
+- **Body path (no `query_idx`):** No events are logged. Ad-hoc inference is unlogged.
+- **`query_idx` path:** Two tiers of events are written to `al_events`:
+  - **One** batch-level `request_prediction` event (`actor_type="system"`, `agent="orchestrator"`, `object_id=null`, `payload={"request_size": N, "ticket_ids": [refs...]}`), emitted by the router.
+  - **One** `predict` event per ticket (`actor_type="ai"`, `agent="classifier_model"`, `object_id=<ref>`, `payload={"prediction": <class>}`), emitted by the service.
 
 **Swagger-style UI Example:**
-*Request Payload (Batch)*
+
+*Request Body Path (unlogged)*
 ```json
-[
-  {
-    "title_anon": "VPN not working"
-  },
-  {
-    "title_anon": "Email issue"
-  }
-]
+{
+  "title_anon": "VPN not working"
+}
+```
+*HTTP 200 OK*
+```json
+["(GI-UX) Network Access"]
+```
+
+*`query_idx` Path (logged per-ticket)*
+```bash
+POST /activelearning/1/infer?query_idx=R-1&query_idx=R-2
 ```
 *HTTP 200 OK*
 ```json
 [
-  "(GI-UX) Network Access", 
+  "(GI-UX) Network Access",
   "Email Support Team"
 ]
 ```
 
-**cURL Example:**
+**cURL Example (body path):**
 ```bash
 curl -X POST "http://localhost:8000/activelearning/1/infer" \
 	-H "Content-Type: application/json" \
-	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
+	-d "{\"title_anon\":\"VPN not working\"}"
+```
+
+**cURL Example (query_idx path):**
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/infer?query_idx=R-1&query_idx=R-2"
 ```
 
 ### POST /xai/{al_instance_id}/nearest
@@ -132,10 +147,11 @@ curl -X POST "http://localhost:8000/xai/1/nearest?top_k=2" \
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
-| `query_idx` | query | array | No | Ticket references for event logging (parallel to body array) |
+| `query_idx` | query | array (string) | No | List of ticket references. Mutually exclusive with the request body. When provided, tickets are resolved by ref via the data service, predicted, and per-ticket events are logged. |
 
 **Request Body (`application/json`):**  
-Single `Data` object or an array of `Data` objects.
+Single `Data` object or an array of `Data` objects. **Mutually exclusive with `query_idx`:** provide either the body OR `query_idx`, never both, never neither (returns 400).
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title_anon` | string | No | Anonymized ticket title |
@@ -146,19 +162,31 @@ Single `Data` object or an array of `Data` objects.
 | `last_team_id_name` | string | No | Previous team assignment |
 | `public_log_anon` | string | No | Public communication logs |
 
-**Event Logging:** Each inference is logged to `al_events` with `action="infer_proba"`, the top predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when `query_idx` is provided). A `meta_block` is attached using a 2-second proximity window to label events.
+**Event Logging:**
+- **Body path (no `query_idx`):** No events are logged. Ad-hoc inference is unlogged.
+- **`query_idx` path:** Two tiers of events are written to `al_events`:
+  - **One** batch-level `request_prediction` event (`actor_type="system"`, `agent="orchestrator"`, `object_id=null`, `payload={"request_size": N, "ticket_ids": [refs...]}`), emitted by the router.
+  - **One** `predict` event per ticket (`actor_type="ai"`, `agent="classifier_model"`, `object_id=<ref>`, `payload={"classes": [...], "probabilities": [<row>]}`), emitted by the service.
 
 **Swagger-style UI Example:**
-*Request Payload (Batch)*
+
+*Request Body Path (unlogged)*
 ```json
-[
-  {
-    "title_anon": "VPN not working"
-  },
-  {
-    "title_anon": "Email issue"
-  }
-]
+{
+  "title_anon": "VPN not working"
+}
+```
+*HTTP 200 OK*
+```json
+{
+  "classes": ["network_issue", "hardware", "software", "other"],
+  "probabilities": [[0.7, 0.1, 0.1, 0.1]]
+}
+```
+
+*`query_idx` Path (logged per-ticket)*
+```bash
+POST /activelearning/1/infer_proba?query_idx=R-1&query_idx=R-2
 ```
 *HTTP 200 OK*
 ```json
@@ -171,11 +199,16 @@ Single `Data` object or an array of `Data` objects.
 }
 ```
 
-**cURL Example:**
+**cURL Example (body path):**
 ```bash
 curl -X POST "http://localhost:8000/activelearning/1/infer_proba" \
 	-H "Content-Type: application/json" \
-	-d "[{\"title_anon\":\"VPN not working\"}, {\"title_anon\":\"Email issue\"}]"
+	-d "{\"title_anon\":\"VPN not working\"}"
+```
+
+**cURL Example (query_idx path):**
+```bash
+curl -X POST "http://localhost:8000/activelearning/1/infer_proba?query_idx=R-1&query_idx=R-2"
 ```
 
 
@@ -546,44 +579,7 @@ curl -X DELETE "http://localhost:8000/activelearning/1"
 ```
 
 
-### GET /activelearning/{al_instance_id}/benchmarking-report
 
-**Description:** Exports a HAIC-compliant benchmarking artifact as a downloadable JSON file. The report aggregates all labeled events from the AL instance into a standardized artifact format with meta-block grouping.
-
-**Parameters:**
-| Name | In | Type | Required | Description |
-|---|---|---|---|---|
-| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
-| `classifier_name` | query | string | **Yes** | Name of the classifier being benchmarked |
-| `evaluated_by` | query | string | **Yes** | Entity performing evaluation (e.g. `"human"`, `"system"`) |
-
-**Swagger-style UI Example:**
-*HTTP 200 OK (JSON file download)*
-```json
-{
-  "classifier_name": "svm",
-  "evaluated_by": "human",
-  "evaluation_timestamp": "2026-06-23T12:00:00Z",
-  "events": [
-    {
-      "ticket_ref": "R-544314",
-      "predicted_class": "Team A",
-      "true_label": "Team A",
-      "confidence": 0.85,
-      "meta_block": "label_a1b2c3d4",
-      "model_prediction": "Team A",
-      "most_helpful_feature": "lime",
-      "latency_ms": 3200,
-      "action": "label"
-    }
-  ]
-}
-```
-
-**cURL Example:**
-```bash
-curl "http://localhost:8000/activelearning/1/benchmarking-report?classifier_name=svm&evaluated_by=human"
-```
 
 
 ## Configuration
@@ -615,6 +611,24 @@ curl "http://localhost:8000/activelearning/1/benchmarking-report?classifier_name
     "uncertainty sampling least confidence"
   ]
 }
+```
+
+
+### GET /config/capabilities
+
+**Description:** Polls the application for the set of optional capabilities currently enabled (for example, asynchronous XAI when RabbitMQ is configured).
+
+**Swagger-style UI Example:**
+*HTTP 200 OK*
+```json
+{
+  "capabilities": ["xai"]
+}
+```
+
+**cURL Example:**
+```bash
+curl "http://localhost:8000/config/capabilities"
 ```
 
 
@@ -732,8 +746,8 @@ Accepts a single `Data` structure representing ticket text. Provide **exactly on
 ```
 
 **Persistence Behavior:**
-- When `query_idx` is provided, each `query_idx` value is used as the ticket ref. The result is logged to `al_events` (action="lime") and upserted into `label_decisions.xai_result`.
-- When `ticket_data` is provided, there is no ref. The result is logged to `al_events` but not persisted to `label_decisions`.
+- When `query_idx` is provided, each `query_idx` value is used as the ticket ref. **One `lime` event is logged per ticket** to `al_events` (`action="lime"`, `actor_type="ai"`, `agent="xai_lime"`, `object_id=<ref>`, `payload={"ticket_id": <ref>, "top_features": [...], "error": <str|null>}`), and the result is upserted into `label_decisions.xai_result` keyed by `(al_instance_id, ref)`.
+- When `ticket_data` is provided, there is no ref. **No events are logged** and nothing is persisted to `label_decisions`.
 
 **cURL Example:**
 ```bash
@@ -791,9 +805,7 @@ Accepts a single `Data` ticket representation chunk.
 *HTTP 200 OK*
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "pending",
-  "ticket_ref": "R-544314"
+  "job_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -811,19 +823,18 @@ Accepts a single `Data` ticket representation chunk.
 *HTTP 200 OK (Pending)*
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "pending"
 }
 ```
 *HTTP 200 OK (Completed)*
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "completed",
   "result": {
     "top_words": [["vpn", 0.42]],
     "error": null
-  }
+  },
+  "result_location": "xai_results/job-id.json"
 }
 ```
 
