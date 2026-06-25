@@ -66,7 +66,7 @@ def label_with_info(al_instance_id: int, label_info: list[LabelInfo] = Body(...)
 
     try:
         coerced_items = _coerce_label_info_items(label_info)
-        result = al_service.label_with_info(al_instance_id, coerced_items, user_id=current_user["user_id"])
+        result = al_service.label_with_info(al_instance_id, coerced_items, user_id=current_user["user_id"], username=current_user["username"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

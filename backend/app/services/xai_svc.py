@@ -543,13 +543,17 @@ class XaiService:
                     if item.get("error"):
                         errors = (errors or []) + [item["error"]]
 
+            ticket_ids = [ref for ref in (ticket_refs or []) if ref]
             self.duckdb_service.log_event(
                 al_instance_id=al_instance_id,
                 user_id=user_id,
                 action="lime",
                 latency_ms=latency_ms,
+                actor_type="ai",
+                agent="xai_lime",
+                object_id=ticket_ids[0] if ticket_ids else None,
                 payload={
-                    "ticket_ids": [ref for ref in (ticket_refs or []) if ref],
+                    "ticket_ids": ticket_ids,
                     "top_features": top_features,
                     "errors": errors,
                 },
@@ -600,6 +604,9 @@ class XaiService:
                 user_id=user_id,
                 action="similar_tickets",
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
+                actor_type="ai",
+                agent="xai_nearest",
+                object_id=None,
                 payload={
                     "ticket_id": None,
                     "predicted_class_neighbor_ids": [item["ref"] for item in predicted_class_neighbors],
@@ -675,6 +682,9 @@ class XaiService:
                 user_id=user_id,
                 action="similar_tickets",
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
+                actor_type="ai",
+                agent="xai_nearest",
+                object_id=str(index),
                 payload={
                     "ticket_id": str(index),
                     "predicted_class_neighbor_ids": [item["ref"] for item in predicted_class_neighbors],
@@ -989,6 +999,9 @@ class XaiService:
                         user_id=job_user_id,
                         action="lime",
                         latency_ms=latency_ms,
+                        actor_type="ai",
+                        agent="xai_lime",
+                        object_id=ticket_ids[0] if ticket_ids else None,
                         payload={
                             "ticket_ids": ticket_ids,
                             "top_features": top_features,

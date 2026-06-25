@@ -169,6 +169,27 @@ def test_infer_logs_prediction(mock_inference, inference_service):
     assert result == ["Team A"]
     duckdb_service.log_event.assert_called_once()
     assert duckdb_service.log_event.call_args.kwargs["action"] == "predict"
+    assert duckdb_service.log_event.call_args.kwargs["actor_type"] == "ai"
+    assert duckdb_service.log_event.call_args.kwargs["agent"] == "classifier_model"
+
+
+@patch('app.services.inference_svc.inference')
+def test_infer_with_ref_sets_object_id(mock_inference, inference_service):
+    duckdb_service = MagicMock()
+    inference_service.duckdb_service = duckdb_service
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0]
+    inference_service.local_artifacts_store.load_model.return_value = mock_model
+
+    mock_le = inference_service.storage.dataset_dict[1]['le']
+    mock_le.inverse_transform.return_value = np.array(["Team A"])
+    mock_inference.return_value = pd.DataFrame([["feat1", "feat2"]])
+
+    inference_service.infer(1, Data(title_anon="A", description_anon="B"), model_id=0, ref="R-123")
+
+    duckdb_service.log_event.assert_called_once()
+    assert duckdb_service.log_event.call_args.kwargs["object_id"] == "R-123"
 
 
 @patch('app.services.inference_svc.inference')
@@ -211,3 +232,5 @@ def test_infer_proba_logs_with_user_id(mock_inference, inference_service):
     assert result["classes"] == ["Team A", "Team B"]
     duckdb_service.log_event.assert_called_once()
     assert duckdb_service.log_event.call_args.kwargs["user_id"] == custom_user_id
+    assert duckdb_service.log_event.call_args.kwargs["actor_type"] == "ai"
+    assert duckdb_service.log_event.call_args.kwargs["agent"] == "classifier_model"

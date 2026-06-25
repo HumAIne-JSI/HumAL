@@ -28,7 +28,9 @@ class InferenceService:
         self.local_artifacts_store = local_artifacts_store
         self.duckdb_service = duckdb_service
 
-    def _log_event(self, *, al_instance_id: int, action: str, latency_ms: int, payload: dict, user_id: str = SYSTEM_USER_ID) -> None:
+    def _log_event(self, *, al_instance_id: int, action: str, latency_ms: int, payload: dict, user_id: str = SYSTEM_USER_ID,
+                   actor_type: Optional[str] = None, agent: Optional[str] = None, object_id: Optional[str] = None,
+                   duration_s: Optional[float] = None, correct: Optional[bool] = None, ai_suggested: Optional[str] = None) -> None:
         if self.duckdb_service is None:
             return
 
@@ -38,10 +40,16 @@ class InferenceService:
             action=action,
             latency_ms=latency_ms,
             payload=payload,
+            actor_type=actor_type,
+            agent=agent,
+            object_id=object_id,
+            duration_s=duration_s,
+            correct=correct,
+            ai_suggested=ai_suggested,
         )
 
     # Logic for inference
-    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID):
+    def infer(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, ref: Optional[str] = None):
         start_time = time.perf_counter()
         # Convert Data object(s) to pandas DataFrame
         if isinstance(X, list):
@@ -74,6 +82,9 @@ class InferenceService:
             al_instance_id=al_instance_id,
             action="predict",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="ai",
+            agent="classifier_model",
+            object_id=ref,
             payload={"predictions": predictions.tolist()},
             user_id=user_id,
         )
@@ -81,7 +92,7 @@ class InferenceService:
         # Return the predictions
         return predictions.tolist()
 
-    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID):
+    def infer_proba(self, al_instance_id: int, X: Data | list[Data], model_id: int = 0, user_id: str = SYSTEM_USER_ID, ref: Optional[str] = None):
         """Run probability inference for the provided samples.
 
         Args:
@@ -131,6 +142,9 @@ class InferenceService:
             al_instance_id=al_instance_id,
             action="predict",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="ai",
+            agent="classifier_model",
+            object_id=ref,
             payload={
                 "classes": classes,
                 "probabilities": probabilities,

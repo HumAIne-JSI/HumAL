@@ -1,5 +1,89 @@
 # HumAL API Endpoint Changelog
 
+**Date:** June 23, 2026  
+**Summary:** HAIC artifact format, meta-block tracking, and enriched AL event logging.
+
+---
+
+### ✅ NEW COLUMNS: `al_events` table
+
+**Purpose:** Support HAIC artifact generation.
+
+**Added columns:**
+- `predicted_class` (VARCHAR) — the model's predicted class at the time of the event
+- `ticket_ref` (VARCHAR) — the ticket reference associated with the event
+- `meta_block` (VARCHAR) — a HAIC meta-block string `key=hash` that groups related events into an evaluation block
+
+**Behavior:**
+- `predicted_class` is captured automatically during `infer`, `infer_proba`, and any XAI event that has a prediction available
+- `ticket_ref` is captured wherever a ticket reference is available (label, infer, XAI)
+- `meta_block` is a join token: the first event in a block (e.g. a label action) generates it; subsequent events (infer, XAI) reuse it by matching on timestamp proximity. A `meta_block` encodes the event category (`label`, `infer`, `xai`, `export`) and a deterministic hash of the first event's details.
+- `al_events` rows are now returned in `INSERTION` order (`sort_keys = False` in MinIO JSON dumps).
+
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer`
+
+**Behavior update:**
+- Each inference result is now logged to `al_events` with `action="infer"`, the predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when available via `query_idx`).
+- A `meta_block` value is attached based on a 2-second proximity window — if a recent label-with-info event occurred within the window, its `meta_block` is reused, otherwise a new block is generated.
+
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer_proba`
+
+**Behavior update:**
+- Same event logging as `infer` above (action=`"infer_proba"`).
+
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/label-with-info`
+
+**Behavior update:**
+- Label events are now logged to `al_events` with a generated `meta_block` and the ticket ref in `ticket_ref`.
+- The `username` of the reviewer is now automatically captured from the authenticated JWT token and passed through to the persistence layer.
+
+### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/explain_lime`
+
+**Behavior update:**
+- LIME events are now logged with `action="lime"`, the predicted class in `predicted_class`, the ticket ref in `ticket_ref`, and a `meta_block`.
+- The `meta_block` reuses a recent block from infer/label events within a 2-second window.
+
+### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest`
+
+**Behavior update:**
+- Nearest-neighbor events are now logged with `action="nearest"`, the predicted class in `predicted_class`, the ticket ref in `ticket_ref`, and a `meta_block`.
+- The `meta_block` reuses a recent block from infer/label events within a 2-second window.
+
+### ✅ NEW ENDPOINT: `GET /activelearning/{al_instance_id}/benchmarking-report`
+
+**Purpose:** Exports a HAIC-compliant benchmarking artifact for all labeled events in an AL instance.
+
+**Query Parameters:**
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `classifier_name` | string | **Yes** | Name of the classifier being benchmarked |
+| `evaluated_by` | string | **Yes** | Entity evaluating (e.g. `"human"`, `"system"`) |
+
+**Response:** Downloads a JSON file with the HAIC artifact structure:
+
+```json
+{
+  "classifier_name": "...",
+  "evaluated_by": "...",
+  "evaluation_timestamp": "2026-06-23T12:00:00Z",
+  "events": [
+    {
+      "ticket_ref": "R-544314",
+      "predicted_class": "Team A",
+      "true_label": "Team A",
+      "confidence": 0.85,
+      "meta_block": "label_a1b2c3d4",
+      "model_prediction": "Team A",
+      "most_helpful_feature": "lime",
+      "latency_ms": 3200,
+      "action": "label"
+    }
+  ]
+}
+```
+
+---
+
 **Date:** June 13, 2026  
 **Summary:** JWT-based authentication replacing API-key auth.
 

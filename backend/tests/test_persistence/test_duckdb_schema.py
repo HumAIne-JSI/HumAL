@@ -234,3 +234,22 @@ class TestInitDatabase:
             
             # Should still have the same tables, no duplicates
             assert tables[0] >= 6
+
+    def test_al_events_schema_includes_haic_columns(self, temp_db):
+        init_database(temp_db)
+        with connect(temp_db) as conn:
+            columns = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'al_events'
+                ORDER BY ordinal_position
+                """
+            ).fetchall()
+            col_names = {col[0] for col in columns}
+            assert "actor_type" in col_names
+            assert "agent" in col_names
+            assert "object_id" in col_names
+            assert "duration_s" in col_names
+            assert "correct" in col_names
+            assert "ai_suggested" in col_names

@@ -14,6 +14,7 @@ All endpoints accept and return JSON unless noted. Path and query parameters are
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+| `query_idx` | query | array | No | Ticket references for event logging (parallel to body array) |
 
 **Request Body (`application/json`):**  
 Single `Data` object or an array of `Data` objects.
@@ -26,6 +27,8 @@ Single `Data` object or an array of `Data` objects.
 | `service_name` | string | No | Top-level service name |
 | `last_team_id_name` | string | No | Previous team assignment |
 | `public_log_anon` | string | No | Public communication logs |
+
+**Event Logging:** Each inference is logged to `al_events` with `action="infer"`, the predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when `query_idx` is provided). A `meta_block` is attached using a 2-second proximity window to label events.
 
 **Swagger-style UI Example:**
 *Request Payload (Batch)*
@@ -129,6 +132,7 @@ curl -X POST "http://localhost:8000/xai/1/nearest?top_k=2" \
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+| `query_idx` | query | array | No | Ticket references for event logging (parallel to body array) |
 
 **Request Body (`application/json`):**  
 Single `Data` object or an array of `Data` objects.
@@ -141,6 +145,8 @@ Single `Data` object or an array of `Data` objects.
 | `service_name` | string | No | Top-level service name |
 | `last_team_id_name` | string | No | Previous team assignment |
 | `public_log_anon` | string | No | Public communication logs |
+
+**Event Logging:** Each inference is logged to `al_events` with `action="infer_proba"`, the top predicted class in `predicted_class`, and the ticket ref in `ticket_ref` (when `query_idx` is provided). A `meta_block` is attached using a 2-second proximity window to label events.
 
 **Swagger-style UI Example:**
 *Request Payload (Batch)*
@@ -388,7 +394,7 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 
 ### POST /activelearning/{al_instance_id}/label-with-info
 
-**Description:** Submits human-assigned labels together with metadata such as review duration and model prediction. The API logs one event per labeled ticket, persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed.
+**Description:** Submits human-assigned labels together with metadata such as review duration and model prediction. The API logs one event per labeled ticket (with a generated `meta_block` and `ticket_ref`), persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed. The reviewer's `username` is automatically captured from the JWT token.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -537,6 +543,46 @@ curl "http://localhost:8000/activelearning/instances"
 **cURL Example:**
 ```bash
 curl -X DELETE "http://localhost:8000/activelearning/1"
+```
+
+
+### GET /activelearning/{al_instance_id}/benchmarking-report
+
+**Description:** Exports a HAIC-compliant benchmarking artifact as a downloadable JSON file. The report aggregates all labeled events from the AL instance into a standardized artifact format with meta-block grouping.
+
+**Parameters:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+| `classifier_name` | query | string | **Yes** | Name of the classifier being benchmarked |
+| `evaluated_by` | query | string | **Yes** | Entity performing evaluation (e.g. `"human"`, `"system"`) |
+
+**Swagger-style UI Example:**
+*HTTP 200 OK (JSON file download)*
+```json
+{
+  "classifier_name": "svm",
+  "evaluated_by": "human",
+  "evaluation_timestamp": "2026-06-23T12:00:00Z",
+  "events": [
+    {
+      "ticket_ref": "R-544314",
+      "predicted_class": "Team A",
+      "true_label": "Team A",
+      "confidence": 0.85,
+      "meta_block": "label_a1b2c3d4",
+      "model_prediction": "Team A",
+      "most_helpful_feature": "lime",
+      "latency_ms": 3200,
+      "action": "label"
+    }
+  ]
+}
+```
+
+**cURL Example:**
+```bash
+curl "http://localhost:8000/activelearning/1/benchmarking-report?classifier_name=svm&evaluated_by=human"
 ```
 
 

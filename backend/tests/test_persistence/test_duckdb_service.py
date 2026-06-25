@@ -403,6 +403,29 @@ class TestEvents:
         events = service.get_al_events(1)
         assert events[0]["payload"]["exported_at"] == exported_at.isoformat()
 
+    def test_log_event_with_all_haic_fields(self, service):
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+        service.log_event(
+            al_instance_id=1,
+            user_id="00000000-0000-0000-0000-000000000000",
+            action="confirm_label",
+            latency_ms=500,
+            payload={"ticket_id": "T1", "new_label": "Team A"},
+            actor_type="human",
+            agent="labeler_01",
+            object_id="T1",
+            duration_s=5.0,
+            correct=True,
+            ai_suggested="Team A",
+        )
+        events = service.get_al_events(1)
+        assert events[0]["actor_type"] == "human"
+        assert events[0]["agent"] == "labeler_01"
+        assert events[0]["object_id"] == "T1"
+        assert events[0]["duration_s"] == 5.0
+        assert events[0]["correct"] is True
+        assert events[0]["ai_suggested"] == "Team A"
+
     def test_count_label_events_since(self, service):
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
         service.log_event(al_instance_id=1, user_id="00000000-0000-0000-0000-000000000000", action="confirm_label")

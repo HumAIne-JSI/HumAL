@@ -25,12 +25,15 @@ def infer(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(
             user_id=current_user["user_id"],
             action="request_prediction",
             latency_ms=int((time.perf_counter() - request_start) * 1000),
+            actor_type="system",
+            agent="orchestrator",
+            object_id=ref,
             payload={
                 "request_size": len(data) if isinstance(data, list) else 1,
                 **({"ref": ref} if ref is not None else {}),
             },
         )
-    return inference_service.infer(al_instance_id, data, user_id=current_user["user_id"])
+    return inference_service.infer(al_instance_id, data, user_id=current_user["user_id"], ref=ref)
 
 @router.post("/{al_instance_id}/infer_proba", response_model=InferProbaResponse)
 def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = Query(None), current_user: dict = Depends(get_current_user)):
@@ -59,6 +62,9 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
             user_id=current_user["user_id"],
             action="request_prediction",
             latency_ms=int((time.perf_counter() - request_start) * 1000),
+            actor_type="system",
+            agent="orchestrator",
+            object_id=ref,
             payload={
                 "request_size": len(data) if isinstance(data, list) else 1,
                 **({"ref": ref} if ref is not None else {}),
@@ -66,6 +72,6 @@ def infer_proba(al_instance_id: int, data: Data | list[Data], ref: str | None = 
         )
 
     try:
-        return inference_service.infer_proba(al_instance_id, data, user_id=current_user["user_id"])
+        return inference_service.infer_proba(al_instance_id, data, user_id=current_user["user_id"], ref=ref)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -484,6 +484,9 @@ def test_explain_lime_logs_event(xai_service, test_data):
     assert call_kwargs["al_instance_id"] == 1
     assert call_kwargs["user_id"] == "u1"
     assert call_kwargs["latency_ms"] >= 0
+    assert call_kwargs["actor_type"] == "ai"
+    assert call_kwargs["agent"] == "xai_lime"
+    assert call_kwargs["object_id"] == "ref1"
     assert "top_features" in call_kwargs["payload"]
     assert call_kwargs["payload"]["ticket_ids"] == ["ref1"]
 

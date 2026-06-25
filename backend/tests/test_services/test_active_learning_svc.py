@@ -372,7 +372,26 @@ class TestLabelInstanceLogging:
         assert response == {"message": "Labels updated"}
         duckdb_service.save_labels.assert_called_once()
         assert duckdb_service.save_labels.call_args.kwargs["labels_dict"] == {"T001": "Network", "T002": "Hardware"}
-        assert [call.kwargs["action"] for call in duckdb_service.log_event.call_args_list] == ["confirm_label", "override_label"]
+        assert duckdb_service.log_event.call_count == 2
+
+        first_log = duckdb_service.log_event.call_args_list[0].kwargs
+        assert first_log["action"] == "confirm_label"
+        assert first_log["actor_type"] == "human"
+        assert first_log["agent"] == "system"
+        assert first_log["object_id"] == "T001"
+        assert first_log["duration_s"] == 2.0
+        assert first_log["correct"] is None
+        assert first_log["ai_suggested"] is None
+
+        second_log = duckdb_service.log_event.call_args_list[1].kwargs
+        assert second_log["action"] == "override_label"
+        assert second_log["actor_type"] == "human"
+        assert second_log["agent"] == "system"
+        assert second_log["object_id"] == "T002"
+        assert second_log["duration_s"] == 3.0
+        assert second_log["correct"] is False
+        assert second_log["ai_suggested"] == "Network"
+
         assert duckdb_service.upsert_label_decision.call_count == 2
 
         first_call = duckdb_service.upsert_label_decision.call_args_list[0].kwargs

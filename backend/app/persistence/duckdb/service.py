@@ -720,14 +720,20 @@ class DuckDbPersistenceService:
         action: str,
         latency_ms: Optional[int] = None,
         payload: Optional[Dict[str, Any]] = None,
+        actor_type: Optional[str] = None,
+        agent: Optional[str] = None,
+        object_id: Optional[str] = None,
+        duration_s: Optional[float] = None,
+        correct: Optional[bool] = None,
+        ai_suggested: Optional[str] = None,
     ) -> None:
         resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else None
 
         with connect(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO al_events (al_instance_id, user_id, action, latency_ms, payload)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO al_events (al_instance_id, user_id, action, latency_ms, payload, actor_type, agent, object_id, duration_s, correct, ai_suggested)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     al_instance_id,
@@ -735,6 +741,12 @@ class DuckDbPersistenceService:
                     action,
                     latency_ms,
                     json.dumps(payload, default=_json_default) if payload is not None else None,
+                    actor_type,
+                    agent,
+                    object_id,
+                    duration_s,
+                    correct,
+                    ai_suggested,
                 ],
             )
 
@@ -746,7 +758,7 @@ class DuckDbPersistenceService:
         limit: Optional[int] = None,
     ) -> list[Dict[str, Any]]:
         query = [
-            "SELECT timestamp, user_id, action, latency_ms, payload",
+            "SELECT timestamp, user_id, action, latency_ms, payload, actor_type, agent, object_id, duration_s, correct, ai_suggested",
             "FROM al_events",
             "WHERE al_instance_id = ?",
         ]
@@ -777,6 +789,12 @@ class DuckDbPersistenceService:
                 "action": row[2],
                 "latency_ms": row[3],
                 "payload": _deserialize_json(row[4]),
+                "actor_type": row[5],
+                "agent": row[6],
+                "object_id": row[7],
+                "duration_s": row[8],
+                "correct": row[9],
+                "ai_suggested": row[10],
             }
             for row in rows
         ]

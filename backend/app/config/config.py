@@ -69,6 +69,17 @@ def _get_minio_prefix() -> str:
     return raw_prefix.strip("/")
 
 
+# ============ HAIC Benchmarking Artifact ============
+PILOT_TAG = "smart_ticketing"
+APP_NAME = "Smart Ticketing AL Platform"
+APP_VERSION = "1.0.0"
+AI_MODEL_TYPE = "classifier"
+TASK_NAME = "active_learning_ticket_triage"
+TASK_DOMAIN = "customer_support"
+TASK_UNIT_OF_WORK = "ticket"
+HUMAN_ROLE = "labeler"
+HUMAN_EXPERTISE = "domain_expert"
+
 # ============ JWT Authentication ============
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")

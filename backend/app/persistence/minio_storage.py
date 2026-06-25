@@ -431,7 +431,7 @@ class MinioService:
         object_name = self._with_prefix(f"benchmarking/{al_instance_id}/events_{export_id}.json")
         logger.info(f"Saving benchmark events to MinIO: instance={al_instance_id}, export_id={export_id}, object={object_name}")
         try:
-            payload_bytes = json.dumps(payload, default=str, indent=2, sort_keys=True).encode("utf-8")
+            payload_bytes = json.dumps(payload, default=str, indent=2, sort_keys=False).encode("utf-8")
             self.client.upload_file_bytes(RESULTS_BUCKET, object_name, payload_bytes, filename=f"events_{export_id}.json")
             logger.info(f"Benchmark events saved successfully")
             return {"bucket": RESULTS_BUCKET, "object": object_name}

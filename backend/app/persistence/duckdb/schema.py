@@ -133,6 +133,12 @@ def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
             action VARCHAR,
             latency_ms INTEGER,
             payload JSON,
+            actor_type VARCHAR,
+            agent VARCHAR,
+            object_id VARCHAR,
+            duration_s DOUBLE,
+            correct BOOLEAN,
+            ai_suggested VARCHAR,
             FOREIGN KEY (al_instance_id) REFERENCES al_instances(al_instance_id),
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )

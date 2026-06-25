@@ -110,8 +110,10 @@ backend/
 
 ### 3. Core Components
 
-#### Storage (`core/storage.py`)
-**Purpose**: In-memory state management for AL instances.
+#### Storage (`core/storage.py` and `core/minio_client.py`)
+**Purpose**: In-memory state management for AL instances and MinIO persistence.
+
+MinIO JSON dumps use `sort_keys=False` to preserve event insertion order for audit-trail consistency.
 
 ```python
 class Storage:
@@ -258,6 +260,21 @@ All AL instances are owned by a user via the `user_id` column (`UUID NOT NULL DE
 - `label_decisions` keeps decision metadata from `/activelearning/{al_instance_id}/label-with-info`, `/xai/{al_instance_id}/nearest_ticket`, and `/xai/jobs/{job_id}`.
 - Rows are merged by `(al_instance_id, ref)` so label information, nearest neighbors, and XAI results can arrive in separate calls.
 - `similar_tickets` and `xai_result` are stored as JSON payloads, while the human review fields stay as regular columns for querying.
+
+### AL Events (Audit Trail)
+- `al_events` stores a chronological audit trail of every action (label, infer, lime, nearest, export) in an AL instance.
+- Each event carries:
+  - `action` — the event type (`"label"`, `"infer"`, `"infer_proba"`, `"lime"`, `"nearest"`, `"export_report"`)
+  - `predicted_class` — the model's predicted class at the time of the event (nullable)
+  - `ticket_ref` — the associated ticket reference (nullable)
+  - `meta_block` — a HAIC meta-block string `category=hash` that groups related events (e.g. a label + infer + lime for the same ticket within a 2-second window)
+  - `details` — optional JSON payload with contextual data (latency, confidence, etc.)
+
+### HAIC Benchmarking Artifact
+- `GET /activelearning/{id}/benchmarking-report` generates a HAIC-compliant JSON artifact from `al_events`.
+- The artifact includes `classifier_name`, `evaluated_by`, `evaluation_timestamp`, and a flat `events` array with all enriched fields.
+- Meta-block encoding: `category=sha256_prefix(instance_id|timestamp|ticket_ref|action)[:12]` — deterministic so blocks survive re-export.
+- The `haic_artifact.py` utility module assembles the artifact from raw DuckDB queries.
 
 ### Model Storage
 ```

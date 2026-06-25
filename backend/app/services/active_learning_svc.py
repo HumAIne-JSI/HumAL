@@ -49,6 +49,12 @@ class ActiveLearningService:
         latency_ms: int,
         payload: dict,
         user_id: str = SYSTEM_USER_ID,
+        actor_type: Optional[str] = None,
+        agent: Optional[str] = None,
+        object_id: Optional[str] = None,
+        duration_s: Optional[float] = None,
+        correct: Optional[bool] = None,
+        ai_suggested: Optional[str] = None,
     ) -> None:
         if self.duckdb_service is None:
             return
@@ -59,6 +65,12 @@ class ActiveLearningService:
             action=action,
             latency_ms=latency_ms,
             payload=payload,
+            actor_type=actor_type,
+            agent=agent,
+            object_id=object_id,
+            duration_s=duration_s,
+            correct=correct,
+            ai_suggested=ai_suggested,
         )
 
     # Logic for creating a new active learning instance
@@ -179,6 +191,9 @@ class ActiveLearningService:
             al_instance_id=instance_id,
             action="create_al_instance",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="system",
+            agent="orchestrator",
+            object_id=str(instance_id),
             payload={
                 "pool_size": int(len(X_train)),
                 "embedding_model": SENTENCE_TRANSFORMERS_MODEL,
@@ -361,6 +376,9 @@ class ActiveLearningService:
             al_instance_id=al_instance_id,
             action="request_batch",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="system",
+            agent="orchestrator",
+            object_id="pool_main",
             payload={
                 "batch_size": batch_size,
                 "strategy": qs_name,
@@ -385,12 +403,16 @@ class ActiveLearningService:
         # convert the query_idx to the original Ref values using positional lookup
         query_idx = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[query_idx])
 
+        batch_id = int(time.time() * 1000)
         self._log_event(
             al_instance_id=al_instance_id,
             action="select_batch",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="ai",
+            agent="al_model",
+            object_id=f"BATCH_{batch_id}",
             payload={
-                "batch_id": int(time.time() * 1000),
+                "batch_id": batch_id,
                 "ids": query_idx,
                 "uncertainties": None,
             },
@@ -406,13 +428,14 @@ class ActiveLearningService:
             return {"error": "Instance not found"}
         self._apply_label_request(al_instance_id, label_request.query_idx, label_request.labels, user_id=user_id)
 
-    def label_with_info(self, al_instance_id: int, label_info: list[LabelInfo], user_id: str = SYSTEM_USER_ID):
+    def label_with_info(self, al_instance_id: int, label_info: list[LabelInfo], user_id: str = SYSTEM_USER_ID, username: str = "system"):
         """Label tickets and log the human review metadata.
 
         Args:
             al_instance_id: Active-learning instance identifier.
             label_info: Validated label metadata objects for each labeled ticket.
             user_id: User identifier used for event logging.
+            username: Username of the acting user, used as the agent field for human events.
 
         Returns:
             A simple success payload after labels are applied, events are logged,
@@ -421,6 +444,7 @@ class ActiveLearningService:
         Raises:
             ValueError: If the provided labels are invalid for the fitted encoder.
         """
+        request_start = time.perf_counter()
         query_idx = [item.ticket_id for item in label_info]
         labels = [item.label for item in label_info]
 
@@ -445,7 +469,13 @@ class ActiveLearningService:
                 self._log_event(
                     al_instance_id=al_instance_id,
                     action=action,
-                    latency_ms=int(duration_s * 1000),
+                    latency_ms=int((time.perf_counter() - request_start) * 1000),
+                    actor_type="human",
+                    agent=username,
+                    object_id=item.ticket_id,
+                    duration_s=duration_s,
+                    correct=(item.label == item.model_prediction) if item.model_prediction is not None else None,
+                    ai_suggested=item.model_prediction,
                     payload=payload,
                     user_id=user_id,
                 )
@@ -487,6 +517,9 @@ class ActiveLearningService:
             al_instance_id=al_instance_id,
             action="train",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="system",
+            agent="classifier_model",
+            object_id="model",
             payload={
                 "model_name": instance['model_name'],
                 "num_labeled": int(y.value_counts().sum()),
@@ -580,6 +613,9 @@ class ActiveLearningService:
             al_instance_id=al_instance_id,
             action="evaluate",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
+            actor_type="system",
+            agent="classifier_model",
+            object_id="model",
             payload={
                 "f1_macro": float(f1),
                 "mean_entropy": float(mean_entropy),
@@ -676,6 +712,9 @@ class ActiveLearningService:
                 al_instance_id=al_instance_id,
                 action="model_checkpoint",
                 latency_ms=int((time.perf_counter() - start_time) * 1000),
+                actor_type="system",
+                agent="orchestrator",
+                object_id=str(model_id),
                 payload={
                     "model_id": model_id,
                     "local_path": model_path,
