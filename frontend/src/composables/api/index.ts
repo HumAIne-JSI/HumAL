@@ -5,6 +5,7 @@
 export {
   useModels,
   useQueryStrategies,
+  useCapabilities,
   useConfig,
   configKeys,
 } from './useConfig';
@@ -16,6 +17,7 @@ export {
   useNextInstances,
   useCreateInstance,
   useLabelInstance,
+  useLabelerFeedbackMutation,
   useSaveModel,
   useDeleteInstance,
   activeLearningKeys,
@@ -41,6 +43,7 @@ export {
 export {
   useInfer,
   useInferWithModelCheck,
+  useInferTopK,
   inferenceKeys,
 } from './useInference';
 
@@ -48,6 +51,7 @@ export {
 export {
   useExplainLimeMutation,
   useNearestTicketMutation,
+  useNearestTicketsPerClassMutation,
   useXai,
   xaiKeys,
 } from './useXai';

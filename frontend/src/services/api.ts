@@ -9,6 +9,9 @@ import {
   type InstanceInfo,
   type InstancesListResponse,
   type InferenceResponse,
+  type InferenceTopKResponse,
+  type LabelerFeedbackRequest,
+  type LabelerFeedbackResponse,
   type ConfigModelsResponse,
   type ConfigStrategiesResponse,
   type TicketsResponse,
@@ -17,6 +20,7 @@ import {
   type SubcategoriesResponse,
   type ExplainLimeResponse,
   type NearestTicketResponse,
+  type SimilarTicketsPerClassResponse,
   type ResolutionProcessRequest,
   type ResolutionProcessResponse,
   type ResolutionFeedbackRequest,
@@ -47,6 +51,7 @@ export const API_ENDPOINTS = {
   CREATE_INSTANCE: '/activelearning/new',
   GET_NEXT_INSTANCES: (id: number) => `/activelearning/${id}/next`,
   LABEL_INSTANCE: (id: number) => `/activelearning/${id}/label`,
+  LABELER_FEEDBACK: (id: number) => `/activelearning/${id}/feedback`,
   GET_INFO: (id: number) => `/activelearning/${id}/info`,
   SAVE_MODEL: (id: number) => `/activelearning/${id}/save`,
   GET_INSTANCES: '/activelearning/instances',
@@ -58,6 +63,7 @@ export const API_ENDPOINTS = {
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
+  NEAREST_TICKETS_PER_CLASS: (id: number) => `/xai/${id}/nearest_tickets_per_class`,
 
   // XAI
   CREATE_XAI_REQUEST: (id: number) => `/xai/${id}/requests`,
@@ -157,6 +163,16 @@ export const apiService = {
       body: JSON.stringify(data),
     }),
 
+  /**
+   * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
+   * Does NOT submit a class label — the ticket stays in the unlabeled pool.
+   */
+  submitLabelerFeedback: (id: number, data: LabelerFeedbackRequest) =>
+    apiCall<LabelerFeedbackResponse>(API_ENDPOINTS.LABELER_FEEDBACK(id), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   getInstanceInfo: (id: number) => apiCall<InstanceInfo>(API_ENDPOINTS.GET_INFO(id)),
 
   saveModel: (id: number) =>
@@ -193,6 +209,17 @@ export const apiService = {
     return rawResponse;
   },
 
+  /**
+   * Run top-K inference. Returns the K highest-probability predicted classes.
+   * Backend contract: GET /activelearning/{id}/infer?top_k=K
+   * Response shape: { predictions: [{ label, probability }, ...] }
+   */
+  inferTopK: (id: number, data: InferenceData, topK: number = 2) =>
+    apiCall<InferenceTopKResponse>(`${API_ENDPOINTS.INFER(id)}?top_k=${topK}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // XAI
   explainLime: (
     id: number,
@@ -220,6 +247,26 @@ export const apiService = {
     return apiCall<NearestTicketResponse>(endpoint, {
       method: 'POST',
       body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
+    });
+  },
+
+  /**
+   * Get the closest historical ticket for each of the supplied predicted classes.
+   * Returns one item per class with title + most-important-sentence excerpt + label.
+   */
+  getNearestTicketsPerClass: (
+    id: number,
+    payload: { ticket_data: InferenceData; class_labels: string[]; model_id?: number }
+  ) => {
+    const params = new URLSearchParams();
+    if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
+    const endpoint = `${API_ENDPOINTS.NEAREST_TICKETS_PER_CLASS(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+    return apiCall<SimilarTicketsPerClassResponse>(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({
+        ticket_data: payload.ticket_data,
+        class_labels: payload.class_labels,
+      }),
     });
   },
 

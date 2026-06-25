@@ -6,6 +6,8 @@ import type {
   LabelRequest,
   CreateInstanceResponse,
   LabelInstanceResponse,
+  LabelerFeedbackRequest,
+  LabelerFeedbackResponse,
   InstanceInfo,
   InstancesListResponse,
 } from '@/types/api';
@@ -160,6 +162,29 @@ export function useSaveModel(
 ) {
   return useMutation({
     mutationFn: () => apiService.saveModel(toValue(instanceId)),
+    onSuccess: options?.onSuccess,
+    meta: options?.meta,
+  });
+}
+
+/**
+ * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
+ * Does NOT submit a class label — the ticket remains in the unlabeled pool;
+ * the backend records the reason for telemetry / future scheduling.
+ *
+ * @example
+ * ```ts
+ * const { mutate: sendFeedback } = useLabelerFeedbackMutation(instanceId);
+ * sendFeedback({ query_idx: ticketIdx, feedback_type: 'I_DONT_KNOW' });
+ * ```
+ */
+export function useLabelerFeedbackMutation(
+  instanceId: MaybeRef<number>,
+  options?: { meta?: QueryMeta; onSuccess?: (data: LabelerFeedbackResponse) => void }
+) {
+  return useMutation({
+    mutationFn: (data: LabelerFeedbackRequest) =>
+      apiService.submitLabelerFeedback(toValue(instanceId), data),
     onSuccess: options?.onSuccess,
     meta: options?.meta,
   });

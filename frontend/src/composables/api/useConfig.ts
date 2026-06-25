@@ -8,6 +8,7 @@ export const configKeys = {
   all: ['config'] as const,
   models: () => [...configKeys.all, 'models'] as const,
   strategies: () => [...configKeys.all, 'strategies'] as const,
+  capabilities: () => [...configKeys.all, 'capabilities'] as const,
 };
 
 export interface UseConfigOptions {
@@ -49,6 +50,32 @@ export function useQueryStrategies(options?: UseConfigOptions) {
     // Config data rarely changes - cache for 5 minutes
     staleTime: 5 * 60 * 1000,
     ...options,
+  });
+}
+
+/**
+ * Fetch backend capabilities flags. Used to feature-gate UI for features
+ * whose backend endpoints are not always available (e.g. top-K inference,
+ * per-class similar tickets, labeler-feedback events).
+ *
+ * @example
+ * ```ts
+ * const { data: caps } = useCapabilities();
+ * const topKEnabled = computed(() => caps.value?.capabilities?.includes('top_k_inference') ?? false);
+ * ```
+ */
+export function useCapabilities(options?: UseConfigOptions) {
+  return useQuery({
+    queryKey: configKeys.capabilities(),
+    queryFn: () => apiService.getCapabilities(),
+    // Capabilities are static for a given backend build
+    staleTime: 5 * 60 * 1000,
+    ...options,
+    // Silent — capabilities are a non-critical, supplementary signal
+    meta: {
+      silent: true,
+      ...options?.meta,
+    },
   });
 }
 

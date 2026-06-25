@@ -7,12 +7,16 @@ import Progress from '@/components/ui/Progress.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import ManualTicketDetailPanel from '@/components/ManualTicketDetailPanel.vue'
+import BreakModal from '@/components/BreakModal.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
+import { useLabelerFeedbackMutation } from '@/composables/api/useActiveLearning'
+import { useCapabilities } from '@/composables/api/useConfig'
+import type { LabelerFeedbackType } from '@/types/api'
 import {
   Pencil,
   RefreshCw,
@@ -151,6 +155,57 @@ function handleConfirm(team: string) {
       },
     },
   )
+}
+
+// Labeler feedback (skip-with-reason). Telemetry fires unconditionally so
+// click tracking works even when the backend feedback endpoint is unavailable;
+// the API call itself is capability-gated.
+const feedbackMutation = useLabelerFeedbackMutation(selectedInstanceId)
+const { data: capabilities } = useCapabilities()
+const labelerFeedbackEnabled = computed(() =>
+  (capabilities.value?.capabilities ?? []).includes('labeler_feedback'),
+)
+const breakModalOpen = ref(false)
+
+const FEEDBACK_TOAST: Record<LabelerFeedbackType, { title: string; description: string }> = {
+  I_AM_TIRED: { title: 'Time for a break', description: 'We saved your spot — resume when ready.' },
+  DIFFICULT_TICKET: { title: 'Marked as difficult', description: 'Loading another ticket…' },
+  I_DONT_KNOW: { title: "Skipped: don't know", description: 'Loading another ticket…' },
+}
+
+async function handleLabelerFeedback(type: LabelerFeedbackType) {
+  const ticket = selectedTicket.value
+  const ticketRef = ticket?.ref ?? ticket?.id ?? null
+
+  void telemetry.recordLab('labeler_feedback', 'Ticket', {
+    feedback_type: type,
+    ticket_ref: ticketRef,
+    page: 'queue_manual',
+  })
+
+  if (labelerFeedbackEnabled.value && ticket) {
+    try {
+      await feedbackMutation.mutateAsync({
+        query_idx: ticket.id,
+        feedback_type: type,
+      })
+    } catch (e) {
+      toast.error('Failed to submit feedback', { description: (e as Error).message })
+    }
+  }
+
+  const copy = FEEDBACK_TOAST[type]
+  toast.info(copy.title, { description: copy.description })
+
+  if (type === 'I_AM_TIRED') {
+    breakModalOpen.value = true
+  } else {
+    selectNext()
+  }
+}
+
+function handleResumeFromBreak() {
+  selectNext()
 }
 
 const bulkFeedback = ref<string | null>(null)
@@ -327,12 +382,17 @@ const groupedShortcuts = computed(() => {
         <ManualTicketDetailPanel
           :ticket="selectedTicket"
           :teams="teams"
+          :feedback-pending="feedbackMutation.isPending.value"
           @close="selectTicket(null)"
           @confirm="handleConfirm"
           @next="selectNext"
+          @feedback="handleLabelerFeedback"
         />
       </div>
     </div>
+
+    <!-- "Time for a break" modal -->
+    <BreakModal v-model:open="breakModalOpen" @resume="handleResumeFromBreak" />
 
     <Teleport to="body">
       <div v-if="isHelpOpen" class="shortcuts-modal" @click.self="closeHelp">

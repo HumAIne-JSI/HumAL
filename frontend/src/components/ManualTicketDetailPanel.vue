@@ -4,19 +4,33 @@ import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Select from '@/components/ui/Select.vue'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
-import { X, FileText, Check, CheckCircle, ChevronRight } from 'lucide-vue-next'
+import type { LabelerFeedbackType } from '@/types/api'
+import {
+  X,
+  FileText,
+  Check,
+  CheckCircle,
+  ChevronRight,
+  Coffee,
+  AlertTriangle,
+  HelpCircle,
+} from 'lucide-vue-next'
 
 export interface ManualTicketDetailPanelProps {
   ticket: QueueTicket | null
   teams?: string[]
+  feedbackPending?: boolean
 }
 
-const props = withDefaults(defineProps<ManualTicketDetailPanelProps>(), {})
+const props = withDefaults(defineProps<ManualTicketDetailPanelProps>(), {
+  feedbackPending: false,
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'confirm', team: string): void
   (e: 'next'): void
+  (e: 'feedback', type: LabelerFeedbackType): void
 }>()
 
 const selectedTeam = ref<string>('')
@@ -114,6 +128,41 @@ watch(
             >
               <Check :size="14" />
               Confirm
+            </Button>
+          </div>
+        </section>
+
+        <!-- Skip-with-reason feedback (always visible; backend call is gated
+             by capability + handled by the parent page). -->
+        <section class="manual-detail__feedback" data-track-region="labeler_feedback">
+          <span class="manual-detail__feedback-label">Skip this ticket:</span>
+          <div class="manual-detail__feedback-row">
+            <Button
+              variant="ghost"
+              size="sm"
+              :disabled="feedbackPending"
+              @click="$emit('feedback', 'I_AM_TIRED')"
+            >
+              <Coffee :size="14" />
+              I'm Tired
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              :disabled="feedbackPending"
+              @click="$emit('feedback', 'DIFFICULT_TICKET')"
+            >
+              <AlertTriangle :size="14" />
+              Difficult Ticket
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              :disabled="feedbackPending"
+              @click="$emit('feedback', 'I_DONT_KNOW')"
+            >
+              <HelpCircle :size="14" />
+              I Don't Know
             </Button>
           </div>
         </section>
@@ -236,6 +285,28 @@ watch(
     gap: 0.5rem;
     align-items: center;
     flex-wrap: wrap;
+  }
+
+  &__feedback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed var(--border);
+  }
+
+  &__feedback-label {
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+  }
+
+  &__feedback-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   &__labeled-flash {

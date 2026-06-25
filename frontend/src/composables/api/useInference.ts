@@ -1,7 +1,12 @@
 import { useMutation } from '@tanstack/vue-query';
 import { type MaybeRef, toValue } from 'vue';
 import { apiService } from '@/services/api';
-import { ApiError, type InferenceData, type InferenceResponse } from '@/types/api';
+import {
+  ApiError,
+  type InferenceData,
+  type InferenceResponse,
+  type InferenceTopKResponse,
+} from '@/types/api';
 import type { QueryMeta } from '@/lib/queryClient';
 
 // Query keys for inference domain
@@ -73,6 +78,34 @@ export function useInferWithModelCheck(
         }
         return false;
       },
+    },
+  });
+}
+
+export interface UseInferTopKOptions {
+  meta?: QueryMeta;
+  onSuccess?: (data: InferenceTopKResponse) => void;
+  onError?: (error: Error) => void;
+}
+
+/**
+ * Run top-K inference: returns the K highest-probability predicted classes.
+ * Silent by default — this is a supplementary feature used to surface
+ * additional similar-ticket candidates for the labeler.
+ */
+export function useInferTopK(
+  instanceId: MaybeRef<number>,
+  topK: MaybeRef<number> = 2,
+  options?: UseInferTopKOptions
+) {
+  return useMutation({
+    mutationFn: (data: InferenceData) =>
+      apiService.inferTopK(toValue(instanceId), data, toValue(topK)),
+    onSuccess: options?.onSuccess,
+    onError: options?.onError,
+    meta: {
+      silent: true,
+      ...options?.meta,
     },
   });
 }

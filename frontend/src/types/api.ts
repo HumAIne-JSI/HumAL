@@ -60,6 +60,27 @@ export interface InferenceResponse {
   probabilities?: Record<string, number>;
 }
 
+export interface TopKPrediction {
+  label: string;
+  probability: number;
+}
+
+export interface InferenceTopKResponse {
+  predictions: TopKPrediction[];
+}
+
+// Labeler feedback (skip-with-reason events)
+export type LabelerFeedbackType = 'I_AM_TIRED' | 'DIFFICULT_TICKET' | 'I_DONT_KNOW';
+
+export interface LabelerFeedbackRequest {
+  query_idx: number | string;
+  feedback_type: LabelerFeedbackType;
+}
+
+export interface LabelerFeedbackResponse {
+  status: string;
+}
+
 // Error Types
 export interface ApiErrorData {
   detail: string;
@@ -153,6 +174,18 @@ export interface NearestTicketResponse {
   nearest_ticket_ref: string | string[];
   nearest_ticket_label: string | string[];
   similarity_score: number | number[];
+}
+
+export interface PerClassSimilarTicket {
+  class_label: string;
+  ticket_ref: string;
+  title: string;
+  most_important_sentence: string;
+  similarity_score: number;
+}
+
+export interface SimilarTicketsPerClassResponse {
+  items: PerClassSimilarTicket[];
 }
 
 export interface XaiRequestResponse {

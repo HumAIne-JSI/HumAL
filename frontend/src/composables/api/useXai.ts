@@ -5,6 +5,7 @@ import type {
   InferenceData,
   ExplainLimeResponse,
   NearestTicketResponse,
+  SimilarTicketsPerClassResponse,
 } from '@/types/api';
 import type { QueryMeta } from '@/lib/queryClient';
 
@@ -92,6 +93,35 @@ export function useNearestTicketMutation(
       apiService.findNearestTicket(toValue(instanceId), payload),
     onSuccess: options?.onSuccess,
     // Silent by default - nearest ticket is a non-critical feature
+    meta: {
+      silent: true,
+      ...options?.meta,
+    },
+  });
+}
+
+export interface NearestTicketsPerClassPayload {
+  ticket_data: InferenceData;
+  class_labels: string[];
+  model_id?: number;
+}
+
+/**
+ * Get the closest historical ticket for each of the supplied predicted classes.
+ * Silent by default — this is a supplementary feature; failure should not block
+ * the labeling flow.
+ */
+export function useNearestTicketsPerClassMutation(
+  instanceId: MaybeRef<number>,
+  options?: {
+    meta?: QueryMeta;
+    onSuccess?: (data: SimilarTicketsPerClassResponse) => void;
+  }
+) {
+  return useMutation({
+    mutationFn: (payload: NearestTicketsPerClassPayload) =>
+      apiService.getNearestTicketsPerClass(toValue(instanceId), payload),
+    onSuccess: options?.onSuccess,
     meta: {
       silent: true,
       ...options?.meta,

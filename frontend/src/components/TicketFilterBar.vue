@@ -56,7 +56,7 @@ function clearSearch() {
     <div class="filter-bar__controls">
       <!-- Search -->
       <div class="filter-bar__search">
-        <Search :size="14" class="filter-bar__search-icon" />
+        <Search :size="12" class="filter-bar__search-icon" />
         <input
           type="text"
           :value="filters.search"
@@ -69,7 +69,7 @@ function clearSearch() {
           class="filter-bar__search-clear"
           @click="clearSearch"
         >
-          <X :size="14" />
+          <X :size="12" />
         </button>
       </div>
 
@@ -128,6 +128,7 @@ function clearSearch() {
   &__controls {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 0.375rem;
   }
 
@@ -148,7 +149,6 @@ function clearSearch() {
   }
 
   &__search-input {
-    width: 100%;
     padding: 0.375rem 1.75rem 0.375rem 2rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);

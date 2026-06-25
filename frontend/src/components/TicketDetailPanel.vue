@@ -6,13 +6,27 @@ import Progress from '@/components/ui/Progress.vue'
 import Select from '@/components/ui/Select.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
-import { useInferWithModelCheck } from '@/composables/api/useInference'
-import { useExplainLimeMutation, useNearestTicketMutation } from '@/composables/api/useXai'
+import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
+import { useInferWithModelCheck, useInferTopK } from '@/composables/api/useInference'
+import {
+  useExplainLimeMutation,
+  useNearestTicketMutation,
+  useNearestTicketsPerClassMutation,
+} from '@/composables/api/useXai'
+import { useCapabilities } from '@/composables/api/useConfig'
 import { useMockModeStore } from '@/stores/useMockModeStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { apiService } from '@/services/api'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
-import type { InferenceData, InferenceResponse, ExplainLimeResponse, NearestTicketResponse } from '@/types/api'
+import type {
+  InferenceData,
+  InferenceResponse,
+  ExplainLimeResponse,
+  NearestTicketResponse,
+  TopKPrediction,
+  PerClassSimilarTicket,
+  LabelerFeedbackType,
+} from '@/types/api'
 import {
   X,
   FileText,
@@ -20,6 +34,10 @@ import {
   CheckCircle,
   ChevronRight,
   RefreshCw,
+  Coffee,
+  AlertTriangle,
+  HelpCircle,
+  Sparkles,
 } from 'lucide-vue-next'
 
 export interface TicketDetailPanelProps {
@@ -27,10 +45,12 @@ export interface TicketDetailPanelProps {
   instanceId: number
   teams?: string[]
   showXai?: boolean
+  feedbackPending?: boolean
 }
 
 const props = withDefaults(defineProps<TicketDetailPanelProps>(), {
   showXai: true,
+  feedbackPending: false,
 })
 
 const emit = defineEmits<{
@@ -39,6 +59,7 @@ const emit = defineEmits<{
   (e: 'reassign', team: string, meta: { prediction?: string | null; confidence?: number | null }): void
   (e: 'next'): void
   (e: 'labeled'): void
+  (e: 'feedback', type: LabelerFeedbackType): void
 }>()
 
 const mockStore = useMockModeStore()
@@ -56,6 +77,23 @@ const labeledTeamName = ref('')
 const mockInferring = ref(false)
 const mockExplaining = ref(false)
 const mockFindingNearest = ref(false)
+
+// Top-K + per-class similar tickets (supplementary, capability-gated)
+const topKPredictions = ref<TopKPrediction[]>([])
+const similarPerClass = ref<PerClassSimilarTicket[]>([])
+const isLoadingSimilarPerClass = ref(false)
+
+// Backend capabilities — feature-gate optional UI. Mock mode bypasses the
+// gate so the UX is exercised end-to-end without backend support for the
+// new top-K / per-class endpoints.
+const { data: capabilities } = useCapabilities()
+const capabilitySet = computed(() => new Set(capabilities.value?.capabilities ?? []))
+const topKEnabled = computed(() =>
+  mockStore.mockEnabled || capabilitySet.value.has('top_k_inference'),
+)
+const perClassSimilarEnabled = computed(() =>
+  mockStore.mockEnabled || capabilitySet.value.has('similar_tickets_per_class'),
+)
 
 // ---------------------------------------------------------------------------
 // Mock-mode generators. When the user has the global Mock toggle on, the
@@ -179,6 +217,43 @@ function generateMockSimilarBody(): { title: string; description: string } {
   const t = tail[Math.floor(rng() * tail.length)] ?? tail[0]!
   return { title: `${v}${baseTitle}`, description: `${baseDesc}${t}` }
 }
+function generateMockTopK(pred: InferenceResponse): TopKPrediction[] {
+  const probs = pred.probabilities ?? {}
+  const sorted = Object.entries(probs)
+    .map(([label, probability]) => ({ label, probability: Number(probability) }))
+    .sort((a, b) => b.probability - a.probability)
+  if (sorted.length >= 2) return sorted.slice(0, 2)
+  const classes = mockClassPool()
+  const primary = String(pred.prediction)
+  const secondary = classes.find((c) => c !== primary) ?? `${primary}-Alt`
+  return [
+    { label: primary, probability: pred.confidence ?? 0.65 },
+    { label: secondary, probability: Math.max(0.05, (1 - (pred.confidence ?? 0.65)) * 0.5) },
+  ]
+}
+function generateMockSimilarPerClass(topK: TopKPrediction[]): PerClassSimilarTicket[] {
+  const refBase = props.ticket?.ref ?? 'TKT-0000'
+  const baseTitle = props.ticket?.title ?? 'Past ticket'
+  const baseDesc = props.ticket?.description ?? 'Past ticket description.'
+  const sentences = baseDesc
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  return topK.map((pred, idx) => {
+    const rng = mulberry32(mockSeed() ^ (0x51ed270b + idx))
+    const sentence =
+      sentences[Math.min(idx, sentences.length - 1)] ??
+      `User reported a ${pred.label.toLowerCase()} issue similar to this one.`
+    const prefix = ['Resolved by ', 'Previously handled by ', 'Past case for '][idx % 3]
+    return {
+      class_label: pred.label,
+      ticket_ref: `${refBase}-C${idx + 1}`,
+      title: `${prefix}${pred.label} — ${baseTitle}`.slice(0, 120),
+      most_important_sentence: sentence,
+      similarity_score: Number((0.62 + rng() * 0.28).toFixed(3)),
+    }
+  })
+}
 
 // Inference mutation
 const {
@@ -198,7 +273,52 @@ const {
     if (props.showXai && props.ticket) {
       runXaiAnalysis()
     }
+    // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
+    if (props.ticket && topKEnabled.value && perClassSimilarEnabled.value) {
+      void fetchTopKAndPerClass(buildInferenceData(props.ticket))
+    }
   },
+})
+
+// Top-K + per-class similar tickets mutations
+const inferTopKMutation = useInferTopK(computed(() => props.instanceId), 2)
+const perClassMutation = useNearestTicketsPerClassMutation(
+  computed(() => props.instanceId),
+)
+
+/**
+ * Fire-and-forget: fetch top-K predictions, then their per-class nearest
+ * historical tickets. Silent on failure — supplementary signal only.
+ */
+async function fetchTopKAndPerClass(data: InferenceData) {
+  try {
+    const topKRes = await inferTopKMutation.mutateAsync(data)
+    const preds = topKRes?.predictions ?? []
+    topKPredictions.value = preds
+    if (preds.length === 0) return
+
+    isLoadingSimilarPerClass.value = true
+    const classLabels = preds.map((p) => String(p.label))
+    const perClassRes = await perClassMutation.mutateAsync({
+      ticket_data: data,
+      class_labels: classLabels,
+    })
+    similarPerClass.value = perClassRes?.items ?? []
+  } catch (e) {
+    // Silent: supplementary feature
+    console.warn('Top-K / per-class similar tickets failed:', e)
+  } finally {
+    isLoadingSimilarPerClass.value = false
+  }
+}
+
+// Map class label -> top-K probability, for surfacing alongside each per-class card
+const probabilityByClass = computed((): Record<string, number> => {
+  const out: Record<string, number> = {}
+  for (const p of topKPredictions.value) {
+    out[String(p.label)] = p.probability
+  }
+  return out
 })
 
 // XAI mutations
@@ -330,6 +450,9 @@ function handlePredict() {
   explanation.value = null
   nearestTickets.value = null
   similarTicketBody.value = null
+  topKPredictions.value = []
+  similarPerClass.value = []
+  isLoadingSimilarPerClass.value = false
   if (mockStore.mockEnabled) {
     mockInferring.value = true
     const fake = generateMockPrediction()
@@ -343,6 +466,15 @@ function handlePredict() {
         { prediction: fake.prediction, confidence: fake.confidence ?? null, mock: true },
       )
       if (props.showXai) runXaiAnalysis()
+      // Fabricate top-K + per-class similar tickets so the panel renders
+      // end-to-end in mock mode without backend support.
+      const topK = generateMockTopK(fake)
+      topKPredictions.value = topK
+      isLoadingSimilarPerClass.value = true
+      setTimeout(() => {
+        similarPerClass.value = generateMockSimilarPerClass(topK)
+        isLoadingSimilarPerClass.value = false
+      }, 250)
     }, 300)
     return
   }
@@ -396,6 +528,9 @@ watch(
       nearestTickets.value = null
       similarTicketBody.value = null
       loadingSimilarBody.value = false
+      topKPredictions.value = []
+      similarPerClass.value = []
+      isLoadingSimilarPerClass.value = false
       selectedReassignTeam.value = ''
       showLabeledFlash.value = false
       labeledTeamName.value = ''
@@ -572,6 +707,41 @@ const currentTicketForView = computed(() => ({
         </Transition>
       </section>
 
+      <!-- Skip-with-reason feedback (always visible; backend call is gated
+           by capability + handled by the parent page). -->
+      <section class="detail-panel__feedback" data-track-region="labeler_feedback">
+        <span class="detail-panel__feedback-label">Skip this ticket:</span>
+        <div class="detail-panel__feedback-row">
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="feedbackPending"
+            @click="$emit('feedback', 'I_AM_TIRED')"
+          >
+            <Coffee :size="14" />
+            I'm Tired
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="feedbackPending"
+            @click="$emit('feedback', 'DIFFICULT_TICKET')"
+          >
+            <AlertTriangle :size="14" />
+            Difficult Ticket
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="feedbackPending"
+            @click="$emit('feedback', 'I_DONT_KNOW')"
+          >
+            <HelpCircle :size="14" />
+            I Don't Know
+          </Button>
+        </div>
+      </section>
+
       <!-- Side-by-side LIME-highlighted comparison (replaces the previous
            XAI tabs + labeling-context insights). Renders the current ticket
            body alongside the nearest already-labeled ticket, with the LIME
@@ -584,6 +754,39 @@ const currentTicketForView = computed(() => ({
         :loading-lime="isExplainingAny"
         :loading-similar="isFindingNearestAny || loadingSimilarBody"
       />
+
+      <!-- Similar Tickets by Predicted Class (top-K, capability-gated) -->
+      <section
+        v-if="perClassSimilarEnabled && topKEnabled && (similarPerClass.length > 0 || isLoadingSimilarPerClass)"
+        class="detail-panel__per-class"
+        data-track-region="per_class_similar"
+      >
+        <h3 class="detail-panel__per-class-title">
+          <Sparkles :size="16" />
+          Similar Tickets by Predicted Class
+        </h3>
+        <p class="detail-panel__per-class-desc">
+          The closest historical ticket for each of the model's top predictions.
+        </p>
+
+        <div
+          v-if="isLoadingSimilarPerClass && similarPerClass.length === 0"
+          class="detail-panel__per-class-loading"
+        >
+          <Progress :value="undefined" />
+          <span>Looking up similar tickets per class...</span>
+        </div>
+
+        <div v-else class="detail-panel__per-class-grid">
+          <SimilarTicketByClass
+            v-for="(item, idx) in similarPerClass"
+            :key="`${item.class_label}-${item.ticket_ref}`"
+            :item="item"
+            :rank="idx + 1"
+            :probability="probabilityByClass[item.class_label] ?? null"
+          />
+        </div>
+      </section>
     </div>
   </div>
 
@@ -811,5 +1014,71 @@ const currentTicketForView = computed(() => ({
 }
 .flash-fade-leave-to {
   opacity: 0;
+}
+
+// Skip-with-reason feedback row
+.detail-panel__feedback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.75rem 1rem;
+  margin: 0 1rem;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+
+.detail-panel__feedback-label {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.detail-panel__feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+// Similar Tickets by Predicted Class
+.detail-panel__per-class {
+  padding: 0.75rem 1rem 1rem;
+  margin: 0 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.detail-panel__per-class-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.detail-panel__per-class-desc {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.detail-panel__per-class-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.detail-panel__per-class-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+
+  @media (min-width: 720px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

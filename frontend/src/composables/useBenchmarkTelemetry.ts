@@ -41,6 +41,7 @@ const LAB_AFFORDANCES = new Set([
   'create_instance',
   'tab_change',
   'export',
+  'labeler_feedback',
 ]);
 
 export type LabAction = (typeof LAB_AFFORDANCES extends Set<infer T> ? T : never) | string;
