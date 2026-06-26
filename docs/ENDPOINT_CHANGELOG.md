@@ -1,5 +1,30 @@
 # HumAL API Endpoint Changelog
 
+**Date:** June 26, 2026
+
+### ✅ NEW ENDPOINT: `GET /activelearning/{al_instance_id}/export`
+
+**Purpose:** Exports all DuckDB-stored data for an AL instance as a downloadable ZIP of JSON files for offline analysis of labeling statistics.
+
+**Example Request:**
+```bash
+curl "http://localhost:8000/activelearning/1/export" \
+  -H "Authorization: Bearer <your-jwt>" \
+  -o export_al_1.zip
+```
+
+**Example Response:** Binary `application/zip` download named `export_al_<id>_<timestamp>.zip`.
+
+**Behavior:**
+- Returns a ZIP containing a `manifest.json` and one `duckdb/<table>.json` per table: `al_instances`, `labels`, `ground_truth_labels`, `label_decisions`, `metrics`, `model_paths`, `al_events`, `xai_jobs`, `instance_delegations`, `tickets`, `users`.
+- Instance-scoped tables are filtered by `al_instance_id`; `tickets` is exported in full (global, both splits); `users` is scoped to users involved with the instance (owner, delegates, labelers, event actors, XAI job submitters) and the `password` column is set to `null`.
+- Ground-truth labels from instance 0 are included as a separate `duckdb/ground_truth_labels.json` file; `labels.json` remains scoped strictly to the requested instance (the two are not merged in the export).
+- JSON columns (`al_events.payload`, `label_decisions.xai_result`, `label_decisions.similar_tickets`) and array columns (`al_instances.classes`, `xai_jobs.request_raw_tickets_locations`, `xai_jobs.result_file_names`) are preserved as native JSON structures.
+- MinIO binary artifacts (models, encoders, vectorized tickets, labels as joblib, ticket vectorizer, xai tickets, benchmarking, xai results) are NOT included.
+- Authorization: instance owner or delegate only (404 if missing, 403 if not authorized), consistent with other instance endpoints.
+
+---
+
 **Date:** June 25, 2026  
 **Summary:** Per-ticket ref handling for inference, per-ticket LIME logging, and correction of prior fictional entries.
 

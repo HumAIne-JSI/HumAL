@@ -1071,3 +1071,299 @@ class DuckDbPersistenceService:
                 "DELETE FROM instance_delegations WHERE al_instance_id = ?",
                 [al_instance_id],
             )
+
+    # --- Export ---
+    def export_instance_rows(self, al_instance_id: int) -> Dict[str, list[Dict[str, Any]]]:
+        """Return raw rows for every DuckDB table relevant to an AL instance export.
+
+        Instance-scoped tables (``al_instances``, ``labels``, ``label_decisions``,
+        ``metrics``, ``model_paths``, ``al_events``, ``xai_jobs``,
+        ``instance_delegations``) are filtered by ``al_instance_id``. The full
+        ``tickets`` table is returned (it is global). ``users`` is scoped to the
+        users involved with the instance (owner, delegates, labelers, event
+        actors, XAI job submitters) and the ``password`` column is set to
+        ``None`` in every returned row.
+
+        ``ground_truth_labels`` holds the raw labels for the reserved ground
+        truth instance (``GROUND_TRUTH_AL_INSTANCE_ID``); it is always included
+        so the analyst can merge it with the requested instance's labels if
+        desired. ``labels`` is never merged with ground truth in the export.
+
+        JSON columns (``al_events.payload``, ``label_decisions.xai_result``,
+        ``label_decisions.similar_tickets``) are deserialized into Python
+        objects. UUID columns are returned as strings. VARCHAR[] columns on
+        ``xai_jobs`` are returned as Python lists.
+
+        Args:
+            al_instance_id: The instance to dump.
+
+        Returns:
+            A mapping of table name to a list of row dicts.
+        """
+        user_ids: set[str] = set()
+
+        def _add_user(value: Any) -> None:
+            if value is not None:
+                user_ids.add(str(value))
+
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, model_name, query_strategy, classes, user_id, created_at
+                FROM al_instances WHERE al_instance_id = ?
+                """,
+                [al_instance_id],
+            ).fetchall()
+            al_instances = [
+                {
+                    "al_instance_id": r[0],
+                    "model_name": r[1],
+                    "query_strategy": r[2],
+                    "classes": r[3],
+                    "user_id": str(r[4]) if r[4] is not None else None,
+                    "created_at": r[5],
+                }
+                for r in rows
+            ]
+            for inst in al_instances:
+                _add_user(inst["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled, created_at
+                FROM metrics WHERE al_instance_id = ? ORDER BY iteration_id
+                """,
+                [al_instance_id],
+            ).fetchall()
+            metrics = [
+                {
+                    "al_instance_id": r[0],
+                    "iteration_id": r[1],
+                    "f1_score": r[2],
+                    "mean_entropy": r[3],
+                    "num_labeled": r[4],
+                    "created_at": r[5],
+                }
+                for r in rows
+            ]
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, model_id, path_to_model, created_at
+                FROM model_paths WHERE al_instance_id = ? ORDER BY model_id
+                """,
+                [al_instance_id],
+            ).fetchall()
+            model_paths = [
+                {
+                    "al_instance_id": r[0],
+                    "model_id": r[1],
+                    "path_to_model": r[2],
+                    "created_at": r[3],
+                }
+                for r in rows
+            ]
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, timestamp, user_id, action, latency_ms, payload,
+                       actor_type, agent, object_id, duration_s, correct, ai_suggested
+                FROM al_events WHERE al_instance_id = ? ORDER BY timestamp
+                """,
+                [al_instance_id],
+            ).fetchall()
+            al_events = [
+                {
+                    "al_instance_id": r[0],
+                    "timestamp": r[1],
+                    "user_id": str(r[2]) if r[2] is not None else None,
+                    "action": r[3],
+                    "latency_ms": r[4],
+                    "payload": _deserialize_json(r[5]),
+                    "actor_type": r[6],
+                    "agent": r[7],
+                    "object_id": r[8],
+                    "duration_s": r[9],
+                    "correct": r[10],
+                    "ai_suggested": r[11],
+                }
+                for r in rows
+            ]
+            for ev in al_events:
+                _add_user(ev["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, user_id, ref, label, split, labeled_at
+                FROM labels WHERE al_instance_id = ? ORDER BY ref, labeled_at
+                """,
+                [al_instance_id],
+            ).fetchall()
+            labels = [
+                {
+                    "al_instance_id": r[0],
+                    "user_id": str(r[1]) if r[1] is not None else None,
+                    "ref": r[2],
+                    "label": r[3],
+                    "split": r[4],
+                    "labeled_at": r[5],
+                }
+                for r in rows
+            ]
+            for lb in labels:
+                _add_user(lb["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, user_id, ref, label, split, labeled_at
+                FROM labels WHERE al_instance_id = ? ORDER BY ref, labeled_at
+                """,
+                [GROUND_TRUTH_AL_INSTANCE_ID],
+            ).fetchall()
+            ground_truth_labels = [
+                {
+                    "al_instance_id": r[0],
+                    "user_id": str(r[1]) if r[1] is not None else None,
+                    "ref": r[2],
+                    "label": r[3],
+                    "split": r[4],
+                    "labeled_at": r[5],
+                }
+                for r in rows
+            ]
+            for gl in ground_truth_labels:
+                _add_user(gl["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, ref, user_id, label, labeled_at, model_prediction,
+                       latency_ms, most_helpful_feature, xai_result, similar_tickets
+                FROM label_decisions WHERE al_instance_id = ? ORDER BY ref
+                """,
+                [al_instance_id],
+            ).fetchall()
+            label_decisions = [
+                {
+                    "al_instance_id": r[0],
+                    "ref": r[1],
+                    "user_id": str(r[2]) if r[2] is not None else None,
+                    "label": r[3],
+                    "labeled_at": r[4],
+                    "model_prediction": r[5],
+                    "latency_ms": r[6],
+                    "most_helpful_feature": r[7],
+                    "xai_result": _deserialize_json(r[8]),
+                    "similar_tickets": _deserialize_json(r[9]),
+                }
+                for r in rows
+            ]
+            for ld in label_decisions:
+                _add_user(ld["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT job_id, al_instance_id, user_id, model_id, ticket_ref_or_sha, status,
+                       request_ticket_location, request_model_location, request_preprocessor_location,
+                       request_one_hot_encoder_location, request_raw_tickets_locations,
+                       result_location, result_file_names, created_at, finished_at
+                FROM xai_jobs WHERE al_instance_id = ? ORDER BY created_at
+                """,
+                [al_instance_id],
+            ).fetchall()
+            xai_jobs = [
+                {
+                    "job_id": str(r[0]),
+                    "al_instance_id": r[1],
+                    "user_id": str(r[2]) if r[2] is not None else None,
+                    "model_id": r[3],
+                    "ticket_ref_or_sha": r[4],
+                    "status": r[5],
+                    "request_ticket_location": r[6],
+                    "request_model_location": r[7],
+                    "request_preprocessor_location": r[8],
+                    "request_one_hot_encoder_location": r[9],
+                    "request_raw_tickets_locations": _deserialize_varchar_array(r[10]),
+                    "result_location": r[11],
+                    "result_file_names": _deserialize_varchar_array(r[12]),
+                    "created_at": r[13],
+                    "finished_at": r[14],
+                }
+                for r in rows
+            ]
+            for job in xai_jobs:
+                _add_user(job["user_id"])
+
+            rows = conn.execute(
+                """
+                SELECT al_instance_id, delegate_user_id, granted_by, granted_at
+                FROM instance_delegations WHERE al_instance_id = ? ORDER BY granted_at
+                """,
+                [al_instance_id],
+            ).fetchall()
+            instance_delegations = [
+                {
+                    "al_instance_id": r[0],
+                    "delegate_user_id": str(r[1]) if r[1] is not None else None,
+                    "granted_by": str(r[2]) if r[2] is not None else None,
+                    "granted_at": r[3],
+                }
+                for r in rows
+            ]
+            for d in instance_delegations:
+                _add_user(d["delegate_user_id"])
+                _add_user(d["granted_by"])
+
+            rows = conn.execute(
+                """
+                SELECT ref, service_subcategory_name, service_name, request_type, last_team_id_name,
+                       title_anon, description_anon, public_log_anon, split, dataset_timestamp
+                FROM tickets ORDER BY split, ref
+                """,
+            ).fetchall()
+            tickets = [
+                {
+                    "ref": r[0],
+                    "service_subcategory_name": r[1],
+                    "service_name": r[2],
+                    "request_type": r[3],
+                    "last_team_id_name": r[4],
+                    "title_anon": r[5],
+                    "description_anon": r[6],
+                    "public_log_anon": r[7],
+                    "split": r[8],
+                    "dataset_timestamp": r[9],
+                }
+                for r in rows
+            ]
+
+            if user_ids:
+                placeholders = ", ".join(["?::UUID"] * len(user_ids))
+                rows = conn.execute(
+                    f"SELECT user_id, username, created_at FROM users WHERE user_id IN ({placeholders}) ORDER BY username",
+                    list(user_ids),
+                ).fetchall()
+                users = [
+                    {
+                        "user_id": str(r[0]),
+                        "username": r[1],
+                        "password": None,
+                        "created_at": r[2],
+                    }
+                    for r in rows
+                ]
+            else:
+                users = []
+
+        return {
+            "al_instances": al_instances,
+            "metrics": metrics,
+            "model_paths": model_paths,
+            "al_events": al_events,
+            "labels": labels,
+            "ground_truth_labels": ground_truth_labels,
+            "label_decisions": label_decisions,
+            "xai_jobs": xai_jobs,
+            "instance_delegations": instance_delegations,
+            "tickets": tickets,
+            "users": users,
+        }

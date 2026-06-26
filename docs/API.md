@@ -481,8 +481,6 @@ curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 	-H "Content-Type: application/json" \
 	-d "[{\"ticket_id\":\"R-544314\",\"label\":\"team_a\",\"model_prediction\":\"team_a\",\"start_time\":\"2026-05-20T10:00:00Z\",\"end_time\":\"2026-05-20T10:00:03Z\"}]"
 ```
-
-
 ### GET /activelearning/{al_instance_id}/info
 
 **Description:** Returns the performance metrics tracking table (entropies, F1 scores, and query progression) for a given instance.
@@ -493,6 +491,7 @@ curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 | `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
 
 **Swagger-style UI Example:**
+
 *HTTP 200 OK*
 ```json
 {
@@ -506,6 +505,60 @@ curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 ```bash
 curl "http://localhost:8000/activelearning/1/info"
 ```
+
+
+### GET /activelearning/{al_instance_id}/export
+
+**Description:** Exports all DuckDB-stored data for an AL instance as a downloadable ZIP of JSON files, suitable for offline analysis of labeling statistics. The response is a binary `application/zip` download.
+
+**Parameters:**
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
+
+**Authorization:** Requires the authenticated user to be the instance owner or a delegate (404 if the instance does not exist, 403 if not authorized).
+
+**Response:** `application/zip` file download named `export_al_<id>_<timestamp>.zip`.
+
+**ZIP layout:**
+```
+manifest.json                         # { schema_version, al_instance_id, exported_at, tables: {<name>: row_count} }
+duckdb/
+  al_instances.json                   # instance row (filtered by al_instance_id)
+  labels.json                         # raw label rows for the instance (no majority merge)
+  ground_truth_labels.json            # raw label rows for instance 0 (ground truth)
+  label_decisions.json                # label decisions incl. xai_result, similar_tickets
+  metrics.json                        # f1, mean_entropy, num_labeled per iteration
+  model_paths.json                    # local model artifact paths
+  al_events.json                      # all events incl. deserialized payload
+  xai_jobs.json                       # XAI job rows
+  instance_delegations.json           # delegate grants
+  tickets.json                        # ALL tickets in the DB (global, both splits)
+  users.json                          # users involved with the instance; password is null
+```
+
+Each `duckdb/*.json` is a JSON array of row objects. JSON columns (`al_events.payload`, `label_decisions.xai_result`, `label_decisions.similar_tickets`) are deserialized into nested objects; `al_instances.classes` and `xai_jobs.request_raw_tickets_locations`/`result_file_names` are JSON arrays. Datetimes are ISO strings.
+
+**Notes:**
+- Only DuckDB data is exported; MinIO binary artifacts (models, encoders, vectorized tickets) are not included.
+- `labels.json` is filtered strictly to the requested instance; ground-truth labels from instance 0 are provided separately as `ground_truth_labels.json`. The two are not merged in the export.
+- The `users.password` column is always `null` in the export.
+
+**Swagger-style UI Example:**
+
+*HTTP 200 OK (binary, saved to file)*
+```
+manifest.json         al_instances.json  ground_truth_labels.json  ...
+duckdb/...
+```
+
+**cURL Example:**
+```bash
+curl "http://localhost:8000/activelearning/1/export" \
+  -H "Authorization: Bearer <your-jwt>" \
+  -o export_al_1.zip
+```
+
 
 
 ### POST /activelearning/{al_instance_id}/save

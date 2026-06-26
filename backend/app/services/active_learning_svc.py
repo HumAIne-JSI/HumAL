@@ -2,8 +2,12 @@ from skactiveml.classifier import SklearnClassifier
 from skactiveml.utils import MISSING_LABEL
 import numpy as np
 import joblib
+import json
 import os
 import time
+import zipfile
+from datetime import datetime
+from io import BytesIO
 from typing import Optional
 import pandas as pd
 from sklearn.metrics import f1_score
@@ -887,3 +891,48 @@ class ActiveLearningService:
             raise ValueError("Only the instance owner can view delegates")
         
         return self.duckdb_service.get_delegates_for_instance(al_instance_id=al_instance_id)
+
+    def export_instance(self, al_instance_id: int) -> tuple[BytesIO, str]:
+        """Build a downloadable ZIP containing a raw JSON dump of all DuckDB
+        tables relevant to ``al_instance_id``.
+
+        The archive contains a ``manifest.json`` and one ``duckdb/<table>.json``
+        file per table (a JSON array of row objects). Instance-scoped tables are
+        filtered to the requested instance; the full ``tickets`` table and the
+        instance-relevant ``users`` (with ``password`` omitted) are included.
+        Ground-truth labels from instance 0 are provided as a separate
+        ``ground_truth_labels.json`` and are not merged with ``labels``.
+        MinIO artifacts are intentionally excluded.
+
+        Args:
+            al_instance_id: The instance to export.
+
+        Returns:
+            A ``(buffer, filename)`` tuple where ``buffer`` is a ``BytesIO``
+            positioned at offset 0 containing the ZIP, and ``filename`` is a
+            suggested download name.
+
+        Raises:
+            ValueError: If DuckDB persistence is not configured.
+        """
+        if self.duckdb_service is None:
+            raise ValueError("DuckDB persistence is not configured; export unavailable.")
+
+        rows_by_table = self.duckdb_service.export_instance_rows(al_instance_id)
+
+        manifest = {
+            "schema_version": 1,
+            "al_instance_id": al_instance_id,
+            "exported_at": datetime.now().isoformat(),
+            "tables": {table: len(rows) for table, rows in rows_by_table.items()},
+        }
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("manifest.json", json.dumps(manifest, default=str, indent=2))
+            for table_name, rows in rows_by_table.items():
+                zf.writestr(f"duckdb/{table_name}.json", json.dumps(rows, default=str, indent=2))
+        buffer.seek(0)
+
+        filename = f"export_al_{al_instance_id}_{datetime.now().strftime('%Y%m%dT%H%M%S')}.zip"
+        return buffer, filename

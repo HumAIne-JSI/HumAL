@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from pydantic import ValidationError
 
@@ -164,3 +165,22 @@ def list_delegates(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"delegates": delegates}
+
+
+@router.get("/{al_instance_id}/export")
+def export_instance(al_instance_id: int, current_user: dict = Depends(get_current_user)):
+    """Export all DuckDB data for an AL instance as a downloadable ZIP of JSON files.
+
+    Returns an ``application/zip`` download named ``export_al_<id>_<timestamp>.zip``
+    containing a ``manifest.json`` and one ``duckdb/<table>.json`` per table.
+    """
+    require_instance_access(al_instance_id, current_user, al_service.storage)
+    try:
+        buffer, filename = al_service.export_instance(al_instance_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

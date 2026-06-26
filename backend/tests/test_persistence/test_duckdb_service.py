@@ -768,5 +768,145 @@ class TestInstanceDelegation:
     def test_is_user_delegate_returns_false_for_owner(self, service):
         owner_id = service.upsert_user(username="alice", password="pwd")
         service.save_al_instance(1, {"model_name": "rf", "qs": "random", "classes": [0, 1]}, user_id=owner_id)
-        
+
         assert not service.is_user_delegate(al_instance_id=1, user_id=str(owner_id))
+
+
+class TestExportInstanceRows:
+    def test_export_returns_all_tables_with_expected_rows(self, service):
+        owner = service.upsert_user(username="alice", password="secret")
+        delegate = service.upsert_user(username="bob", password="secret")
+        service.save_al_instance(
+            1,
+            {"model_name": "svm", "qs": "random sampling", "classes": [0, 1, 2]},
+            user_id=owner,
+        )
+        service.upsert_tickets_df(
+            pd.DataFrame({"Ref": ["T001", "T002"], "Title_anon": ["a", "b"]}),
+            split="train",
+        )
+        service.upsert_tickets_df(
+            pd.DataFrame({"Ref": ["T003"], "Title_anon": ["c"]}),
+            split="test",
+        )
+        service.save_labels(1, owner, {"T001": "A", "T002": "B"}, split="train")
+        service.save_labels(0, owner, {"T001": "GT-A"}, split="train")
+        service.upsert_label_decision(
+            al_instance_id=1,
+            ref="T001",
+            user_id=owner,
+            label="A",
+            model_prediction="A",
+            latency_ms=500,
+            most_helpful_feature="lime",
+        )
+        service.save_metrics(1, f1_score=0.7, mean_entropy=0.3, num_labeled=2)
+        service.save_model_path(1, 0, "storage/models/1/0.joblib")
+        service.log_event(
+            al_instance_id=1,
+            user_id=str(owner),
+            action="confirm_label",
+            payload={"ticket_id": "T001"},
+        )
+        service.create_xai_job(
+            al_instance_id=1,
+            job_id=uuid.uuid4(),
+            model_id=0,
+            ticket_ref_or_sha="sha1",
+            request_ticket_location="t",
+            request_model_location="m",
+            request_preprocessor_location=None,
+            request_one_hot_encoder_location=None,
+            request_raw_tickets_locations=["r"],
+            user_id=owner,
+        )
+        service.delegate_instance(
+            al_instance_id=1,
+            delegate_user_id=str(delegate),
+            granted_by=str(owner),
+        )
+
+        result = service.export_instance_rows(1)
+
+        assert set(result) == {
+            "al_instances",
+            "metrics",
+            "model_paths",
+            "al_events",
+            "labels",
+            "ground_truth_labels",
+            "label_decisions",
+            "xai_jobs",
+            "instance_delegations",
+            "tickets",
+            "users",
+        }
+        assert len(result["al_instances"]) == 1
+        assert result["al_instances"][0]["classes"] == [0, 1, 2]
+        assert len(result["labels"]) == 2
+        assert len(result["ground_truth_labels"]) == 1
+        assert result["ground_truth_labels"][0]["label"] == "GT-A"
+        assert result["ground_truth_labels"][0]["al_instance_id"] == 0
+        assert len(result["label_decisions"]) == 1
+        assert result["label_decisions"][0]["most_helpful_feature"] == "lime"
+        assert len(result["metrics"]) == 1
+        assert len(result["model_paths"]) == 1
+        assert len(result["al_events"]) == 1
+        assert result["al_events"][0]["payload"] == {"ticket_id": "T001"}
+        assert len(result["xai_jobs"]) == 1
+        assert result["xai_jobs"][0]["request_raw_tickets_locations"] == ["r"]
+        assert len(result["instance_delegations"]) == 1
+        assert result["instance_delegations"][0]["delegate_user_id"] == str(delegate)
+        assert len(result["tickets"]) == 3
+        assert {u["username"] for u in result["users"]} == {"alice", "bob"}
+        assert all(u["password"] is None for u in result["users"])
+
+    def test_export_isolates_instances(self, service):
+        owner = service.upsert_user(username="alice", password="pwd")
+        service.save_al_instance(1, {"model_name": "m", "qs": "q", "classes": []}, user_id=owner)
+        service.save_al_instance(2, {"model_name": "m", "qs": "q", "classes": []}, user_id=owner)
+        service.upsert_tickets_df(pd.DataFrame({"Ref": ["T1"]}), split="train")
+        service.save_labels(1, owner, {"T1": "A"}, split="train")
+        service.save_labels(2, owner, {"T1": "B"}, split="train")
+        service.log_event(al_instance_id=1, user_id=str(owner), action="confirm_label")
+        service.log_event(al_instance_id=2, user_id=str(owner), action="confirm_label")
+
+        result = service.export_instance_rows(1)
+
+        assert len(result["al_instances"]) == 1
+        assert result["al_instances"][0]["al_instance_id"] == 1
+        assert len(result["labels"]) == 1
+        assert result["labels"][0]["label"] == "A"
+        assert len(result["al_events"]) == 1
+        assert result["al_events"][0]["al_instance_id"] == 1
+        assert len(result["tickets"]) == 1
+        assert "ground_truth_labels" in result
+        assert result["ground_truth_labels"] == []
+
+    def test_export_empty_instance_returns_empty_lists(self, service):
+        result = service.export_instance_rows(999)
+
+        for table in (
+            "al_instances",
+            "metrics",
+            "model_paths",
+            "al_events",
+            "labels",
+            "ground_truth_labels",
+            "label_decisions",
+            "xai_jobs",
+            "instance_delegations",
+        ):
+            assert result[table] == []
+        assert result["tickets"] == []
+        assert result["users"] == []
+
+    def test_export_users_excludes_password(self, service):
+        owner = service.upsert_user(username="alice", password="topsecret")
+        service.save_al_instance(1, {"model_name": "m", "qs": "q", "classes": []}, user_id=owner)
+
+        result = service.export_instance_rows(1)
+
+        assert len(result["users"]) == 1
+        assert result["users"][0]["password"] is None
+        assert result["users"][0]["username"] == "alice"
