@@ -187,3 +187,29 @@ After starting the backend:
 
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
+
+## Schema Changes
+
+The DuckDB schema is versioned. To make a schema change:
+
+1. Edit the `CREATE TABLE` / `CREATE INDEX` statements in
+   `backend/app/persistence/duckdb/schema.py`.
+2. Increment the `SCHEMA_VERSION` constant at the top of that file.
+3. Restart the backend — `init_database()` detects the version mismatch,
+   drops all tables, and recreates them. **No data is preserved** (the DB is
+   a metadata cache rebuildable from MinIO).
+
+No manual DuckDB intervention or migration scripts are needed.
+
+### Tuning Lock Retry Behavior
+
+The lock retry parameters are module-level constants in
+`backend/app/persistence/duckdb/connection.py`:
+
+- `_MAX_LOCK_RETRIES` (default: 10) — number of retry attempts after the
+  initial failure.
+- `_LOCK_RETRY_BACKOFF_SECONDS` (default: 1.0) — delay between retries.
+
+Maximum wait before giving up: `_MAX_LOCK_RETRIES × _LOCK_RETRY_BACKOFF_SECONDS`
+(default: ~10 seconds). Adjust these constants if your environment needs
+longer or shorter retry windows.

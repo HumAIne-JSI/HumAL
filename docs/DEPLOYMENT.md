@@ -112,3 +112,23 @@ View logs from the backend service:
 ```bash
 docker-compose logs backend
 ```
+
+## Rolling Updates and DuckDB File Locking
+
+DuckDB uses a single-writer file lock on the `.duckdb` file. During a rolling
+update, the old pod may still hold the lock when the new pod starts. HumAL
+handles this in code (no k8s configuration changes needed):
+
+1. **Connection retries**: The shared `connect()` function retries on lock
+   contention for up to 10 seconds (configurable via module constants in
+   `backend/app/persistence/duckdb/connection.py`).
+2. **Schema init skip**: If the lock can't be acquired after retries,
+   `init_database()` logs a warning and skips — the old pod's schema is
+   assumed valid.
+3. **Data load**: The lifespan data-load retries via the same `connect()`
+   mechanism. Once the old pod terminates and releases the lock, the new pod
+   acquires it and proceeds.
+
+No manual DB intervention is required during rolling updates. The old pod
+must terminate (graceful shutdown) for the new pod to acquire the lock — this
+is the standard k8s behavior.

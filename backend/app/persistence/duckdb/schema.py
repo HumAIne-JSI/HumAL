@@ -1,20 +1,94 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 import duckdb
 
-from .connection import connect
+from .connection import connect, is_lock_contention_error
+
+
+SCHEMA_VERSION = 1
+
+logger = logging.getLogger(__name__)
 
 
 def init_database(db_path: Optional[str | Path] = None) -> None:
-    """Create/upgrade tables needed by HumAL persistence."""
-    with connect(db_path) as conn:
-        _create_tables(conn)
-        _create_indexes(conn)
-        _populate_default_users(conn)
-        _populate_default_al_instance(conn)
+    """Create or rebuild the DuckDB schema when the version is out of date.
+
+    Compares the version stored in the ``_schema_meta`` table against
+    ``SCHEMA_VERSION``. On mismatch (or a fresh database) all tables are
+    dropped and recreated — no data is preserved. On DuckDB lock contention
+    (e.g. a concurrent pod during a rolling update) the call logs a warning
+    and returns without raising, so startup is not blocked.
+    """
+    try:
+        with connect(db_path) as conn:
+            current_version = _read_schema_version(conn)
+            if current_version == SCHEMA_VERSION:
+                return
+            logger.info(
+                "Schema version mismatch (db=%s, code=%s) — rebuilding all tables.",
+                current_version,
+                SCHEMA_VERSION,
+            )
+            _drop_all_tables(conn)
+            _create_tables(conn)
+            _create_indexes(conn)
+            _populate_default_users(conn)
+            _populate_default_al_instance(conn)
+            _write_schema_version(conn)
+    except duckdb.IOException as exc:
+        if is_lock_contention_error(exc):
+            logger.warning(
+                "DuckDB lock contention during schema init — skipping. "
+                "Another process likely holds the file open. Details: %s",
+                exc,
+            )
+            return
+        raise
+
+
+def _read_schema_version(conn: duckdb.DuckDBPyConnection) -> Optional[int]:
+    """Return the schema version stored in the database, or None if not set."""
+    try:
+        row = conn.execute("SELECT version FROM _schema_meta LIMIT 1").fetchone()
+        return int(row[0]) if row else None
+    except duckdb.CatalogException:
+        return None
+
+
+def _write_schema_version(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create the _schema_meta table and store the current SCHEMA_VERSION."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS _schema_meta (
+            version INTEGER NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("INSERT INTO _schema_meta (version) VALUES (?)", [SCHEMA_VERSION])
+
+
+def _drop_all_tables(conn: duckdb.DuckDBPyConnection) -> None:
+    """Drop all known tables in FK-respecting order (children first)."""
+    tables_in_drop_order = [
+        "labels",
+        "label_decisions",
+        "metrics",
+        "model_paths",
+        "al_events",
+        "xai_jobs",
+        "instance_delegations",
+        "tickets",
+        "al_instances",
+        "users",
+        "_schema_meta",
+    ]
+    for table_name in tables_in_drop_order:
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
 
 
 def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:

@@ -351,3 +351,42 @@ The system supports **instance delegation**, allowing owners to share their AL i
 - `POST /activelearning/{id}/delegate` — Grant access to a user by username.
 - `DELETE /activelearning/{id}/delegate/{username}` — Revoke a user's access.
 - `GET /activelearning/{id}/delegates` — List all delegates (owner-only).
+
+### Schema Versioning and Auto-Rebuild
+
+The DuckDB schema is versioned via a `SCHEMA_VERSION` integer constant in
+`backend/app/persistence/duckdb/schema.py`. On startup, `init_database()`
+compares this constant against the `version` row in the `_schema_meta` table:
+
+- **Version match** → schema is up to date, nothing happens.
+- **Version mismatch (or no `_schema_meta` table)** → all tables are dropped
+  in FK-respecting order and recreated from scratch. **No data is preserved.**
+  This is intentional: the DB is a metadata cache that can be rebuilt from
+  MinIO.
+
+To change the schema in the future, a developer only needs to:
+1. Modify the `CREATE TABLE` / `CREATE INDEX` statements in `schema.py`.
+2. Bump `SCHEMA_VERSION` by 1.
+3. Restart the backend — the DB is rebuilt automatically.
+
+### Lock-Resilient Connections (Rolling-Update Safety)
+
+DuckDB uses a single-writer file lock. During a Kubernetes rolling update, the
+old pod may still hold the lock when the new pod starts. To prevent the new
+pod from blocking indefinitely (or corrupting the file), the shared
+`connect()` context manager in `connection.py` includes **bounded retry logic**:
+
+- On `duckdb.IOException` whose message indicates lock contention (e.g.,
+  "being used by another process", "could not set lock"), the connection
+  attempt is retried up to `_MAX_LOCK_RETRIES` times with
+  `_LOCK_RETRY_BACKOFF_SECONDS` delay between attempts.
+- Non-lock errors (e.g., "disk full") are re-raised immediately — no retry.
+- After exhausting retries, the lock error is re-raised.
+
+Additionally, `init_database()` catches lock-contention errors and **gracefully
+skips** schema initialization (the old pod's schema is assumed valid). This
+means the new pod can start even if the old pod hasn't released the lock yet.
+
+Both `_MAX_LOCK_RETRIES` (default: 10) and `_LOCK_RETRY_BACKOFF_SECONDS`
+(default: 1.0) are module-level constants in `connection.py`, giving a maximum
+wait of ~10 seconds before giving up.
