@@ -173,7 +173,7 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team },
+    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? team, durationMs },
     {
       onSuccess: () => {
         setTimeout(() => selectNext(), 600)
@@ -202,7 +202,7 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team },
+    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? null, durationMs },
     {
       onSuccess: () => {
         setTimeout(() => selectNext(), 600)

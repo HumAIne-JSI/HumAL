@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query';
 import { computed, type MaybeRef, toValue } from 'vue';
 import { apiService } from '@/services/api';
+import { useMockModeStore } from '@/stores/useMockModeStore';
 import type {
   NewInstanceRequest,
   LabelRequest,
+  LabelInfo,
   CreateInstanceResponse,
   LabelInstanceResponse,
   LabelerFeedbackRequest,
@@ -148,7 +150,38 @@ export function useLabelInstance(
 }
 
 /**
- * Save the trained model.
+ * Label instances with full decision context (timing, model prediction,
+ * explanation) via POST /activelearning/{id}/label-with-info. This is the
+ * benchmark telemetry channel: it persists the label AND records the event.
+ * It retrains + recomputes metrics, so do NOT also call useLabelInstance for
+ * the same ticket. No-ops in mock mode (no backend round-trip).
+ */
+export function useLabelWithInfo(
+  instanceId: MaybeRef<number>,
+  options?: { meta?: QueryMeta; onSuccess?: () => void; batchSize?: MaybeRef<number> }
+) {
+  const queryClient = useQueryClient();
+  const mockStore = useMockModeStore();
+
+  return useMutation({
+    mutationFn: (data: LabelInfo[]) => {
+      const id = toValue(instanceId);
+      if (mockStore.mockEnabled || id <= 0) {
+        return Promise.resolve({ message: 'Mock label applied' });
+      }
+      return apiService.labelWithInfo(id, data);
+    },
+    onSuccess: () => {
+      const id = toValue(instanceId);
+      queryClient.invalidateQueries({ queryKey: activeLearningKeys.info(id) });
+      queryClient.invalidateQueries({ queryKey: activeLearningKeys.next(id, toValue(options?.batchSize ?? 1)) });
+      options?.onSuccess?.();
+    },
+    meta: options?.meta,
+  });
+}
+
+/**
  * 
  * @example
  * ```ts
@@ -158,7 +191,7 @@ export function useLabelInstance(
  */
 export function useSaveModel(
   instanceId: MaybeRef<number>,
-  options?: { meta?: QueryMeta; onSuccess?: (data: { message: string }) => void }
+  options?: { meta?: QueryMeta; onSuccess?: (data: { model_id?: number; message?: string }) => void }
 ) {
   return useMutation({
     mutationFn: () => apiService.saveModel(toValue(instanceId)),
@@ -179,12 +212,16 @@ export function useSaveModel(
  * ```
  */
 export function useLabelerFeedbackMutation(
-  instanceId: MaybeRef<number>,
+  _instanceId: MaybeRef<number>,
   options?: { meta?: QueryMeta; onSuccess?: (data: LabelerFeedbackResponse) => void }
 ) {
   return useMutation({
-    mutationFn: (data: LabelerFeedbackRequest) =>
-      apiService.submitLabelerFeedback(toValue(instanceId), data),
+    // The humaine-al-api backend has no labeler-feedback endpoint. Keep the
+    // mutation so the UI (skip-with-reason) works and mock telemetry still
+    // fires at the call site, but resolve locally instead of hitting a 404.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    mutationFn: (_data: LabelerFeedbackRequest) =>
+      Promise.resolve({ status: 'ok' } as unknown as LabelerFeedbackResponse),
     onSuccess: options?.onSuccess,
     meta: options?.meta,
   });

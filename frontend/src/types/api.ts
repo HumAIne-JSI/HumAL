@@ -12,6 +12,23 @@ export interface LabelRequest {
   labels: (string | number | null)[];
 }
 
+/**
+ * Rich labelling payload for POST /activelearning/{id}/label-with-info.
+ * This is the telemetry channel: it persists the human decision together
+ * with timing, the model's prediction and any explanation surfaced to the user.
+ */
+export interface LabelInfo {
+  ticket_id: string;
+  label: string;
+  model_prediction?: string | null;
+  /** ISO-8601 timestamp when the ticket was presented to the user. */
+  start_time: string;
+  /** ISO-8601 timestamp when the user submitted the decision. */
+  end_time: string;
+  explanation?: string | null;
+  most_helpful_feature?: string | null;
+}
+
 export interface InferenceData {
   service_subcategory_name?: string;
   team_name?: string;
@@ -67,6 +84,12 @@ export interface TopKPrediction {
 
 export interface InferenceTopKResponse {
   predictions: TopKPrediction[];
+}
+
+/** Raw response of POST /activelearning/{id}/infer_proba */
+export interface InferProbaResponse {
+  classes: (string | number | null)[];
+  probabilities: number[][];
 }
 
 // Labeler feedback (skip-with-reason events)
@@ -174,6 +197,30 @@ export interface NearestTicketResponse {
   nearest_ticket_ref: string | string[];
   nearest_ticket_label: string | string[];
   similarity_score: number | number[];
+}
+
+/** Single neighbour entry returned by POST /xai/{id}/nearest */
+export interface Neighbor {
+  ref: string;
+  label?: string | null;
+  similarity: number;
+  title?: string | null;
+  description?: string | null;
+  best_sentence?: string | null;
+  best_sentence_score?: number | null;
+  sentence_score_components?: Record<string, number> | null;
+  xai_result?: unknown;
+  similar_tickets?: unknown;
+  model_prediction?: string | null;
+  explanation?: string | null;
+  most_helpful_feature?: string | null;
+}
+
+/** Response item of POST /xai/{id}/nearest */
+export interface NearestNeighborsResponse {
+  query_idx?: string | null;
+  predicted_class_neighbors: Neighbor[];
+  historical_neighbors: Neighbor[];
 }
 
 export interface PerClassSimilarTicket {

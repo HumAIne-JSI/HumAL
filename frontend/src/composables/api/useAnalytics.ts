@@ -3,7 +3,6 @@
  */
 import { useQuery } from '@tanstack/vue-query';
 import { computed, ref, type MaybeRef, toValue } from 'vue';
-import { apiService } from '@/services/api';
 import { useTelemetryStore } from '@/stores/useTelemetryStore';
 import {
   aggregateOverview,
@@ -69,8 +68,9 @@ export function useAnalyticsOverview(options?: Options) {
   return useQuery<BenchmarkOverview>({
     queryKey: analyticsKeys.overview(),
     queryFn: () => {
-      if (useSampleData.value) return Promise.resolve(sampleOverview);
-      return apiService.getAnalyticsOverview();
+      // Benchmark-suite analytics are not served by the humaine-al-api backend.
+      // Fall back to sample data so the dashboard renders without a 404.
+      return Promise.resolve(sampleOverview);
     },
     ...options,
   });
@@ -81,7 +81,7 @@ export function useSessions(options?: Options) {
     queryKey: analyticsKeys.sessions(),
     queryFn: () => {
       if (useSampleData.value) return Promise.resolve([sampleSessionSummary]);
-      return apiService.getSessions();
+      return Promise.resolve([]);
     },
     ...options,
   });
@@ -91,8 +91,7 @@ export function useSession(simId: MaybeRef<string>, options?: Options) {
   return useQuery<BenchmarkSession>({
     queryKey: computed(() => analyticsKeys.session(toValue(simId))),
     queryFn: () => {
-      if (useSampleData.value) return Promise.resolve(sampleBenchmarkSession);
-      return apiService.getSession(toValue(simId));
+      return Promise.resolve(sampleBenchmarkSession);
     },
     enabled: computed(() => {
       const id = toValue(simId);
@@ -117,12 +116,9 @@ export function useUserBehaviorOverview(instanceId?: MaybeRef<number | null>) {
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateOverview(telemetryStore.events, resolveInstanceId(instanceId)),
-        );
-      }
-      return apiService.getUserBehaviorOverview(resolveInstanceId(instanceId));
+      return Promise.resolve(
+        aggregateOverview(useSampleData.value ? telemetryStore.events : [], resolveInstanceId(instanceId)),
+      );
     },
   });
 }
@@ -135,12 +131,9 @@ export function useUserBehaviorAIImpact(instanceId?: MaybeRef<number | null>) {
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateAIImpact(telemetryStore.events, resolveInstanceId(instanceId)),
-        );
-      }
-      return apiService.getUserBehaviorAIImpact(resolveInstanceId(instanceId));
+      return Promise.resolve(
+        aggregateAIImpact(useSampleData.value ? telemetryStore.events : [], resolveInstanceId(instanceId)),
+      );
     },
   });
 }
@@ -153,12 +146,9 @@ export function useUserBehaviorXaiEngagement(instanceId?: MaybeRef<number | null
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateXaiEngagement(telemetryStore.events, resolveInstanceId(instanceId)),
-        );
-      }
-      return apiService.getUserBehaviorXaiEngagement(resolveInstanceId(instanceId));
+      return Promise.resolve(
+        aggregateXaiEngagement(useSampleData.value ? telemetryStore.events : [], resolveInstanceId(instanceId)),
+      );
     },
   });
 }
@@ -171,12 +161,9 @@ export function useUserBehaviorPageEngagement(instanceId?: MaybeRef<number | nul
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregatePageEngagement(telemetryStore.events, resolveInstanceId(instanceId)),
-        );
-      }
-      return apiService.getUserBehaviorPageEngagement(resolveInstanceId(instanceId));
+      return Promise.resolve(
+        aggregatePageEngagement(useSampleData.value ? telemetryStore.events : [], resolveInstanceId(instanceId)),
+      );
     },
   });
 }
@@ -192,16 +179,13 @@ export function useUserBehaviorTicketHeatmap(
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateTicketHeatmap(
-            telemetryStore.events,
-            resolveInstanceId(instanceId),
-            toValue(limit),
-          ),
-        );
-      }
-      return apiService.getUserBehaviorTicketHeatmap(resolveInstanceId(instanceId), toValue(limit));
+      return Promise.resolve(
+        aggregateTicketHeatmap(
+          useSampleData.value ? telemetryStore.events : [],
+          resolveInstanceId(instanceId),
+          toValue(limit),
+        ),
+      );
     },
   });
 }
@@ -217,16 +201,13 @@ export function useUserBehaviorTimeline(
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateTimeline(
-            telemetryStore.events,
-            resolveInstanceId(instanceId),
-            toValue(binSeconds),
-          ),
-        );
-      }
-      return apiService.getUserBehaviorTimeline(resolveInstanceId(instanceId), toValue(binSeconds));
+      return Promise.resolve(
+        aggregateTimeline(
+          useSampleData.value ? telemetryStore.events : [],
+          resolveInstanceId(instanceId),
+          toValue(binSeconds),
+        ),
+      );
     },
   });
 }
@@ -239,12 +220,9 @@ export function useUserBehaviorFunnel(instanceId?: MaybeRef<number | null>) {
       useSampleData.value ? telemetryStore.events.length : 'live',
     ]),
     queryFn: () => {
-      if (useSampleData.value) {
-        return Promise.resolve(
-          aggregateFunnel(telemetryStore.events, resolveInstanceId(instanceId)),
-        );
-      }
-      return apiService.getUserBehaviorFunnel(resolveInstanceId(instanceId));
+      return Promise.resolve(
+        aggregateFunnel(useSampleData.value ? telemetryStore.events : [], resolveInstanceId(instanceId)),
+      );
     },
   });
 }

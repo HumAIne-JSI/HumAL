@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { apiService } from '@/services/api'
 import { useTicketQueueStore, type QueueTicket, type TicketStatus } from '@/stores/useTicketQueueStore'
 import { useMockData, generateMockTickets, getMockTeams } from '@/composables/useMockTickets'
-import type { Ticket, LabelRequest } from '@/types/api'
+import type { Ticket, LabelRequest, LabelInfo } from '@/types/api'
 
 // Query keys for ticket queue
 export const ticketQueueKeys = {
@@ -119,9 +119,19 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     mutationFn: async ({
       ticketId,
       label,
+      prediction,
+      durationMs,
+      explanation,
+      mostHelpfulFeature,
     }: {
       ticketId: string
       label: string
+      /** Model's suggested class, for benchmark confirm/override telemetry. */
+      prediction?: string | null
+      /** Time the user spent on the decision, in milliseconds. */
+      durationMs?: number | null
+      explanation?: string | null
+      mostHelpfulFeature?: string | null
     }) => {
       const id = toValue(instanceId)
       if (id <= 0 || isMockMode.value) {
@@ -129,11 +139,22 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
         return { message: 'Mock label applied' }
       }
 
-      const request: LabelRequest = {
-        query_idx: [ticketId],
-        labels: [label],
+      // Live mode: submit via label-with-info so the human decision is captured
+      // as a benchmark telemetry event (timing + model prediction + explanation)
+      // in addition to persisting the label. This retrains + recomputes metrics,
+      // so we must NOT also call labelInstance for the same ticket.
+      const endMs = Date.now()
+      const startMs = durationMs != null ? endMs - durationMs : endMs
+      const info: LabelInfo = {
+        ticket_id: ticketId,
+        label,
+        model_prediction: prediction ?? undefined,
+        start_time: new Date(startMs).toISOString(),
+        end_time: new Date(endMs).toISOString(),
+        explanation: explanation ?? undefined,
+        most_helpful_feature: mostHelpfulFeature ?? undefined,
       }
-      return apiService.labelInstance(id, request)
+      return apiService.labelWithInfo(id, [info])
     },
     onSuccess: (_, variables) => {
       // Update ticket status in store

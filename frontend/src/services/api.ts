@@ -2,6 +2,7 @@ import {
   ApiError,
   type NewInstanceRequest,
   type LabelRequest,
+  type LabelInfo,
   type InferenceData,
   type CreateInstanceResponse,
   type NextInstancesResponse,
@@ -10,6 +11,8 @@ import {
   type InstancesListResponse,
   type InferenceResponse,
   type InferenceTopKResponse,
+  type InferProbaResponse,
+  type NearestNeighborsResponse,
   type LabelerFeedbackRequest,
   type LabelerFeedbackResponse,
   type ConfigModelsResponse,
@@ -51,6 +54,7 @@ export const API_ENDPOINTS = {
   CREATE_INSTANCE: '/activelearning/new',
   GET_NEXT_INSTANCES: (id: number) => `/activelearning/${id}/next`,
   LABEL_INSTANCE: (id: number) => `/activelearning/${id}/label`,
+  LABEL_WITH_INFO: (id: number) => `/activelearning/${id}/label-with-info`,
   LABELER_FEEDBACK: (id: number) => `/activelearning/${id}/feedback`,
   GET_INFO: (id: number) => `/activelearning/${id}/info`,
   SAVE_MODEL: (id: number) => `/activelearning/${id}/save`,
@@ -59,11 +63,12 @@ export const API_ENDPOINTS = {
 
   // Inference
   INFER: (id: number) => `/activelearning/${id}/infer`,
+  INFER_PROBA: (id: number) => `/activelearning/${id}/infer_proba`,
 
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
   NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
-  NEAREST_TICKETS_PER_CLASS: (id: number) => `/xai/${id}/nearest_tickets_per_class`,
+  XAI_NEAREST: (id: number) => `/xai/${id}/nearest`,
 
   // XAI
   CREATE_XAI_REQUEST: (id: number) => `/xai/${id}/requests`,
@@ -74,11 +79,11 @@ export const API_ENDPOINTS = {
   GET_QUERY_STRATEGIES: '/config/query-strategies',
   GET_CAPABILITIES: '/config/capabilities',
   
-  // Data
-  GET_TICKETS: (id: number) => `/data/${id}/tickets`,
-  GET_TEAMS: (id: number) => `/data/${id}/teams`,
-  GET_CATEGORIES: (id: number) => `/data/${id}/categories`,
-  GET_SUBCATEGORIES: (id: number) => `/data/${id}/subcategories`,
+  // Data (branch routes are instance-agnostic: /data/tickets, /data/teams, ...)
+  GET_TICKETS: '/data/tickets',
+  GET_TEAMS: '/data/teams',
+  GET_CATEGORIES: '/data/categories',
+  GET_SUBCATEGORIES: '/data/subcategories',
   
   // Resolution
   RESOLUTION_PROCESS: '/resolution/process',
@@ -164,6 +169,22 @@ export const apiService = {
     }),
 
   /**
+   * Submit human label decisions with full context (timing, model prediction,
+   * explanation). This is the primary telemetry channel on the humaine-al-api
+   * backend: it persists the decision AND records the benchmark event, while
+   * also retraining the model and recomputing metrics (same side effects as
+   * labelInstance — never call both for the same ticket).
+   */
+  labelWithInfo: (id: number, data: LabelInfo[]) =>
+    apiCall<{ message?: string } & Record<string, unknown>>(
+      API_ENDPOINTS.LABEL_WITH_INFO(id),
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    ),
+
+  /**
    * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
    * Does NOT submit a class label — the ticket stays in the unlabeled pool.
    */
@@ -176,7 +197,7 @@ export const apiService = {
   getInstanceInfo: (id: number) => apiCall<InstanceInfo>(API_ENDPOINTS.GET_INFO(id)),
 
   saveModel: (id: number) =>
-    apiCall<{ message: string }>(API_ENDPOINTS.SAVE_MODEL(id), {
+    apiCall<{ model_id?: number; message?: string }>(API_ENDPOINTS.SAVE_MODEL(id), {
       method: 'POST',
     }),
 
@@ -210,15 +231,32 @@ export const apiService = {
   },
 
   /**
-   * Run top-K inference. Returns the K highest-probability predicted classes.
-   * Backend contract: GET /activelearning/{id}/infer?top_k=K
-   * Response shape: { predictions: [{ label, probability }, ...] }
+   * Raw class-probability inference.
+   * Backend contract: POST /activelearning/{id}/infer_proba?ref=<ref>
+   * Response shape: { classes: [...], probabilities: [[...]] }
    */
-  inferTopK: (id: number, data: InferenceData, topK: number = 2) =>
-    apiCall<InferenceTopKResponse>(`${API_ENDPOINTS.INFER(id)}?top_k=${topK}`, {
+  inferProba: (id: number, data: InferenceData, ref?: string) => {
+    const endpoint = `${API_ENDPOINTS.INFER_PROBA(id)}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`;
+    return apiCall<InferProbaResponse>(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    });
+  },
+
+  /**
+   * Run top-K inference. Returns the K highest-probability predicted classes.
+   * The humaine-al-api backend has no dedicated top-K route, so this is derived
+   * from POST /activelearning/{id}/infer_proba by sorting the probability row.
+   */
+  inferTopK: async (id: number, data: InferenceData, topK: number = 2): Promise<InferenceTopKResponse> => {
+    const proba = await apiService.inferProba(id, data);
+    const row = proba.probabilities?.[0] ?? [];
+    const predictions = proba.classes
+      .map((cls, i) => ({ label: String(cls ?? ''), probability: row[i] ?? 0 }))
+      .sort((a, b) => b.probability - a.probability)
+      .slice(0, topK);
+    return { predictions };
+  },
 
   // XAI
   explainLime: (
@@ -251,23 +289,48 @@ export const apiService = {
   },
 
   /**
-   * Get the closest historical ticket for each of the supplied predicted classes.
-   * Returns one item per class with title + most-important-sentence excerpt + label.
+   * Get the closest historical tickets for the given ticket.
+   * The humaine-al-api backend exposes POST /xai/{id}/nearest which returns
+   * predicted-class + historical neighbours. We flatten those neighbours into
+   * the per-class shape the UI expects (one entry per neighbour, deduplicated
+   * by label), so the "similar tickets" panel keeps working.
    */
-  getNearestTicketsPerClass: (
+  getNearestTicketsPerClass: async (
     id: number,
     payload: { ticket_data: InferenceData; class_labels: string[]; model_id?: number }
-  ) => {
+  ): Promise<SimilarTicketsPerClassResponse> => {
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
-    const endpoint = `${API_ENDPOINTS.NEAREST_TICKETS_PER_CLASS(id)}${params.toString() ? `?${params.toString()}` : ''}`;
-    return apiCall<SimilarTicketsPerClassResponse>(endpoint, {
+    params.append('top_k', String(Math.max(payload.class_labels.length, 1)));
+    const endpoint = `${API_ENDPOINTS.XAI_NEAREST(id)}?${params.toString()}`;
+    const results = await apiCall<NearestNeighborsResponse[]>(endpoint, {
       method: 'POST',
-      body: JSON.stringify({
-        ticket_data: payload.ticket_data,
-        class_labels: payload.class_labels,
-      }),
+      body: JSON.stringify(payload.ticket_data),
     });
+
+    const first = results?.[0];
+    const neighbors = [
+      ...(first?.predicted_class_neighbors ?? []),
+      ...(first?.historical_neighbors ?? []),
+    ];
+
+    const seen = new Set<string>();
+    const items = neighbors
+      .filter((n) => {
+        const key = n.label ?? n.ref;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((n) => ({
+        class_label: n.label ?? '',
+        ticket_ref: n.ref,
+        title: n.title ?? '',
+        most_important_sentence: n.best_sentence ?? '',
+        similarity_score: n.similarity,
+      }));
+
+    return { items };
   },
 
   createXaiRequest: (id: number, payload: { ticket_data: InferenceData; model_id?: number; ticket_ref?: string }) => {
@@ -293,21 +356,21 @@ export const apiService = {
   getCapabilities: () =>
     apiCall<ConfigCapabilitiesResponse>(API_ENDPOINTS.GET_CAPABILITIES),
 
-  // Data
-  getTickets: (instanceId: number, indices: string[], _trainDataPath?: string) => 
-    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS(instanceId), {
+  // Data (instance-agnostic on the branch; instanceId kept for call-site compat)
+  getTickets: (_instanceId: number, indices: string[], _trainDataPath?: string) => 
+    apiCall<TicketsResponse>(API_ENDPOINTS.GET_TICKETS, {
       method: 'POST',
       body: JSON.stringify(indices),
     }),
 
-  getTeams: (instanceId?: number, _trainDataPath?: string) => 
-    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS(instanceId ?? 0)),
+  getTeams: (_instanceId?: number, _trainDataPath?: string) => 
+    apiCall<TeamsResponse>(API_ENDPOINTS.GET_TEAMS),
 
-  getCategories: (instanceId?: number, _trainDataPath?: string) => 
-    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES(instanceId ?? 0)),
+  getCategories: (_instanceId?: number, _trainDataPath?: string) => 
+    apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES),
 
-  getSubcategories: (instanceId?: number, _trainDataPath?: string) => 
-    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES(instanceId ?? 0)),
+  getSubcategories: (_instanceId?: number, _trainDataPath?: string) => 
+    apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
 
   // Resolution
   processResolution: (data: ResolutionProcessRequest) =>

@@ -13,7 +13,7 @@ import LimeExplanation from '@/components/LimeExplanation.vue'
 import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
 import {
   useInstanceInfo,
-  useLabelInstance,
+  useLabelWithInfo,
   useLabelerFeedbackMutation,
 } from '@/composables/api/useActiveLearning'
 import {
@@ -117,7 +117,7 @@ const labelerFeedbackEnabled = computed(() =>
 )
 
 // Labeling composables
-const labelMutation = useLabelInstance(selectedInstanceId, {
+const labelMutation = useLabelWithInfo(selectedInstanceId, {
   onSuccess: () => {
     toast.success('Label submitted', { description: 'Proceeding to next ticket' })
   },
@@ -129,6 +129,7 @@ const { data: teamsData } = useTeams(selectedInstanceId, undefined, {
 // Labeling mode state
 const currentTicketIdx = ref<string | null>(null)
 const currentTicketRef = ref<string | null>(null)
+const ticketShownAtMs = ref<number | null>(null)
 const selectedReassignTeam = ref<string>('')
 const isFetchingNextTicket = ref(false)
 
@@ -307,6 +308,7 @@ const fetchNextTicket = async () => {
     }
     const idx = queryIdx[0].toString()
     currentTicketIdx.value = idx
+    ticketShownAtMs.value = Date.now()
 
     // Fetch ticket details using POST with indices in body
     const ticketData = await apiService.getTickets(selectedInstanceId.value, [idx])
@@ -341,10 +343,16 @@ const confirmPrediction = async () => {
   if (!prediction.value || !currentTicketIdx.value) return
 
   try {
-    await labelMutation.mutateAsync({
-      query_idx: [currentTicketIdx.value],
-      labels: [prediction.value.prediction],
-    })
+    const now = Date.now()
+    await labelMutation.mutateAsync([
+      {
+        ticket_id: currentTicketIdx.value,
+        label: String(prediction.value.prediction),
+        model_prediction: String(prediction.value.prediction),
+        start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
+        end_time: new Date(now).toISOString(),
+      },
+    ])
     // Fetch next ticket automatically
     await fetchNextTicket()
   } catch (e) {
@@ -359,10 +367,16 @@ const reassignTeam = async () => {
   }
 
   try {
-    await labelMutation.mutateAsync({
-      query_idx: [currentTicketIdx.value],
-      labels: [selectedReassignTeam.value],
-    })
+    const now = Date.now()
+    await labelMutation.mutateAsync([
+      {
+        ticket_id: currentTicketIdx.value,
+        label: selectedReassignTeam.value,
+        model_prediction: prediction.value?.prediction != null ? String(prediction.value.prediction) : undefined,
+        start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
+        end_time: new Date(now).toISOString(),
+      },
+    ])
     selectedReassignTeam.value = ''
     // Fetch next ticket automatically
     await fetchNextTicket()

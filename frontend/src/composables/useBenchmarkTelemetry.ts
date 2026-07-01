@@ -11,11 +11,10 @@
  *   telemetry.recordClick('confirm_button', 'TKT-1', 'queue_aided');
  *   telemetry.recordLabelDecision({ action: 'confirm_label', ticketRef: 'TKT-1', page: 'queue_aided', label: 'Team A', prediction: 'Team A', confidence: 0.87, durationMs: 4321 });
  */
-import { apiService } from '@/services/api';
 import { useInstanceStore } from '@/stores/useInstanceStore';
 import { useMockModeStore } from '@/stores/useMockModeStore';
 import { useTelemetryStore } from '@/stores/useTelemetryStore';
-import type { ObjectId, TelemetryEventRequest } from '@/types/api';
+import type { ObjectId } from '@/types/api';
 
 // Allow-list mirrors backend AGENT_AFFORDANCES[AgentId.LAB] + UX-only events
 // that the dashboard needs (view_*, run_*, change_*, create_*, tab_change, export).
@@ -78,21 +77,12 @@ export function useBenchmarkTelemetry() {
       return Promise.resolve();
     }
 
-    const payload: TelemetryEventRequest = {
-      instance_id: resolvedInstanceId,
-      action,
-      object,
-      effect,
-      duration_s: options.duration_s ?? null,
-      interaction_id: options.interaction_id ?? null,
-    };
-    return apiService
-      .postTelemetryEvent(payload)
-      .then(() => undefined)
-      .catch((err) => {
-        // Telemetry failures must never break the UI.
-        console.warn('[telemetry] failed to record event', err);
-      });
+    // Live mode: the humaine-al-api backend has no generic telemetry endpoint.
+    // Human label decisions are captured server-side via label-with-info at the
+    // point of labelling; all other granular UX events are intentionally not
+    // sent here (they would 404). This keeps live mode functional without a
+    // dedicated analytics service.
+    return Promise.resolve();
   }
 
   function recordClick(

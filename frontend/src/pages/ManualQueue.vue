@@ -145,7 +145,7 @@ function handleConfirm(team: string) {
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team },
+    { ticketId: ticket.id, label: team, prediction: null, durationMs },
     {
       onSuccess: () => {
         setTimeout(() => selectNext(), 600)

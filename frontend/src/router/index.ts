@@ -130,20 +130,8 @@ router.afterEach(async (to, from) => {
       return
     }
 
-    const { apiService } = await import('@/services/api')
-    await apiService.postTelemetryEvent({
-      instance_id: resolvedInstanceId,
-      action: 'open_page',
-      object: 'Ticket',
-      effect: {
-        page: toName,
-        path: to.path,
-        prev_page: prevName,
-        prev_duration_s: prevDurationS,
-      },
-      duration_s: prevDurationS,
-      interaction_id: null,
-    })
+    // Live mode: the humaine-al-api backend has no generic telemetry endpoint,
+    // so page-view events are only recorded client-side in mock mode.
   } catch (err) {
     // Telemetry must never break navigation.
     console.warn('[telemetry] page-view event failed', err)
