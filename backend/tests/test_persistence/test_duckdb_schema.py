@@ -44,6 +44,15 @@ class TestInitDatabase:
             assert "metrics" in table_names
             assert "model_paths" in table_names
 
+    def test_creates_al_instance_id_sequence(self, temp_db):
+        init_database(temp_db)
+
+        with connect(temp_db) as conn:
+            row = conn.execute("SELECT nextval('al_instance_id_seq')").fetchone()
+
+        assert row is not None
+        assert int(row[0]) == 1
+
     def test_al_instances_schema(self, temp_db):
         init_database(temp_db)
         

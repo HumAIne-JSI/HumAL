@@ -1,5 +1,19 @@
 # HumAL API Endpoint Changelog
 
+**Date:** July 6, 2026
+
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/new`
+
+**Purpose:** AL instance IDs are now persistent and never reused.
+
+**Behavior update:**
+- The `instance_id` returned by `POST /activelearning/new` is now sourced from a persistent DuckDB sequence (`al_instance_id_seq`) instead of an in-memory `max(existing_ids) + 1` counter.
+- IDs are monotonic: deleting an instance no longer frees its ID for reuse, and a backend pod restart no longer resets the counter. This makes instance names stable for benchmarking.
+- ID `0` remains reserved for the ground-truth instance and is never issued.
+- No request/response shape change — the response body is still `{"instance_id": <int>}`.
+
+---
+
 **Date:** June 26, 2026
 
 ### ✅ NEW ENDPOINT: `GET /activelearning/{al_instance_id}/export`

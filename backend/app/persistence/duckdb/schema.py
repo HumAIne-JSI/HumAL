@@ -89,9 +89,12 @@ def _drop_all_tables(conn: duckdb.DuckDBPyConnection) -> None:
     ]
     for table_name in tables_in_drop_order:
         conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    conn.execute("DROP SEQUENCE IF EXISTS al_instance_id_seq")
 
 
 def _create_tables(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS al_instance_id_seq START 1 INCREMENT 1")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS al_instances (

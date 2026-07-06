@@ -135,6 +135,26 @@ class DuckDbPersistenceService:
         }
 
     # --- AL instances ---
+    def get_next_instance_id(self) -> int:
+        """Return the next AL instance ID from the persistent DuckDB sequence.
+
+        Draws from ``al_instance_id_seq`` so the ID is monotonic and never
+        reused across deletes or pod restarts. The reserved ground-truth ID
+        (``GROUND_TRUTH_AL_INSTANCE_ID == 0``) is skipped defensively.
+
+        The ``nextval`` call is wrapped in an explicit transaction so the
+        advanced sequence value is committed to the file before the connection
+        closes; without this, DuckDB's autocommit mode would not persist the
+        counter across reconnections.
+        """
+        with connect(self.db_path) as conn:
+            while True:
+                conn.execute("BEGIN")
+                value = conn.execute("SELECT nextval('al_instance_id_seq')").fetchone()[0]
+                conn.execute("COMMIT")
+                if int(value) != GROUND_TRUTH_AL_INSTANCE_ID:
+                    return int(value)
+
     def save_al_instance(self, al_instance_id: int, instance_data: Dict[str, Any], user_id: Optional[str | uuid.UUID] = None) -> None:
         resolved_user_id = uuid.UUID(str(user_id)) if user_id is not None else uuid.UUID(SYSTEM_USER_ID)
         with connect(self.db_path) as conn:

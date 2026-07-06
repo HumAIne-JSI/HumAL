@@ -81,7 +81,7 @@ class ActiveLearningService:
     def create_instance(self, new_instance: NewInstance, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Get next available instance ID
-        instance_id = self.storage.get_next_instance_id()
+        instance_id = self.duckdb_service.get_next_instance_id()
         
         # Define the classes as integers
         new_instance.class_list = new_instance.class_list

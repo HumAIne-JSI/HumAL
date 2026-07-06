@@ -910,3 +910,36 @@ class TestExportInstanceRows:
         assert len(result["users"]) == 1
         assert result["users"][0]["password"] is None
         assert result["users"][0]["username"] == "alice"
+
+
+class TestNextInstanceId:
+    def test_get_next_instance_id_starts_at_one(self, service):
+        assert service.get_next_instance_id() == 1
+
+    def test_get_next_instance_id_is_monotonic(self, service):
+        ids = [service.get_next_instance_id() for _ in range(3)]
+        assert ids == [1, 2, 3]
+
+    def test_get_next_instance_id_never_returns_zero(self, service):
+        ids = [service.get_next_instance_id() for _ in range(20)]
+        assert 0 not in ids
+
+    def test_get_next_instance_id_survives_restart(self, temp_db):
+        svc1 = DuckDbPersistenceService(db_path=temp_db)
+        first = svc1.get_next_instance_id()
+
+        svc2 = DuckDbPersistenceService(db_path=temp_db)
+        second = svc2.get_next_instance_id()
+
+        assert first == 1
+        assert second == 2
+
+    def test_get_next_instance_id_not_reused_after_delete(self, service):
+        first = service.get_next_instance_id()
+        service.save_al_instance(first, {"model_name": "SVC", "qs": "entropy", "classes": [1, 2]})
+        service.delete_instance(first)
+
+        second = service.get_next_instance_id()
+
+        assert first == 1
+        assert second == 2

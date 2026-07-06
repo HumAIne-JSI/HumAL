@@ -264,6 +264,21 @@ The DuckDB persistence layer stores active-learning and XAI metadata in staged t
 
 All AL instances are owned by a user via the `user_id` column (`UUID NOT NULL DEFAULT system_user`). The system user UUID is `00000000-0000-0000-0000-000000000000`. JWT authentication binds requests to a user, and AL-instance operations are scoped to the owner. When no token is provided, requests fall back to the system user.
 
+### AL Instance ID Generation
+
+New AL instance IDs are sourced from a persistent DuckDB sequence,
+`al_instance_id_seq` (`START 1, INCREMENT 1`), created during schema init in
+`backend/app/persistence/duckdb/schema.py`. `DuckDbPersistenceService.get_next_instance_id()`
+draws the next value via `nextval(...)` wrapped in an explicit `BEGIN`/`COMMIT`
+transaction (required for DuckDB to persist the advanced counter to the file
+before the connection closes). Because the sequence lives in the DuckDB file,
+IDs are **monotonic and never reused** — deleting an instance row does not roll
+the sequence back, and a pod restart continues from the last issued value. The
+reserved ground-truth ID `0` (see `GROUND_TRUTH_AL_INSTANCE_ID`) is seeded
+directly into `al_instances` by `_populate_default_al_instance` and is skipped
+by the helper as a defensive guard. The in-memory `ActiveLearningStorage` no
+longer participates in ID generation.
+
 ### Label Decision Metadata
 - `label_decisions` keeps decision metadata from `/activelearning/{al_instance_id}/label-with-info`, `/xai/{al_instance_id}/nearest_ticket`, and `/xai/jobs/{job_id}`.
 - Rows are merged by `(al_instance_id, ref)` so label information, nearest neighbors, and XAI results can arrive in separate calls.
@@ -365,7 +380,7 @@ compares this constant against the `version` row in the `_schema_meta` table:
   MinIO.
 
 To change the schema in the future, a developer only needs to:
-1. Modify the `CREATE TABLE` / `CREATE INDEX` statements in `schema.py`.
+1. Modify the `CREATE TABLE` / `CREATE INDEX` / `CREATE SEQUENCE` statements in `schema.py` (and add any new sequences to `_drop_all_tables` so they reset cleanly on rebuild).
 2. Bump `SCHEMA_VERSION` by 1.
 3. Restart the backend — the DB is rebuilt automatically.
 

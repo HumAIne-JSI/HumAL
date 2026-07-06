@@ -74,6 +74,7 @@ class _DummyClassifier:
 
 def _build_create_instance_service(storage, mock_duckdb_service, mock_local_artifacts):
     mock_duckdb_service.get_all_instances.return_value = {}
+    mock_duckdb_service.get_next_instance_id.return_value = 1
     mock_local_artifacts.save_model.return_value = "models/1/model_0.joblib"
     mock_local_artifacts.load_model.return_value = _DummyClassifier()
 
