@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.config.config import SYSTEM_USER_ID
 from app.core import dependencies
+from app.core.dependencies import create_access_token
 from app.core.storage import ActiveLearningStorage
 from app.main import app
 from app.persistence.duckdb import DuckDbPersistenceService
@@ -287,3 +288,147 @@ def _get_events(duckdb_svc, action):
     """Helper: fetch all al_events rows with a given action from the real DuckDB svc."""
     rows = duckdb_svc.get_al_events(al_instance_id=1, actions=[action], limit=100)
     return rows
+
+
+@pytest.fixture
+def client_non_system_owner(temp_db, monkeypatch):
+    """Fixture: instance 1 owned by a real registered user 'alice' (not SYSTEM_USER_ID).
+
+    Yields (test_client, alice_id_str) so tests can mint alice's JWT.
+    With no token, get_current_user returns SYSTEM_USER_ID, which is neither alice
+    nor a delegate -> 403 on the query_idx path; data path skips the access check.
+    """
+    alice_id = temp_db.upsert_user(username="alice", password="pwd")
+    alice_id_str = str(alice_id)
+    temp_db.save_al_instance(
+        al_instance_id=1,
+        instance_data={"model_name": "rf", "qs": "random", "classes": [0, 1]},
+        user_id=alice_id_str,
+    )
+
+    fake_inference = MagicMock()
+    fake_inference.storage = ActiveLearningStorage()
+    fake_inference.storage.model_paths_dict = {1: "/some/model/path"}
+    fake_inference.storage.al_instances_dict = {1: {"user_id": alice_id_str}}
+
+    fake_data = MagicMock()
+    fake_data.get_tickets.return_value = {
+        "tickets": [
+            {
+                "Title_anon": "Title 1",
+                "Description_anon": "Desc 1",
+                "Service->Name": "Service A",
+                "Service subcategory->Name": "Subcat A",
+            },
+            {
+                "Title_anon": "Title 2",
+                "Description_anon": "Desc 2",
+                "Service->Name": "Service B",
+                "Service subcategory->Name": "Subcat B",
+            },
+        ]
+    }
+
+    monkeypatch.setattr(inference_router, "inference_service", fake_inference)
+    monkeypatch.setattr(inference_router, "data_service", fake_data)
+    monkeypatch.setattr(inference_router, "duckdb_service", temp_db)
+    monkeypatch.setattr(user_router, "duckdb_service", temp_db)
+    monkeypatch.setattr(dependencies, "duckdb_persistence_service", temp_db)
+    monkeypatch.setattr(dependencies, "inference_service", fake_inference)
+    monkeypatch.setattr(dependencies, "data_service", fake_data)
+
+    class MockStartupService:
+        def load_data_from_minio_into_duckdb(self):
+            pass
+
+    monkeypatch.setattr(dependencies, "startup_service", MockStartupService())
+
+    with TestClient(app) as test_client:
+        yield test_client, alice_id_str
+
+
+class TestInferConditionalAuth:
+    def test_data_path_succeeds_without_token_when_not_owner(self, client_non_system_owner):
+        # data body path skips the ownership gate; no token, instance not owned by system user
+        client, _ = client_non_system_owner
+        fake_inf = inference_router.inference_service
+        fake_inf.infer.return_value = ["Team A"]
+
+        response = client.post("/activelearning/1/infer", json=_sample_data())
+
+        assert response.status_code == 200
+        assert response.json() == ["Team A"]
+
+    def test_query_idx_returns_403_without_token_when_not_owner(self, client_non_system_owner):
+        # query_idx path still enforces ownership; system user is not owner/delegate
+        client, _ = client_non_system_owner
+
+        response = client.post("/activelearning/1/infer?query_idx=R-1&query_idx=R-2")
+
+        assert response.status_code == 403
+        assert "Not authorized" in response.json()["detail"]
+        # access check runs BEFORE request_prediction logging -> no event written
+        events = _get_events(inference_router.duckdb_service, "request_prediction")
+        assert events == []
+
+    def test_query_idx_with_owner_token_succeeds_and_logs_as_user(self, client_non_system_owner):
+        # authenticated owner: 200, and request_prediction attributed to alice's user_id
+        client, alice_id_str = client_non_system_owner
+        fake_inf = inference_router.inference_service
+        fake_inf.infer.return_value = ["Team A", "Team B"]
+        token = create_access_token(user_id=alice_id_str, username="alice")
+
+        response = client.post(
+            "/activelearning/1/infer?query_idx=R-1&query_idx=R-2",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == ["Team A", "Team B"]
+        events = _get_events(inference_router.duckdb_service, "request_prediction")
+        assert len(events) == 1
+        assert events[0]["user_id"] == alice_id_str
+
+
+class TestInferProbaConditionalAuth:
+    def test_data_path_succeeds_without_token_when_not_owner(self, client_non_system_owner):
+        client, _ = client_non_system_owner
+        fake_inf = inference_router.inference_service
+        fake_inf.infer_proba.return_value = {
+            "classes": ["Team A", "Team B"],
+            "probabilities": [[0.7, 0.3]],
+        }
+
+        response = client.post("/activelearning/1/infer_proba", json=_sample_data())
+
+        assert response.status_code == 200
+        assert response.json()["classes"] == ["Team A", "Team B"]
+
+    def test_query_idx_returns_403_without_token_when_not_owner(self, client_non_system_owner):
+        client, _ = client_non_system_owner
+
+        response = client.post("/activelearning/1/infer_proba?query_idx=R-1&query_idx=R-2")
+
+        assert response.status_code == 403
+        assert "Not authorized" in response.json()["detail"]
+        events = _get_events(inference_router.duckdb_service, "request_prediction")
+        assert events == []
+
+    def test_query_idx_with_owner_token_succeeds_and_logs_as_user(self, client_non_system_owner):
+        client, alice_id_str = client_non_system_owner
+        fake_inf = inference_router.inference_service
+        fake_inf.infer_proba.return_value = {
+            "classes": ["Team A", "Team B"],
+            "probabilities": [[0.7, 0.3], [0.1, 0.9]],
+        }
+        token = create_access_token(user_id=alice_id_str, username="alice")
+
+        response = client.post(
+            "/activelearning/1/infer_proba?query_idx=R-1&query_idx=R-2",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        events = _get_events(inference_router.duckdb_service, "request_prediction")
+        assert len(events) == 1
+        assert events[0]["user_id"] == alice_id_str

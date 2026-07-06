@@ -46,7 +46,6 @@ def infer(
     current_user: dict = Depends(get_current_user),
 ):
     request_start = time.perf_counter()
-    require_instance_access(al_instance_id, current_user, inference_service.storage)
 
     if al_instance_id not in inference_service.storage.model_paths_dict:
         raise HTTPException(status_code=404, detail="Model not trained yet, please train the model first")
@@ -55,6 +54,7 @@ def infer(
         raise HTTPException(status_code=400, detail="Provide exactly one of data or query_idx")
 
     if query_idx is not None:
+        require_instance_access(al_instance_id, current_user, inference_service.storage)
         refs = list(query_idx)
         if duckdb_service is not None:
             duckdb_service.log_event(
@@ -98,7 +98,6 @@ def infer_proba(
             or both/neither of data and query_idx are provided.
     """
     request_start = time.perf_counter()
-    require_instance_access(al_instance_id, current_user, inference_service.storage)
 
     if al_instance_id not in inference_service.storage.model_paths_dict:
         raise HTTPException(status_code=404, detail="Model not trained yet, please train the model first")
@@ -108,6 +107,7 @@ def infer_proba(
 
     try:
         if query_idx is not None:
+            require_instance_access(al_instance_id, current_user, inference_service.storage)
             refs = list(query_idx)
             if duckdb_service is not None:
                 duckdb_service.log_event(

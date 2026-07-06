@@ -35,6 +35,10 @@ Single `Data` object or an array of `Data` objects. **Mutually exclusive with `q
   - **One** batch-level `request_prediction` event (`actor_type="system"`, `agent="orchestrator"`, `object_id=null`, `payload={"request_size": N, "ticket_ids": [refs...]}`), emitted by the router.
   - **One** `predict` event per ticket (`actor_type="ai"`, `agent="classifier_model"`, `object_id=<ref>`, `payload={"prediction": <class>}`), emitted by the service.
 
+**Authorization:**
+- **Body path (no `query_idx`):** No authentication required and no instance-ownership check is performed. Intended for service-to-service inference (e.g. the external XAI service). No events are logged.
+- **`query_idx` path:** Requires the caller to be the instance owner or a delegate (404 if the instance does not exist, 403 if not authorized). The access check runs before the `request_prediction` event is written, so unauthorized attempts produce no events. Events are attributed to the calling user's `user_id` (or the system user when no token is provided).
+
 **Swagger-style UI Example:**
 
 *Request Body Path (unlogged)*
@@ -167,6 +171,10 @@ Single `Data` object or an array of `Data` objects. **Mutually exclusive with `q
 - **`query_idx` path:** Two tiers of events are written to `al_events`:
   - **One** batch-level `request_prediction` event (`actor_type="system"`, `agent="orchestrator"`, `object_id=null`, `payload={"request_size": N, "ticket_ids": [refs...]}`), emitted by the router.
   - **One** `predict` event per ticket (`actor_type="ai"`, `agent="classifier_model"`, `object_id=<ref>`, `payload={"classes": [...], "probabilities": [<row>]}`), emitted by the service.
+
+**Authorization:**
+- **Body path (no `query_idx`):** No authentication required and no instance-ownership check is performed. Intended for service-to-service inference (e.g. the external XAI service). No events are logged.
+- **`query_idx` path:** Requires the caller to be the instance owner or a delegate (404 if the instance does not exist, 403 if not authorized). The access check runs before the `request_prediction` event is written, so unauthorized attempts produce no events. Events are attributed to the calling user's `user_id` (or the system user when no token is provided).
 
 **Swagger-style UI Example:**
 
@@ -309,7 +317,7 @@ curl "http://localhost:8000/users/me" \
 
 ## Authentication
 
-All endpoints under `/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}/*`, `/xai/jobs/*`, and `/users/me` require authentication via an `Authorization: Bearer <jwt>` header.
+All endpoints under `/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}/*`, `/xai/jobs/*`, and `/users/me` require authentication via an `Authorization: Bearer <jwt>` header, **except the body (ad-hoc data) path of `POST /activelearning/{al_instance_id}/infer` and `POST /activelearning/{al_instance_id}/infer_proba`, which is intentionally unauthenticated so external services (e.g. the XAI service) can run inference without a user.**
 
 1. Register a user with `POST /users/register`.
 2. Obtain a token with `POST /users/login`.
@@ -320,7 +328,7 @@ All endpoints under `/activelearning/{al_instance_id}/*`, `/xai/{al_instance_id}
      -H "Authorization: Bearer <your-jwt>" \
      -d '{"model_name":"svm","qs_strategy":"uncertainty sampling","class_list":["team_a","team_b"]}'
 
-If the `Authorization` header is omitted, the request is treated as the system user (`00000000-0000-0000-0000-000000000000`). Invalid or expired tokens return `401 Unauthorized`. AL instance operations are scoped to the authenticated user's owned instances.
+If the `Authorization` header is omitted, the request is treated as the system user (`00000000-0000-0000-0000-000000000000`). Invalid or expired tokens return `401 Unauthorized`. AL instance operations are scoped to the authenticated user's owned instances. For `/infer` and `/infer_proba`, ownership scoping applies **only to the `query_idx` path**; the ad-hoc `data` body path is not ownership-scoped.
 
 
 ## Active Learning

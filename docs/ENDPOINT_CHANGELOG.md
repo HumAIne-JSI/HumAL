@@ -2,6 +2,19 @@
 
 **Date:** July 6, 2026
 
+### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer` and `POST /activelearning/{al_instance_id}/infer_proba`
+
+**Purpose:** Conditional authentication on inference endpoints so the external XAI service can call them without a user, while user-driven `query_idx` calls still require ownership.
+
+**Behavior update:**
+- The instance-ownership access check (`require_instance_access`) has moved from the shared preamble (ran for both paths) to **inside the `query_idx` branch only**.
+- **Body (ad-hoc `data`) path:** now runs with **no authentication and no ownership check**. Still logs nothing (unchanged audit). Enables service-to-service inference without a user/token.
+- **`query_idx` path:** still requires the caller to be the instance owner or a delegate (404 if instance missing, 403 if not authorized). The access check now runs **before** the `request_prediction` event is written, so unauthorized `query_idx` attempts produce no events. Per-ticket `predict` event attribution to the calling user (or system user when no token) is unchanged.
+- `Depends(get_current_user)` is retained on both endpoints; its no-token fallback to the system user is harmless on the body path and is the basis for system-user attribution on token-less `query_idx` calls.
+- No request/response shape change. No new endpoints. No API keys.
+
+---
+
 ### ✅ UPDATED BEHAVIOR: `POST /activelearning/new`
 
 **Purpose:** AL instance IDs are now persistent and never reused.
