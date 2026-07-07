@@ -220,3 +220,78 @@ The lock retry parameters are module-level constants in
 Maximum wait before giving up: `_MAX_LOCK_RETRIES × _LOCK_RETRY_BACKOFF_SECONDS`
 (default: ~10 seconds). Adjust these constants if your environment needs
 longer or shorter retry windows.
+
+## Testing
+
+Tests live in `backend/tests/` and are run with `pytest` (no `pytest.ini` /
+`pyproject.toml`; pytest defaults apply):
+
+```
+cd backend
+python -m pytest tests/
+```
+
+The shared `backend/tests/conftest.py` performs module-level setup so the app
+can be imported and exercised fully offline (no network, no Docker, no
+MinIO/RabbitMQ):
+
+- Sets `USE_RABBITMQ=0`, JWT signing vars, and the HuggingFace / Transformers
+  offline flags.
+- Redirects `DUCKDB_PATH`, `MODELS_DIR` and `ENCODERS_DIR` to a fresh temp
+  directory under the OS temp dir (created with `tempfile.mkdtemp`), so
+  tests never write into the real `backend/storage/`.
+- Patches `app.core.minio_client.MinioClient` with a `MagicMock` so the
+  import-time `MinioClient()` singleton never tries to log in.
+- Replaces `SentenceTransformer` in `app.services.data_preprocessing`,
+  `app.services.inference_svc` and `app.services.xai_svc` with a shared
+  `MagicMock` whose `.encode(...)` returns a constant zero matrix of the
+  right shape. This keeps the real `dispatch_team` / `inference` /
+  `XaiService` code paths running without downloading the
+  `all-MiniLM-L6-v2` model.
+- Patches `spacy.load` with a `MagicMock`, so `XaiService._get_spacy_nlp`
+  does not require the `en_core_web_sm` spacy model.
+- Keeps `app.persistence.duckdb.connection.DEFAULT_DB_PATH` in sync with
+  `DUCKDB_PATH` so `resolve_db_path(None)` matches the value tests import.
+
+The existing service / persistence / router unit tests continue to work
+because they locally override the global mocks (e.g.
+`@patch("app.services.inference_svc.SentenceTransformer")` and
+`monkeypatch.setattr("app.services.active_learning_svc.dispatch_team", ...)`)
+take precedence over the conftest-level replacements.
+
+### End-to-End Offline Test
+
+`backend/tests/test_e2e_offline.py::test_e2e_offline_active_learning_loop`
+exercises the real `ActiveLearningService`, `InferenceService` and
+`XaiService` through FastAPI's `TestClient` (no live uvicorn, no Docker).
+The flow:
+
+1. Registers and logs in a user, capturing the JWT.
+2. Creates an AL instance (real `create_instance` → `dispatch_team` →
+   train → first `calculate_metrics`).
+3. Asserts the async XAI endpoints (`POST /xai/{id}/requests` and
+   `GET /xai/jobs/{uuid}`) return `503` with `USE_RABBITMQ=0`.
+4. Runs **10 iterations** of
+   `next → label-with-info → infer_proba → /xai/nearest → /xai/explain_lime`
+   (all with `query_idx` so the real `data_service.get_tickets` /
+   `find_nearest_by_idx` / `explain_lime` paths run).
+5. Asserts persistence: `metrics` row count grew by 10, `al_events` has 10
+   `confirm_label`/`override_label`, 10 `similar_tickets` and 10 `lime`
+   rows, `label_decisions.xai_result` (and `similar_tickets`) is populated
+   for every labeled ref, `/info` reflects a new iteration
+   (`f1_scores` length +10, `num_labeled[-1]` increased), and exactly one
+   `benchmark_export` event was logged on the 10th label.
+
+The fixture seeds the temp DuckDB with 65 train tickets (50 labeled,
+15 unlabeled — the AL pool) and 10 test tickets, then re-points the three
+services' `local_artifacts_store` to fresh `tmp_path` directories so model
+artifacts never touch `backend/storage/`. It also patches
+`dependencies.startup_service` to a no-op so the FastAPI lifespan does not
+pull data from MinIO.
+
+Run it in isolation:
+
+```
+cd backend
+python -m pytest tests/test_e2e_offline.py -v
+```
