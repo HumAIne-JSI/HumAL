@@ -155,6 +155,14 @@ class TestInitDatabase:
             assert "f1_score" in col_dict
             assert "mean_entropy" in col_dict
             assert "num_labeled" in col_dict
+            assert "accuracy" in col_dict
+            assert "precision_macro" in col_dict
+            assert "precision_weighted" in col_dict
+            assert "recall_macro" in col_dict
+            assert "recall_weighted" in col_dict
+            assert "f1_per_class" in col_dict
+            assert "confusion_matrix" in col_dict
+            assert "roc_auc_ovr_macro" in col_dict
             assert "created_at" in col_dict
 
     def test_model_paths_schema(self, temp_db):

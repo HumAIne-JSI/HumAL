@@ -190,11 +190,29 @@ class TestCreateInstance:
         assert len(storage.results_dict[instance_id]["mean_entropies"]) == 1
         assert len(storage.results_dict[instance_id]["f1_scores"]) == 1
         assert len(storage.results_dict[instance_id]["num_labeled"]) == 1
+        assert len(storage.results_dict[instance_id]["accuracies"]) == 1
+        assert len(storage.results_dict[instance_id]["precisions_macro"]) == 1
+        assert len(storage.results_dict[instance_id]["precisions_weighted"]) == 1
+        assert len(storage.results_dict[instance_id]["recalls_macro"]) == 1
+        assert len(storage.results_dict[instance_id]["recalls_weighted"]) == 1
+        assert len(storage.results_dict[instance_id]["f1_per_class"]) == 1
+        assert len(storage.results_dict[instance_id]["confusion_matrices"]) == 1
+        assert len(storage.results_dict[instance_id]["roc_aucs_ovr_macro"]) == 1
         mock_duckdb_service.save_al_instance.assert_called_once()
         mock_duckdb_service.save_model_path.assert_called_once()
         mock_duckdb_service.save_metrics.assert_called_once()
         mock_local_artifacts.save_model.assert_called_once()
         mock_local_artifacts.load_model.assert_called_once_with(instance_id, 0)
+
+        saved_kwargs = mock_duckdb_service.save_metrics.call_args.kwargs
+        assert "accuracy" in saved_kwargs
+        assert "precision_macro" in saved_kwargs
+        assert "precision_weighted" in saved_kwargs
+        assert "recall_macro" in saved_kwargs
+        assert "recall_weighted" in saved_kwargs
+        assert "f1_per_class" in saved_kwargs
+        assert "confusion_matrix" in saved_kwargs
+        assert "roc_auc_ovr_macro" in saved_kwargs
 
     def test_create_instance_stores_user_id(self, storage, mock_duckdb_service, mock_local_artifacts, monkeypatch):
         custom_user_id = "11111111-1111-1111-1111-111111111111"
@@ -447,6 +465,203 @@ class TestLabelInstanceLogging:
 
         duckdb_service.save_labels.assert_called_once()
         assert duckdb_service.save_labels.call_args.kwargs["user_id"] == custom_user_id
+
+
+class TestCalculateMetrics:
+    """Tests for ActiveLearningService.calculate_metrics (single inference pass + expanded metrics)."""
+
+    def _build_service_with_dataset(
+        self, storage, mock_duckdb_service, mock_local_artifacts, classifier, classes, y_test
+    ):
+        """Set up storage.dataset_dict and al_instances_dict for one AL instance."""
+        X_test = pd.DataFrame(
+            [[0.1, 0.2]] * len(y_test), columns=["a", "b"]
+        )
+        storage.dataset_dict[1] = {
+            "X_train": pd.DataFrame([[0.0, 0.0]] * 50, columns=["a", "b"]),
+            "y_train": pd.Series([0] * 50, dtype=object),
+            "X_test": X_test,
+            "y_test": y_test,
+            "le": LabelEncoder().fit(classes),
+            "oh": MagicMock(),
+        }
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": list(classes),
+        }
+        mock_local_artifacts.load_model.return_value = classifier
+
+        return ActiveLearningService(
+            storage,
+            duckdb_service=mock_duckdb_service,
+            local_artifacts_store=mock_local_artifacts,
+        )
+
+    def test_calculate_metrics_uses_single_inference_pass(
+        self, storage, mock_duckdb_service, mock_local_artifacts
+    ):
+        """predict_proba called once; predict never called."""
+        proba = np.array([
+            [0.8, 0.2],
+            [0.3, 0.7],
+            [0.6, 0.4],
+            [0.1, 0.9],
+        ])
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(return_value=proba)
+        classifier.predict = MagicMock(return_value=np.array([99, 99, 99, 99]))  # sentinel
+        y_test = pd.Series(["Team A", "Team B", "Team A", "Team B"], dtype=object)
+
+        service = self._build_service_with_dataset(
+            storage, mock_duckdb_service, mock_local_artifacts,
+            classifier, classes=["Team A", "Team B"], y_test=y_test,
+        )
+
+        service.calculate_metrics(1)
+
+        classifier.predict_proba.assert_called_once()
+        classifier.predict.assert_not_called()
+
+        r = storage.results_dict[1]
+        for key in (
+            "mean_entropies", "f1_scores", "num_labeled",
+            "accuracies", "precisions_macro", "precisions_weighted",
+            "recalls_macro", "recalls_weighted", "f1_per_class",
+            "confusion_matrices", "roc_aucs_ovr_macro",
+        ):
+            assert len(r[key]) == 1, f"{key} should have one entry"
+            assert r[key][0] is not None, f"{key} should not be None"
+
+        # predictions derived from argmax(proba) = [A, B, A, B] — perfect match
+        assert r["accuracies"][0] == 1.0
+        assert r["f1_scores"][0] == pytest.approx(1.0)
+        # binary ROC-AUC computed
+        assert isinstance(r["roc_aucs_ovr_macro"][0], float)
+        assert 0.0 <= r["roc_aucs_ovr_macro"][0] <= 1.0
+
+    def test_calculate_metrics_roc_auc_none_when_single_class_in_y_test(
+        self, storage, mock_duckdb_service, mock_local_artifacts
+    ):
+        """ROC-AUC returns None when y_test contains only one class."""
+        proba = np.array([[0.7, 0.3]] * 4)
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(return_value=proba)
+        y_test = pd.Series(["Team A", "Team A", "Team A", "Team A"], dtype=object)
+
+        service = self._build_service_with_dataset(
+            storage, mock_duckdb_service, mock_local_artifacts,
+            classifier, classes=["Team A", "Team B"], y_test=y_test,
+        )
+
+        service.calculate_metrics(1)  # must not raise
+
+        r = storage.results_dict[1]
+        assert r["roc_aucs_ovr_macro"][0] is None
+        # Other metrics still computed
+        assert len(r["accuracies"]) == 1
+        assert r["accuracies"][0] == 1.0  # all predicted as A, all true as A
+
+    def test_calculate_metrics_multiclass_roc_auc_and_confusion_matrix(
+        self, storage, mock_duckdb_service, mock_local_artifacts
+    ):
+        """Multi-class path: 3x3 confusion matrix, length-3 per-class F1, OvR macro ROC-AUC."""
+        proba = np.array([
+            [0.7, 0.2, 0.1],
+            [0.1, 0.7, 0.2],
+            [0.2, 0.1, 0.7],
+            [0.6, 0.3, 0.1],
+            [0.2, 0.6, 0.2],
+            [0.1, 0.2, 0.7],
+        ])
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(return_value=proba)
+        y_test = pd.Series(["A", "B", "C", "A", "B", "C"], dtype=object)
+
+        service = self._build_service_with_dataset(
+            storage, mock_duckdb_service, mock_local_artifacts,
+            classifier, classes=["A", "B", "C"], y_test=y_test,
+        )
+
+        service.calculate_metrics(1)
+
+        r = storage.results_dict[1]
+        assert len(r["f1_per_class"][0]) == 3
+        assert len(r["confusion_matrices"][0]) == 3
+        assert all(len(row) == 3 for row in r["confusion_matrices"][0])
+        assert isinstance(r["roc_aucs_ovr_macro"][0], float)
+        assert 0.0 <= r["roc_aucs_ovr_macro"][0] <= 1.0
+        # Perfect predictions => all metrics 1.0
+        assert r["accuracies"][0] == 1.0
+        assert r["f1_scores"][0] == pytest.approx(1.0)
+
+    def test_calculate_metrics_filters_nan_in_y_test(
+        self, storage, mock_duckdb_service, mock_local_artifacts
+    ):
+        """NaN-labeled test rows are filtered out; metrics computed on labeled rows only."""
+        proba = np.array([
+            [0.8, 0.2],  # predicts A, true A
+            [0.3, 0.7],  # predicts B, true NaN (filtered out, not counted)
+            [0.6, 0.4],  # predicts A, true A
+            [0.1, 0.9],  # predicts B, true B
+        ])
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(return_value=proba)
+        y_test = pd.Series(["Team A", np.nan, "Team A", "Team B"], dtype=object)
+
+        service = self._build_service_with_dataset(
+            storage, mock_duckdb_service, mock_local_artifacts,
+            classifier, classes=["Team A", "Team B"], y_test=y_test,
+        )
+
+        service.calculate_metrics(1)  # must not raise
+
+        r = storage.results_dict[1]
+        # After filtering, 3 valid rows remain with predictions [A, A, B] matching
+        # true labels [A, A, B]. If the NaN row had been kept (as a phantom
+        # "NotANumber" class), accuracy would be 3/4 = 0.75 because the model's
+        # "Team B" prediction for that row would be wrong. With filtering it is 1.0.
+        assert r["accuracies"][0] == 1.0
+        assert r["f1_scores"][0] == pytest.approx(1.0)
+        # Per-class F1 has one entry per real class
+        assert len(r["f1_per_class"][0]) == 2
+        # Confusion matrix is 2x2
+        assert len(r["confusion_matrices"][0]) == 2
+        # ROC-AUC is computed on the 3 filtered rows (which include both classes)
+        assert isinstance(r["roc_aucs_ovr_macro"][0], float)
+        assert 0.0 <= r["roc_aucs_ovr_macro"][0] <= 1.0
+
+    def test_calculate_metrics_all_nan_in_y_test_returns_none(
+        self, storage, mock_duckdb_service, mock_local_artifacts
+    ):
+        """All y_test NaN -> all classification metrics are None; mean_entropy and num_labeled still computable."""
+        proba = np.array([[0.7, 0.3]] * 4)
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(return_value=proba)
+        y_test = pd.Series([np.nan, np.nan, np.nan, np.nan], dtype=object)
+
+        service = self._build_service_with_dataset(
+            storage, mock_duckdb_service, mock_local_artifacts,
+            classifier, classes=["Team A", "Team B"], y_test=y_test,
+        )
+
+        service.calculate_metrics(1)  # must not raise
+
+        r = storage.results_dict[1]
+        # All classification/ROC metrics are undefined
+        assert r["accuracies"][0] is None
+        assert r["f1_scores"][0] is None
+        assert r["precisions_macro"][0] is None
+        assert r["precisions_weighted"][0] is None
+        assert r["recalls_macro"][0] is None
+        assert r["recalls_weighted"][0] is None
+        assert r["f1_per_class"][0] is None
+        assert r["confusion_matrices"][0] is None
+        assert r["roc_aucs_ovr_macro"][0] is None
+        # mean_entropy depends only on proba, not y_test
+        assert r["mean_entropies"][0] is not None
+        # num_labeled comes from y_train, not y_test
+        assert r["num_labeled"][0] == 50
 
 
 class TestLoadFromPersistence:

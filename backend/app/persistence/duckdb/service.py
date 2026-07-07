@@ -643,6 +643,14 @@ class DuckDbPersistenceService:
         f1_score: Optional[float] = None,
         mean_entropy: Optional[float] = None,
         num_labeled: Optional[int] = None,
+        accuracy: Optional[float] = None,
+        precision_macro: Optional[float] = None,
+        precision_weighted: Optional[float] = None,
+        recall_macro: Optional[float] = None,
+        recall_weighted: Optional[float] = None,
+        f1_per_class: Optional[list[float]] = None,
+        confusion_matrix: Optional[list[list[int]]] = None,
+        roc_auc_ovr_macro: Optional[float] = None,
     ) -> int:
         with connect(self.db_path) as conn:
             if iteration_id is None:
@@ -660,12 +668,20 @@ class DuckDbPersistenceService:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO metrics
-                (al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled)
-                VALUES (?, ?, ?, ?, ?)
+                (al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled,
+                 accuracy, precision_macro, precision_weighted, recall_macro, recall_weighted,
+                 f1_per_class, confusion_matrix, roc_auc_ovr_macro)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled],
+                [
+                    al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled,
+                    accuracy, precision_macro, precision_weighted, recall_macro, recall_weighted,
+                    json.dumps(f1_per_class) if f1_per_class is not None else None,
+                    json.dumps(confusion_matrix) if confusion_matrix is not None else None,
+                    roc_auc_ovr_macro,
+                ],
             )
-        
+
         return int(iteration_id)
 
     def load_metrics(self, al_instance_id: int, iteration_id: Optional[int] = None) -> Dict[str, Any]:
@@ -674,7 +690,9 @@ class DuckDbPersistenceService:
                 # Load the latest iteration
                 row = conn.execute(
                     """
-                    SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                    SELECT iteration_id, f1_score, mean_entropy, num_labeled,
+                           accuracy, precision_macro, precision_weighted, recall_macro,
+                           recall_weighted, f1_per_class, confusion_matrix, roc_auc_ovr_macro
                     FROM metrics
                     WHERE al_instance_id = ?
                     ORDER BY iteration_id DESC
@@ -686,7 +704,9 @@ class DuckDbPersistenceService:
                 # Load specific iteration
                 row = conn.execute(
                     """
-                    SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                    SELECT iteration_id, f1_score, mean_entropy, num_labeled,
+                           accuracy, precision_macro, precision_weighted, recall_macro,
+                           recall_weighted, f1_per_class, confusion_matrix, roc_auc_ovr_macro
                     FROM metrics
                     WHERE al_instance_id = ? AND iteration_id = ?
                     """,
@@ -695,17 +715,19 @@ class DuckDbPersistenceService:
 
         if not row:
             return {
-                "iteration_id": None,
-                "f1_score": None,
-                "mean_entropy": None,
-                "num_labeled": None,
+                "iteration_id": None, "f1_score": None, "mean_entropy": None, "num_labeled": None,
+                "accuracy": None, "precision_macro": None, "precision_weighted": None,
+                "recall_macro": None, "recall_weighted": None,
+                "f1_per_class": None, "confusion_matrix": None, "roc_auc_ovr_macro": None,
             }
 
         return {
-            "iteration_id": row[0],
-            "f1_score": row[1],
-            "mean_entropy": row[2],
-            "num_labeled": row[3],
+            "iteration_id": row[0], "f1_score": row[1], "mean_entropy": row[2], "num_labeled": row[3],
+            "accuracy": row[4], "precision_macro": row[5], "precision_weighted": row[6],
+            "recall_macro": row[7], "recall_weighted": row[8],
+            "f1_per_class": json.loads(row[9]) if row[9] is not None else None,
+            "confusion_matrix": json.loads(row[10]) if row[10] is not None else None,
+            "roc_auc_ovr_macro": row[11],
         }
 
     def load_all_metrics(self, al_instance_id: int) -> list[Dict[str, Any]]:
@@ -713,7 +735,9 @@ class DuckDbPersistenceService:
         with connect(self.db_path) as conn:
             rows = conn.execute(
                 """
-                SELECT iteration_id, f1_score, mean_entropy, num_labeled
+                SELECT iteration_id, f1_score, mean_entropy, num_labeled,
+                       accuracy, precision_macro, precision_weighted, recall_macro,
+                       recall_weighted, f1_per_class, confusion_matrix, roc_auc_ovr_macro
                 FROM metrics
                 WHERE al_instance_id = ?
                 ORDER BY iteration_id ASC
@@ -723,10 +747,12 @@ class DuckDbPersistenceService:
 
         return [
             {
-                "iteration_id": row[0],
-                "f1_score": row[1],
-                "mean_entropy": row[2],
-                "num_labeled": row[3],
+                "iteration_id": row[0], "f1_score": row[1], "mean_entropy": row[2], "num_labeled": row[3],
+                "accuracy": row[4], "precision_macro": row[5], "precision_weighted": row[6],
+                "recall_macro": row[7], "recall_weighted": row[8],
+                "f1_per_class": json.loads(row[9]) if row[9] is not None else None,
+                "confusion_matrix": json.loads(row[10]) if row[10] is not None else None,
+                "roc_auc_ovr_macro": row[11],
             }
             for row in rows
         ]
@@ -1150,7 +1176,9 @@ class DuckDbPersistenceService:
 
             rows = conn.execute(
                 """
-                SELECT al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled, created_at
+                SELECT al_instance_id, iteration_id, f1_score, mean_entropy, num_labeled,
+                       accuracy, precision_macro, precision_weighted, recall_macro,
+                       recall_weighted, f1_per_class, confusion_matrix, roc_auc_ovr_macro, created_at
                 FROM metrics WHERE al_instance_id = ? ORDER BY iteration_id
                 """,
                 [al_instance_id],
@@ -1162,7 +1190,15 @@ class DuckDbPersistenceService:
                     "f1_score": r[2],
                     "mean_entropy": r[3],
                     "num_labeled": r[4],
-                    "created_at": r[5],
+                    "accuracy": r[5],
+                    "precision_macro": r[6],
+                    "precision_weighted": r[7],
+                    "recall_macro": r[8],
+                    "recall_weighted": r[9],
+                    "f1_per_class": json.loads(r[10]) if r[10] is not None else None,
+                    "confusion_matrix": json.loads(r[11]) if r[11] is not None else None,
+                    "roc_auc_ovr_macro": r[12],
+                    "created_at": r[13],
                 }
                 for r in rows
             ]

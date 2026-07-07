@@ -493,7 +493,7 @@ curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 ```
 ### GET /activelearning/{al_instance_id}/info
 
-**Description:** Returns the performance metrics tracking table (entropies, F1 scores, and query progression) for a given instance.
+**Description:** Returns the per-iteration performance metrics tracking table for a given instance: mean prediction entropy, accuracy, precision (macro and weighted), recall (macro and weighted), macro-F1, per-class F1, confusion matrix, one-vs-rest macro ROC-AUC, and cumulative labeled count.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -507,9 +507,22 @@ curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 {
   "mean_entropies": [0.91, 0.73],
   "f1_scores": [0.42, 0.58],
-  "num_labeled": [25, 50]
+  "num_labeled": [25, 50],
+  "accuracies": [0.61, 0.74],
+  "precisions_macro": [0.40, 0.57],
+  "precisions_weighted": [0.55, 0.71],
+  "recalls_macro": [0.39, 0.55],
+  "recalls_weighted": [0.60, 0.73],
+  "f1_per_class": [[0.33, 0.51], [0.50, 0.64]],
+  "confusion_matrices": [[[8, 2], [3, 7]], [[9, 1], [2, 8]]],
+  "roc_aucs_ovr_macro": [0.70, 0.83]
 }
 ```
+
+**Notes:**
+- `f1_per_class[i]` is the F1 score for each class (ordered by `instance.classes`) at iteration `i`.
+- `confusion_matrices[i]` is a square matrix indexed by `instance.classes`; rows are true labels, columns are predicted labels.
+- `roc_aucs_ovr_macro[i]` is `null` when fewer than two true classes are present in the test set (or when the model is degenerate).
 
 **cURL Example:**
 ```bash
@@ -538,7 +551,7 @@ duckdb/
   labels.json                         # raw label rows for the instance (no majority merge)
   ground_truth_labels.json            # raw label rows for instance 0 (ground truth)
   label_decisions.json                # label decisions incl. xai_result, similar_tickets
-  metrics.json                        # f1, mean_entropy, num_labeled per iteration
+  metrics.json                        # accuracy, precision/recall (macro+weighted), f1 (macro + per-class), confusion matrix, ROC-AUC OvR macro, mean_entropy, num_labeled per iteration
   model_paths.json                    # local model artifact paths
   al_events.json                      # all events incl. deserialized payload
   xai_jobs.json                       # XAI job rows

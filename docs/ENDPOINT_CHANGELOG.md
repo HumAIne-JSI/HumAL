@@ -1,5 +1,22 @@
 # HumAL API Endpoint Changelog
 
+**Date:** July 7, 2026
+
+### ✅ UPDATED BEHAVIOR: `GET /activelearning/{al_instance_id}/info` and per-iteration evaluation
+
+**Purpose:** Expand the per-iteration evaluation to additional metrics and reduce the underlying model inference to a single pass.
+
+**Behavior update:**
+- `GET /activelearning/{al_instance_id}/info` now returns 11 parallel lists per instance, additive on top of the existing three: `accuracies`, `precisions_macro`, `precisions_weighted`, `recalls_macro`, `recalls_weighted`, `f1_per_class`, `confusion_matrices`, `roc_aucs_ovr_macro`. Existing fields (`mean_entropies`, `f1_scores`, `num_labeled`) are unchanged.
+- `ActiveLearningService.calculate_metrics` now performs **one** `predict_proba` call on the test set; the hard-label predictions are derived from `argmax(proba)` followed by `le.inverse_transform(...)` and reused for accuracy, per-class F1, macro/weighted precision and recall, the confusion matrix, and ROC-AUC. The previous code called `predict_proba` (for entropy) **and** `predict` (for F1) on the same data — those two passes have been merged.
+- The DuckDB `metrics` table gained 8 columns: `accuracy`, `precision_macro`, `precision_weighted`, `recall_macro`, `recall_weighted`, `f1_per_class` (JSON), `confusion_matrix` (JSON), `roc_auc_ovr_macro`. `SCHEMA_VERSION` is unchanged; existing local DuckDB files must be deleted once to pick up the new columns.
+- ROC-AUC is one-vs-rest macro. For binary tasks the standard `roc_auc_score` is used; for multi-class tasks `label_binarize` + `multi_class='ovr'` + `average='macro'`. It is `null` (and produces no warning) when fewer than two true classes are present in the test set.
+- The `evaluate` event payload (written via `_log_event`) also includes the new metric values for audit/export parity.
+- The `GET /activelearning/{al_instance_id}/export` ZIP's `metrics.json` includes the new fields per iteration.
+- No request/response shape removed; the change is purely additive.
+
+---
+
 **Date:** July 6, 2026
 
 ### ✅ UPDATED BEHAVIOR: `POST /activelearning/{al_instance_id}/infer` and `POST /activelearning/{al_instance_id}/infer_proba`

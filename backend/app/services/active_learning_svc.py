@@ -10,7 +10,15 @@ from datetime import datetime
 from io import BytesIO
 from typing import Optional
 import pandas as pd
-from sklearn.metrics import f1_score
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.preprocessing import label_binarize
 from scipy.stats import entropy
 from app.config.config import model_dict, qs_dict, SENTENCE_TRANSFORMERS_MODEL
 from app.core.storage import ActiveLearningStorage
@@ -269,6 +277,14 @@ class ActiveLearningService:
                 "mean_entropies": [m["mean_entropy"] for m in metrics],
                 "f1_scores": [m["f1_score"] for m in metrics],
                 "num_labeled": [m["num_labeled"] for m in metrics],
+                "accuracies": [m.get("accuracy") for m in metrics],
+                "precisions_macro": [m.get("precision_macro") for m in metrics],
+                "precisions_weighted": [m.get("precision_weighted") for m in metrics],
+                "recalls_macro": [m.get("recall_macro") for m in metrics],
+                "recalls_weighted": [m.get("recall_weighted") for m in metrics],
+                "f1_per_class": [m.get("f1_per_class") for m in metrics],
+                "confusion_matrices": [m.get("confusion_matrix") for m in metrics],
+                "roc_aucs_ovr_macro": [m.get("roc_auc_ovr_macro") for m in metrics],
             }
 
             model_paths = self.duckdb_service.load_model_paths(instance_id)
@@ -565,52 +581,112 @@ class ActiveLearningService:
         start_time = time.perf_counter()
         # Get the data
         X_test = self.storage.dataset_dict[al_instance_id]['X_test']
-        y_test = self.storage.dataset_dict[al_instance_id]['y_test']
+        y_test_raw = self.storage.dataset_dict[al_instance_id]['y_test']
         y = self.storage.dataset_dict[al_instance_id]['y_train']
 
-        # Get the label encoder
+        # Get the label encoder and the model's class labels
         le = self.storage.dataset_dict[al_instance_id]['le']
+        class_labels = [c for c in le.classes_ if not pd.isna(c)]
 
         # Get the model
         clf = self.local_artifacts_store.load_model(al_instance_id, 0)
 
-        # calculate the entropy of the model
-        mean_entropy = np.mean(entropy(clf.predict_proba(X_test), axis=1))
-        
-        # calculate the number of labeled instances
+        # --- SINGLE inference pass (reused for every metric) ---
+        proba = clf.predict_proba(X_test)
+        mean_entropy = np.mean(entropy(proba, axis=1))
+        # argmax(proba) == clf.predict() because classes are encoded 0..n-1
+        predictions = le.inverse_transform(np.argmax(proba, axis=1))
+
+        # number of labeled instances
         num_labeled = int(y.value_counts().sum())
-        
-        # save the mean entropy
+
+        # Filter out unlabeled test rows (where y_test is NaN). The model is
+        # not at fault for unlabeled rows, so they are dropped from every metric
+        # rather than treated as a phantom "NotANumber" class.
+        valid_mask = ~pd.isna(np.asarray(y_test_raw))
+        y_test = np.asarray(y_test_raw)[valid_mask]
+        proba = proba[valid_mask]
+        predictions = (
+            le.inverse_transform(np.argmax(proba, axis=1))
+            if len(proba) > 0
+            else np.array([], dtype=object)
+        )
+
+        # --- Classification metrics (all reuse the single `predictions`) ---
+        if len(y_test) == 0:
+            accuracy = f1 = precision_macro = precision_weighted = recall_macro = recall_weighted = roc_auc = None
+            f1_per_class = cm = None
+        else:
+            accuracy = accuracy_score(y_test, predictions)
+            f1 = f1_score(y_test, predictions, average='macro', zero_division=0)
+            f1_per_class = f1_score(
+                y_test, predictions, average=None, labels=class_labels, zero_division=0
+            ).tolist()
+            precision_macro = precision_score(y_test, predictions, average='macro', zero_division=0)
+            precision_weighted = precision_score(y_test, predictions, average='weighted', zero_division=0)
+            recall_macro = recall_score(y_test, predictions, average='macro', zero_division=0)
+            recall_weighted = recall_score(y_test, predictions, average='weighted', zero_division=0)
+            cm = confusion_matrix(y_test, predictions, labels=class_labels).tolist()
+
+            # --- ROC-AUC (one-vs-rest, macro) ---
+            roc_auc = None
+            n_classes = proba.shape[1]
+            if len(np.unique(y_test)) >= 2:
+                try:
+                    if n_classes > 2:
+                        y_bin = label_binarize(y_test, classes=class_labels)
+                        roc_auc = roc_auc_score(
+                            y_bin, proba, multi_class='ovr', average='macro'
+                        )
+                    elif n_classes == 2:
+                        roc_auc = roc_auc_score(le.transform(y_test), proba[:, 1])
+                except (ValueError, IndexError):
+                    roc_auc = None
+                if roc_auc is not None and np.isnan(roc_auc):
+                    roc_auc = None
+
+        # --- In-memory results ---
         if al_instance_id not in self.storage.results_dict:
             self.storage.results_dict[al_instance_id] = {
                 "mean_entropies": [],
                 "f1_scores": [],
-                "num_labeled": []
+                "num_labeled": [],
+                "accuracies": [],
+                "precisions_macro": [],
+                "precisions_weighted": [],
+                "recalls_macro": [],
+                "recalls_weighted": [],
+                "f1_per_class": [],
+                "confusion_matrices": [],
+                "roc_aucs_ovr_macro": [],
             }
-        self.storage.results_dict[al_instance_id]["mean_entropies"].append(mean_entropy)
-        
-        self.storage.results_dict[al_instance_id]["num_labeled"].append(num_labeled)
-        # calculate the f1 score of the model
-        predictions = clf.predict(X_test)
-        
-        # Handle NaN values in y_test before calculating f1_score
-        # Check if y_test contains string values or numerical values
-        if y_test.dtype.kind in ['U', 'S', 'O']:  # String or object dtype
-            # For string values, replace NaN with "NotANumber"
-            y_test = np.array(["NotANumber" if pd.isna(val) else val for val in y_test])
-        else:  # Numerical dtype
-            # For numerical values, replace NaN with inf
-            y_test = np.array([float('inf') if pd.isna(val) else val for val in y_test])
-        
-        f1 = f1_score(y_test, le.inverse_transform(predictions), average='macro')
-        self.storage.results_dict[al_instance_id]["f1_scores"].append(f1)
+        r = self.storage.results_dict[al_instance_id]
+        r["mean_entropies"].append(mean_entropy)
+        r["num_labeled"].append(num_labeled)
+        r["f1_scores"].append(f1)
+        r["accuracies"].append(accuracy)
+        r["precisions_macro"].append(precision_macro)
+        r["precisions_weighted"].append(precision_weighted)
+        r["recalls_macro"].append(recall_macro)
+        r["recalls_weighted"].append(recall_weighted)
+        r["f1_per_class"].append(f1_per_class)
+        r["confusion_matrices"].append(cm)
+        r["roc_aucs_ovr_macro"].append(roc_auc)
 
-        # Save the metrics to persistence
+        # --- DuckDB persistence ---
         self.duckdb_service.save_metrics(
             al_instance_id=al_instance_id,
             f1_score=f1,
             mean_entropy=mean_entropy,
-            num_labeled=num_labeled
+            num_labeled=num_labeled,
+            accuracy=accuracy,
+            precision_macro=precision_macro,
+            precision_weighted=precision_weighted,
+            recall_macro=recall_macro,
+            recall_weighted=recall_weighted,
+            f1_per_class=f1_per_class,
+            confusion_matrix=cm,
+            roc_auc_ovr_macro=roc_auc,
         )
 
         self._log_event(
@@ -621,9 +697,17 @@ class ActiveLearningService:
             agent="classifier_model",
             object_id="model",
             payload={
-                "f1_macro": float(f1),
+                "f1_macro": float(f1) if f1 is not None else None,
                 "mean_entropy": float(mean_entropy),
                 "num_labeled": int(num_labeled),
+                "accuracy": float(accuracy) if accuracy is not None else None,
+                "precision_macro": float(precision_macro) if precision_macro is not None else None,
+                "precision_weighted": float(precision_weighted) if precision_weighted is not None else None,
+                "recall_macro": float(recall_macro) if recall_macro is not None else None,
+                "recall_weighted": float(recall_weighted) if recall_weighted is not None else None,
+                "f1_per_class": f1_per_class,
+                "confusion_matrix": cm,
+                "roc_auc_ovr_macro": float(roc_auc) if roc_auc is not None else None,
             },
             user_id=user_id,
         )

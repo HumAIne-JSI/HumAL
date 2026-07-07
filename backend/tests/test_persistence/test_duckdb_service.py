@@ -470,102 +470,175 @@ class TestMetrics:
     def test_save_and_load_metrics(self, service):
         # Create AL instance first (required by foreign key)
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
-        
-        iteration_id = service.save_metrics(1, f1_score=0.85, mean_entropy=0.42, num_labeled=100)
-        
+
+        iteration_id = service.save_metrics(
+            1,
+            f1_score=0.85,
+            mean_entropy=0.42,
+            num_labeled=100,
+            accuracy=0.9,
+            precision_macro=0.88,
+            precision_weighted=0.91,
+            recall_macro=0.87,
+            recall_weighted=0.9,
+            f1_per_class=[0.8, 0.9],
+            confusion_matrix=[[5, 1], [2, 4]],
+            roc_auc_ovr_macro=0.93,
+        )
+
         assert iteration_id == 1
-        
+
         metrics = service.load_metrics(1)
-        
+
         assert metrics["iteration_id"] == 1
         assert metrics["f1_score"] == 0.85
         assert metrics["mean_entropy"] == 0.42
         assert metrics["num_labeled"] == 100
+        assert metrics["accuracy"] == 0.9
+        assert metrics["precision_macro"] == 0.88
+        assert metrics["precision_weighted"] == 0.91
+        assert metrics["recall_macro"] == 0.87
+        assert metrics["recall_weighted"] == 0.9
+        assert metrics["f1_per_class"] == [0.8, 0.9]
+        assert metrics["confusion_matrix"] == [[5, 1], [2, 4]]
+        assert metrics["roc_auc_ovr_macro"] == 0.93
 
     def test_save_metrics_partial(self, service):
         # Create AL instance first (required by foreign key)
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
-        
+
         iteration_id = service.save_metrics(1, f1_score=0.75)
-        
+
         assert iteration_id == 1
-        
+
         metrics = service.load_metrics(1)
-        
+
         assert metrics["iteration_id"] == 1
         assert metrics["f1_score"] == 0.75
         assert metrics["mean_entropy"] is None
         assert metrics["num_labeled"] is None
+        assert metrics["accuracy"] is None
+        assert metrics["precision_macro"] is None
+        assert metrics["precision_weighted"] is None
+        assert metrics["recall_macro"] is None
+        assert metrics["recall_weighted"] is None
+        assert metrics["f1_per_class"] is None
+        assert metrics["confusion_matrix"] is None
+        assert metrics["roc_auc_ovr_macro"] is None
 
     def test_load_metrics_nonexistent(self, service):
         metrics = service.load_metrics(999)
-        
+
         assert metrics["iteration_id"] is None
         assert metrics["f1_score"] is None
         assert metrics["mean_entropy"] is None
         assert metrics["num_labeled"] is None
+        assert metrics["accuracy"] is None
+        assert metrics["precision_macro"] is None
+        assert metrics["precision_weighted"] is None
+        assert metrics["recall_macro"] is None
+        assert metrics["recall_weighted"] is None
+        assert metrics["f1_per_class"] is None
+        assert metrics["confusion_matrix"] is None
+        assert metrics["roc_auc_ovr_macro"] is None
 
     def test_save_metrics_replaces(self, service):
         # Create AL instance first (required by foreign key)
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
-        
+
         iter1 = service.save_metrics(1, f1_score=0.5)
-        iter2 = service.save_metrics(1, f1_score=0.9, mean_entropy=0.3)
-        
+        iter2 = service.save_metrics(
+            1, f1_score=0.9, mean_entropy=0.3, accuracy=0.8
+        )
+
         assert iter1 == 1
         assert iter2 == 2
-        
+
         metrics = service.load_metrics(1)
-        
+
         assert metrics["iteration_id"] == 2
         assert metrics["f1_score"] == 0.9
         assert metrics["mean_entropy"] == 0.3
+        assert metrics["accuracy"] == 0.8
 
     def test_save_metrics_with_explicit_iteration_id(self, service):
         # Create AL instance first (required by foreign key)
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
-        
+
         # Save with explicit iteration_id
-        iter_id = service.save_metrics(1, iteration_id=5, f1_score=0.8)
-        
+        iter_id = service.save_metrics(
+            1, iteration_id=5, f1_score=0.8, accuracy=0.7
+        )
+
         assert iter_id == 5
-        
+
         # Next auto iteration should be 6
-        next_iter = service.save_metrics(1, f1_score=0.85)
-        
+        next_iter = service.save_metrics(1, f1_score=0.85, accuracy=0.9)
+
         assert next_iter == 6
-        
+
         # Can load specific iteration
         metrics_5 = service.load_metrics(1, iteration_id=5)
         assert metrics_5["iteration_id"] == 5
         assert metrics_5["f1_score"] == 0.8
-        
+        assert metrics_5["accuracy"] == 0.7
+
         # Default loads latest (iteration 6)
         metrics_latest = service.load_metrics(1)
         assert metrics_latest["iteration_id"] == 6
         assert metrics_latest["f1_score"] == 0.85
+        assert metrics_latest["accuracy"] == 0.9
 
     def test_load_all_metrics(self, service):
         # Create AL instance first (required by foreign key)
         service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
-        
+
         # Save multiple iterations
-        service.save_metrics(1, f1_score=0.5, num_labeled=10)
-        service.save_metrics(1, f1_score=0.7, num_labeled=20)
-        service.save_metrics(1, f1_score=0.85, num_labeled=30)
-        
+        service.save_metrics(1, f1_score=0.5, num_labeled=10, accuracy=0.5)
+        service.save_metrics(1, f1_score=0.7, num_labeled=20, accuracy=0.6)
+        service.save_metrics(1, f1_score=0.85, num_labeled=30, accuracy=0.7)
+
         all_metrics = service.load_all_metrics(1)
-        
+
         assert len(all_metrics) == 3
         assert all_metrics[0]["iteration_id"] == 1
         assert all_metrics[0]["f1_score"] == 0.5
         assert all_metrics[0]["num_labeled"] == 10
-        
+        assert all_metrics[0]["accuracy"] == 0.5
+
         assert all_metrics[1]["iteration_id"] == 2
         assert all_metrics[1]["f1_score"] == 0.7
-        
+        assert all_metrics[1]["accuracy"] == 0.6
+
         assert all_metrics[2]["iteration_id"] == 3
         assert all_metrics[2]["f1_score"] == 0.85
+        assert all_metrics[2]["accuracy"] == 0.7
+
+    def test_save_metrics_json_columns_round_trip(self, service):
+        """JSON columns (f1_per_class, confusion_matrix) must round-trip losslessly."""
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+
+        f1_pc = [0.0, 0.5, 1.0]
+        cm = [[1, 2, 0], [0, 3, 1], [2, 0, 4]]
+        service.save_metrics(
+            1, f1_score=0.5, f1_per_class=f1_pc, confusion_matrix=cm
+        )
+
+        metrics = service.load_metrics(1)
+
+        assert metrics["f1_per_class"] == f1_pc
+        assert metrics["confusion_matrix"] == cm
+
+    def test_save_metrics_null_json_columns(self, service):
+        """Null JSON columns load as None (no json.loads crash on NULL)."""
+        service.save_al_instance(1, {"model_name": "M1", "qs": "qs1", "classes": []})
+
+        service.save_metrics(1, f1_score=0.5)
+
+        metrics = service.load_metrics(1)
+
+        assert metrics["f1_per_class"] is None
+        assert metrics["confusion_matrix"] is None
 
 
 class TestDeletion:

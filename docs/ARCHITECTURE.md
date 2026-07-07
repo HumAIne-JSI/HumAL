@@ -92,7 +92,7 @@ backend/
 #### Active Learning Service
 - Manages AL pipeline lifecycle
 - Coordinates query strategy selection
-- Handles model training and evaluation
+- Handles model training and evaluation (single `predict_proba` pass per iteration, producing accuracy, macro/weighted precision & recall, macro F1, per-class F1, confusion matrix, one-vs-rest macro ROC-AUC, mean prediction entropy, and labeled count)
 - Maintains instance state
 
 #### Inference Service
@@ -291,7 +291,7 @@ longer participates in ID generation.
   - `actor_type` — `"system"` (orchestrator) or `"ai"` (model/agent) or `"human"` (label).
   - `agent` — e.g. `"orchestrator"`, `"classifier_model"`, `"xai_lime"`, `"xai_nearest"`, `"human_reviewer"`.
   - `object_id` — the associated ticket reference (nullable). For per-ticket events, this is the ticket ref. For batch-level events (e.g. `request_prediction`), this is `null` and the refs are in `payload.ticket_ids`.
-  - `payload` — JSON column with contextual data: predictions, probabilities, top features, ticket lists, request sizes, etc.
+  - `payload` — JSON column with contextual data: predictions, probabilities, top features, ticket lists, request sizes, etc. For `action="evaluate"` the payload carries `f1_macro`, `accuracy`, `precision_macro`, `precision_weighted`, `recall_macro`, `recall_weighted`, `f1_per_class`, `confusion_matrix`, `roc_auc_ovr_macro`, `mean_entropy`, and `num_labeled`.
 - There are no dedicated `predicted_class`, `ticket_ref`, or `meta_block` columns; predicted class and per-ticket refs live inside the JSON `payload` (or in the per-ref `object_id`).
 
 ### HAIC Benchmarking Artifact

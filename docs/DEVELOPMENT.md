@@ -201,6 +201,13 @@ The DuckDB schema is versioned. To make a schema change:
 
 No manual DuckDB intervention or migration scripts are needed.
 
+> **Pre-v1 convention.** Before the first public release, additive column
+> changes (e.g. extra metric columns on `metrics`) may be made to the
+> `CREATE TABLE` block without bumping `SCHEMA_VERSION`. In that case,
+> developers with an existing local `backend/storage/db/humal.duckdb`
+> must delete that file once so `init_database()` recreates it with the
+> new columns.
+
 ### Tuning Lock Retry Behavior
 
 The lock retry parameters are module-level constants in
