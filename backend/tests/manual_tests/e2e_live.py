@@ -410,13 +410,24 @@ def main() -> None:
         headers = register_and_login(username, "E2Epass123!")
         print(f"[e2e] Logged in as {username}", flush=True)
 
+        # ---- Fetch real team names from the dataset ----
+        teams_resp = requests.get(f"{BASE_URL}/data/teams", timeout=15)
+        assert teams_resp.status_code == 200, (
+            f"GET /data/teams: {teams_resp.status_code} {teams_resp.text}"
+        )
+        teams = teams_resp.json().get("teams", [])
+        assert teams, (
+            "No teams returned by /data/teams — is the dataset ingested?"
+        )
+        print(f"[e2e] Real teams from dataset: {teams}", flush=True)
+
         # ---- Create AL instance ----
         r = requests.post(
             f"{BASE_URL}/activelearning/new",
             json={
                 "model_name": "random forest",
                 "qs_strategy": "random sampling",
-                "class_list": ["team_a", "team_b"],
+                "class_list": teams,
             },
             headers=headers,
             timeout=60,
