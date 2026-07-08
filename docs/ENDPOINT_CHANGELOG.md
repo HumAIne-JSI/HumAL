@@ -1,5 +1,29 @@
 # HumAL API Endpoint Changelog
 
+**Date:** July 8, 2026
+
+### ✅ NEW MANUAL TEST: Live E2E + Real LIME RabbitMQ Worker
+
+Two new scripts under `backend/tests/manual_tests/`:
+
+- **`xai_rabbitmq_worker.py`** — A real LIME RabbitMQ worker (replaces
+  `xai_rabbitmq_simulator.py` in intent, left in place). Consumes
+  `TASK_QUEUE`, loads the ticket + model + encoders + `TicketVectorizer`
+  from MinIO, runs `LimeTextExplainer` with `num_features=10`,
+  `num_samples=1000` per top-k class, writes result JSON to
+  `xai_results/{id}/{job_id}/result.json` in `smart-finance-results`, and
+  publishes a completion message to `RESULT_QUEUE`. No mocks — uses real
+  `SentenceTransformer` (locally cached) and real MinIO.
+- **`e2e_live.py`** — Live end-to-end driver that starts uvicorn + the
+  above worker as subprocesses against a real MinIO + RabbitMQ, then drives
+  the full AL loop: capabilities → register → login → new → 10×[next,
+  /data/tickets, infer_proba, nearest, xai/requests (async), poll
+  xai/jobs until completed, simulated human delay, label-with-info] →
+  export. Asserts MinIO artifacts, export ZIP, benchmarking JSON, and XAI
+  result JSON. Hermetic (separate test DuckDB + per-instance MinIO
+  cleanup on teardown). Not auto-discovered by `python -m pytest tests/`.
+  Run directly: `python backend/tests/manual_tests/e2e_live.py`.
+
 **Date:** July 7, 2026
 
 ### ✅ UPDATED BEHAVIOR: `GET /activelearning/{al_instance_id}/info` and per-iteration evaluation

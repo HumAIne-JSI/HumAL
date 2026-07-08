@@ -295,3 +295,76 @@ Run it in isolation:
 cd backend
 python -m pytest tests/test_e2e_offline.py -v
 ```
+
+### Live End-to-End Test (Manual)
+
+`backend/tests/manual_tests/e2e_live.py` is a **live** integration test that
+starts a real uvicorn process + a real LIME RabbitMQ worker as subprocesses
+and drives the full API via `requests`. It requires a live MinIO and RabbitMQ
+to execute.
+
+**Prerequisites:**
+- MinIO running and populated: `smart-finance-data` bucket contains
+  `datasets/{train|test}/User Request_last_team_ANON_*.xlsx` (the server
+  ingests them on startup via `StartupService.load_data_from_minio_into_duckdb`).
+- RabbitMQ reachable at the `RABBIT_URL` configured in `.env.al_api`.
+- `.env.al_api` at the project root with `USE_RABBITMQ=1`, valid MinIO
+  credentials, JWT secret, and the HuggingFace offline flags already
+  set (`SENTENCE_TRANSFORMERS_LOCAL_ONLY=1`, `HF_HUB_OFFLINE=1`,
+  `TRANSFORMERS_OFFLINE=1`).
+- `backend/sentence_transformers_cache/` populated (run
+  `cd backend && python download_models.py` once).
+- `en_core_web_sm` spacy model installed
+  (`python -m spacy download en_core_web_sm`).
+
+**Expected runtime:** ~5-10 minutes.
+
+**Invocation:** from the project root, with `al_api_venv` active:
+
+```
+python backend/tests/manual_tests/e2e_live.py
+```
+
+**What it verifies:**
+1. `GET /config/capabilities` includes `"xai"` (proves RabbitMQ is wired).
+2. Full user registration → login → AL instance creation.
+3. 10 iterations of: `next` → `data/tickets` (fetch ticket fields) →
+   `infer_proba` → `xai/nearest` → `xai/requests` (async XAI job) →
+   poll `xai/jobs/{job_id}` until `completed` → simulated human delay
+   (5-15s) → `label-with-info`.
+4. MinIO artifacts: model, encoders, vectorized tickets, labels.
+5. Benchmarking JSON (`benchmarking/{id}/events_*.json`) written to
+   `smart-finance-results` after the 10th label.
+6. XAI result JSON (`xai_results/{id}/{job_id}/result.json`) with LIME
+   feature weights.
+7. Export ZIP (`/activelearning/{id}/export`) with all expected tables.
+
+**Artifacts** are saved to `./artifacts/` (CWD-relative):
+- `instance_{id}_export.zip` — DuckDB export ZIP
+- `instance_{id}_benchmark_events.json` — last benchmarking payload
+- `instance_{id}_xai_result.json` — last LIME result
+- `backend.log`, `worker.log` — uvicorn + worker stdout/stderr
+
+**Cleanup:** on teardown the script kills both subprocesses, deletes the
+hermetic test DuckDB file + WAL, and removes the per-instance MinIO objects
+(including benchmarking). The `./artifacts/` directory is kept for inspection.
+
+The script is NOT collected by `python -m pytest tests/` (no `test_` prefix).
+Do not attempt to run it via pytest.
+
+### RabbitMQ LIME Worker (Manual)
+
+`backend/tests/manual_tests/xai_rabbitmq_worker.py` is a standalone real LIME
+worker that can also be started independently:
+
+```
+python backend/tests/manual_tests/xai_rabbitmq_worker.py
+```
+
+It connects to RabbitMQ (using the same `.env.al_api` env vars), declares
+both `TASK_QUEUE` and `RESULT_QUEUE` durably, and for each incoming XAI
+job downloads the ticket + model + encoders + vectorizer from MinIO, runs
+LIME with 10 features / 1000 samples per top-k class, writes the result to
+MinIO, and publishes a completion message to `RESULT_QUEUE`. This script is
+automatically spawned by `e2e_live.py` and is the intended replacement for
+`xai_rabbitmq_simulator.py` (which fakes the result).
