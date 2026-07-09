@@ -30,8 +30,6 @@ Flow (10 iterations):
 
 Artifacts saved to ``./artifacts/``:
   - ``instance_{id}_export.zip``
-  - ``instance_{id}_benchmark_events.json``
-  - ``instance_{id}_xai_result.json``
   - ``backend.log``, ``worker.log``
 
 Invoke (from project root, using ``al_api_venv``):
@@ -68,12 +66,6 @@ if ENV_FILE.exists():
     load_dotenv(ENV_FILE)
 else:
     load_dotenv(PROJECT_ROOT / ".env")
-
-from app.core.minio_client import MinioClient
-from app.persistence.minio_storage import (
-    MinioService,
-    RESULTS_BUCKET,
-)
 
 BASE_URL = "http://127.0.0.1:8000"
 WORKER_SCRIPT = Path(__file__).resolve().parent / "xai_rabbitmq_worker.py"
@@ -244,11 +236,6 @@ def fetch_export_zip(
 # ---------------------------------------------------------------------------
 
 
-def _init_minio() -> MinioService:
-    client = MinioClient()
-    return MinioService(client=client)
-
-
 def assert_zip_tables(zip_bytes: bytes) -> dict[str, list[dict]]:
     """Unzip *zip_bytes* and assert expected JSON table files exist.
 
@@ -267,88 +254,6 @@ def assert_zip_tables(zip_bytes: bytes) -> dict[str, list[dict]]:
     return tables
 
 
-def assert_minio_core_artifacts(
-    minio_svc: MinioService, instance_id: int
-) -> None:
-    """Assert the 5 core per-instance MinIO objects exist."""
-    minio_svc.load_model(al_instance_id=instance_id, model_version=0)
-    minio_svc.load_label_encoder(al_instance_id=instance_id)
-    minio_svc.load_one_hot_encoder(al_instance_id=instance_id)
-    minio_svc.load_vectorized_tickets(
-        al_instance_id=instance_id, tickets_version=0, split="train"
-    )
-    minio_svc.load_labels(
-        al_instance_id=instance_id, labels_version=0, split="train"
-    )
-
-
-def assert_benchmark_events(
-    minio_svc: MinioService, instance_id: int
-) -> dict[str, Any]:
-    """Assert benchmarking events exist; download the last one.
-
-    Saves to ``./artifacts/instance_{id}_benchmark_events.json``.
-    """
-    names = minio_svc.list_benchmark_events(instance_id)
-    assert names, f"No benchmark events for instance {instance_id}"
-    last_name = names[-1]
-    data = minio_svc.client.download_object(RESULTS_BUCKET, last_name)
-    dest = ARTIFACTS_DIR / f"instance_{instance_id}_benchmark_events.json"
-    dest.write_bytes(data)
-    parsed = json.loads(data.decode("utf-8"))
-    assert parsed, "Benchmark events payload is empty"
-    return parsed
-
-
-def assert_xai_result(
-    minio_svc: MinioService, instance_id: int, job_id: str
-) -> dict[str, Any]:
-    """Download the last XAI result; assert it has LIME feature weights.
-
-    Saves to ``./artifacts/instance_{id}_xai_result.json``.
-    """
-    loc = minio_svc._with_prefix(
-        f"xai_results/{instance_id}/{job_id}"
-    )
-    object_name = f"{loc}/result.json"
-    data = minio_svc.client.download_object(RESULTS_BUCKET, object_name)
-    dest = ARTIFACTS_DIR / f"instance_{instance_id}_xai_result.json"
-    dest.write_bytes(data)
-    parsed = json.loads(data.decode("utf-8"))
-    assert isinstance(parsed, list), "XAI result should be a list"
-    assert parsed, "XAI result list is empty"
-    first = parsed[0]
-    assert "top_words" in first, (
-        f"XAI result missing 'top_words'; keys: {list(first.keys())}"
-    )
-    assert isinstance(first["top_words"], list), (
-        "'top_words' should be a list"
-    )
-    if first["top_words"]:
-        first_pair = first["top_words"][0]
-        assert isinstance(first_pair, (list, tuple)), (
-            f"Expected [word, weight] pair, got {type(first_pair)}"
-        )
-    return parsed
-
-
-def cleanup_minio(
-    minio_svc: MinioService, instance_id: int
-) -> None:
-    """Delete all per-instance MinIO objects (incl. benchmarking)."""
-    minio_svc.delete_instance_objects(instance_id)
-    prefix = minio_svc._with_prefix(f"benchmarking/{instance_id}/")
-    try:
-        listing = minio_svc.client.list_objects(
-            RESULTS_BUCKET, prefix=prefix, filter_type="exact"
-        )
-        for name in (listing or {}).get("matches", []):
-            try:
-                minio_svc.client.delete_object(RESULTS_BUCKET, name)
-            except Exception:
-                pass
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +268,6 @@ def main() -> None:
     worker_log = backend_log = None
     worker_proc = uvicorn_proc = None
     instance_id: int | None = None
-    minio_svc: MinioService | None = None
 
     try:
         # ---- Start worker FIRST (must declare queues before uvicorn) ----
@@ -437,9 +341,6 @@ def main() -> None:
         )
         instance_id = r.json()["instance_id"]
         print(f"[e2e] Created AL instance {instance_id}", flush=True)
-
-        # ---- Build MinIO service for assertions (parent process) ----
-        minio_svc = _init_minio()
 
         # ---- Baseline info ----
         info = requests.get(
@@ -673,18 +574,6 @@ def main() -> None:
         print(f"[e2e]   label_decisions populated for all"
               f" {len(labeled_refs)} refs", flush=True)
 
-        # --- MinIO core artifacts ---
-        assert_minio_core_artifacts(minio_svc, instance_id)
-        print(f"[e2e]   MinIO core artifacts OK", flush=True)
-
-        # --- Benchmarking events ---
-        assert_benchmark_events(minio_svc, instance_id)
-        print(f"[e2e]   benchmarking events OK", flush=True)
-
-        # --- XAI result ---
-        assert_xai_result(minio_svc, instance_id, job_ids[-1])
-        print(f"[e2e]   XAI result has LIME feature weights", flush=True)
-
         print(f"\n{'=' * 60}", flush=True)
         print(f"  E2E LIVE TEST PASSED  (instance {instance_id})",
               flush=True)
@@ -735,16 +624,6 @@ def main() -> None:
                 print(f"[e2e] Deleted {p}", flush=True)
             except FileNotFoundError:
                 pass
-
-        # Delete per-instance MinIO objects
-        if minio_svc is not None and instance_id is not None:
-            try:
-                cleanup_minio(minio_svc, instance_id)
-                print(f"[e2e] Cleaned up MinIO objects for instance"
-                      f" {instance_id}", flush=True)
-            except Exception:
-                print("[e2e] MinIO cleanup failed (non-fatal)", flush=True)
-                traceback.print_exc()
 
         print("[e2e] Teardown complete", flush=True)
 

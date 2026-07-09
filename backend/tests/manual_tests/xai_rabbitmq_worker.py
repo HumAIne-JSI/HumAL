@@ -1,19 +1,19 @@
 """Real RabbitMQ XAI worker for the HumAL live e2e test.
 
 Replaces (does not delete) xai_rabbitmq_simulator.py. Runs real LIME
-explanations (10 features, 1000 samples, per top-k class) matching
+explanations (10 features, 250 samples, per top-k class) matching
 XaiService.explain_lime semantics.
 
 Prerequisites:
   - RabbitMQ reachable at RABBIT_URL (default from .env.al_api).
+  - The HumAL backend API reachable at API_BASE_URL (default
+    http://127.0.0.1:8000) with the AL instance trained, so
+    POST /activelearning/{id}/infer_proba can serve batch inference.
   - MinIO reachable (MINIO_BASE_URL / USERNAME / PASSWORD in .env.al_api)
-    with the per-instance artifacts already uploaded by
-    POST /activelearning/new and POST /xai/{id}/requests.
-  - sentence_transformers_cache populated locally + offline flags set
-    (SENTENCE_TRANSFORMERS_LOCAL_ONLY=1, HF_HUB_OFFLINE=1,
-    TRANSFORMERS_OFFLINE=1) — no internet.
-  - cloudpickle, joblib, lime, pandas, numpy, aio_pika, scikit-learn,
-    sentence-transformers installed (al_api_venv).
+    for downloading the saved ticket (artifacts["ticket"]) and uploading
+    result.json. Per-instance model/encoder/vectorizer artifacts are NOT
+    loaded by this worker — inference is delegated to the API.
+  - lime, numpy, aio_pika, requests installed (al_api_venv).
 
 Consumes TASK_QUEUE, runs LIME, writes
 {MINIO_PREFIX}/xai_results/{al_instance_id}/{job_id}/result.json
@@ -32,12 +32,12 @@ import asyncio
 import json
 import os
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 import aio_pika
 import numpy as np
+import requests
 from aio_pika import Message
 from dotenv import load_dotenv
 from lime.lime_text import LimeTextExplainer
@@ -62,6 +62,8 @@ TASK_QUEUE = os.getenv("TASK_QUEUE", "xai_jobs").strip()
 RESULT_QUEUE = os.getenv("RESULT_QUEUE", "xai_results").strip()
 MESSAGE_VERSION = os.getenv("MESSAGE_VERSION", "0.1").strip()
 TOP_K = int(os.getenv("XAI_LIME_TOP_K", "1"))
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
+NUM_SAMPLES = int(os.getenv("XAI_LIME_NUM_SAMPLES", "250"))
 
 
 def _init_minio() -> MinioService:
@@ -69,14 +71,24 @@ def _init_minio() -> MinioService:
     return MinioService(client=client)
 
 
+def _infer_proba(al_instance_id: int, data_list: list[dict]) -> tuple[list, list[list[float]]]:
+    url = f"{API_BASE_URL}/activelearning/{al_instance_id}/infer_proba"
+    resp = requests.post(url, json=data_list, timeout=120)
+    resp.raise_for_status()
+    body = resp.json()
+    return body["classes"], body["probabilities"]
+
+
 def run_lime(payload: dict) -> list[dict]:
     """Execute real LIME on the ticket described in *payload*.
+
+    Inference is delegated to the backend ``POST /infer_proba`` endpoint,
+    so no model/encoder/vectorizer artifacts are loaded by this worker.
 
     Returns a **flat** list of per-class dicts (``{class, top_words, error}``)
     that the backend ``update_xai_job`` walker can parse.
     """
     al_instance_id: int = payload["al_instance_id"]
-    model_id: int = payload.get("model_id", 0)
     artifacts: dict = payload["artifacts"]
     job_id: str = payload["job_id"]
 
@@ -85,49 +97,48 @@ def run_lime(payload: dict) -> list[dict]:
 
     try:
         # --- Download the saved ticket ---
-        raw = _client.download_object(
-            "smart-finance-data", artifacts["ticket"]
-        )
+        raw = _client.download_object("smart-finance-data", artifacts["ticket"])
         ticket = Data.model_validate_json(raw.decode("utf-8"))
-
-        # --- Download model, encoders & vectorizer from the canonical locations ---
-        model = minio_svc.load_model(al_instance_id=al_instance_id, model_version=model_id)
-        le = minio_svc.load_label_encoder(al_instance_id=al_instance_id)
-        oh = minio_svc.load_one_hot_encoder(al_instance_id=al_instance_id)
-        vectorizer = minio_svc.load_ticket_vectorizer(al_instance_id=al_instance_id)
-        vectorizer.set_one_hot_encoder(oh)
-        vectorizer.set_base_ticket(ticket.model_dump())
 
         # --- Build the LIME input text ---
         text = (ticket.title_anon or "") + " " + (ticket.description_anon or "")
 
+        def _build_data(texts):
+            return [
+                {
+                    "title_anon": str(t),
+                    "description_anon": "",
+                    "service_name": ticket.service_name,
+                    "service_subcategory_name": ticket.service_subcategory_name,
+                }
+                for t in texts
+            ]
+
         # --- Determine top-k classes via baseline prediction ---
-        classes = le.classes_.tolist()
+        classes, probabilities = _infer_proba(al_instance_id, _build_data([text]))
+        base_proba = probabilities[0]
+
         valid_idx = [i for i, c in enumerate(classes) if c is not None]
         if not valid_idx:
-            err = f"No valid classes found in label encoder for instance {al_instance_id}"
+            err = f"No valid classes found for instance {al_instance_id}"
             print(f"[worker] {err}", flush=True)
             return [{"class": None, "top_words": [], "error": err}]
 
-        base_proba = model.predict_proba(
-            vectorizer.transform_with_base_ticket([text])
-        )[0]
         top_k = min(TOP_K, len(valid_idx))
         sorted_idx = np.argsort(base_proba)[::-1][:top_k]
 
         # --- LIME explainer ---
-        explainer = LimeTextExplainer(class_names=le.classes_)
+        explainer = LimeTextExplainer(class_names=classes)
 
         def _predict_proba(texts):
-            return model.predict_proba(
-                vectorizer.transform_with_base_ticket(texts)
-            )
+            _, probs = _infer_proba(al_instance_id, _build_data(texts))
+            return np.array(probs)
 
         explanation = explainer.explain_instance(
             text,
             _predict_proba,
             num_features=10,
-            num_samples=1000,
+            num_samples=NUM_SAMPLES,
             labels=tuple(sorted_idx),
         )
 
