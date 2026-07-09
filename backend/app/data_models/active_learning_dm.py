@@ -26,14 +26,19 @@ class LabelRequest(BaseModel):
 
 class LabelInfo(BaseModel):
     ticket_id: str
-    label: str
+    label: Optional[str] = None
     model_prediction: Optional[str] = None
     start_time: datetime
     end_time: datetime
     most_helpful_feature: Optional[MostHelpfulFeature] = None
+    is_tired: Optional[bool] = None
+    is_difficult: Optional[bool] = None
+    i_dont_know: Optional[bool] = None
 
     @validator("ticket_id", "label")
-    def _ensure_non_empty_string(cls, value: str) -> str:
+    def _ensure_non_empty_string(cls, value):
+        if value is None:
+            return value
         value = value.strip()
         if not value:
             raise ValueError("must be a non-empty string")
@@ -41,6 +46,11 @@ class LabelInfo(BaseModel):
 
     @root_validator(skip_on_failure=True)
     def _validate_time_order(cls, values):
+        i_dont_know = values.get("i_dont_know")
+        label = values.get("label")
+        if not i_dont_know and not (isinstance(label, str) and label.strip()):
+            raise ValueError("label is required unless i_dont_know is true")
+
         start_time = values.get("start_time")
         end_time = values.get("end_time")
 

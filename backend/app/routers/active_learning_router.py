@@ -71,8 +71,10 @@ def label_with_info(al_instance_id: int, label_info: list[LabelInfo] = Body(...)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    al_service.update_model(al_instance_id, user_id=current_user["user_id"])
-    al_service.calculate_metrics(al_instance_id, user_id=current_user["user_id"])
+    all_skipped = bool(coerced_items) and all(bool(item.i_dont_know) for item in coerced_items)
+    if not all_skipped:
+        al_service.update_model(al_instance_id, user_id=current_user["user_id"])
+        al_service.calculate_metrics(al_instance_id, user_id=current_user["user_id"])
     return result
 
 @router.get("/{al_instance_id}/info")

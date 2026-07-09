@@ -283,11 +283,13 @@ longer participates in ID generation.
 - `label_decisions` keeps decision metadata from `/activelearning/{al_instance_id}/label-with-info`, `/xai/{al_instance_id}/nearest_ticket`, and `/xai/jobs/{job_id}`.
 - Rows are merged by `(al_instance_id, ref)` so label information, nearest neighbors, and XAI results can arrive in separate calls.
 - `similar_tickets` and `xai_result` are stored as JSON payloads, while the human review fields stay as regular columns for querying.
+- Three labeler signals (`is_tired`, `is_difficult`, `i_dont_know`) are persisted as nullable BOOLEAN columns. The generated column `skipped_for_training` is derived from `(i_dont_know IS TRUE)`.
+- An in-memory set `ActiveLearningStorage.skipped_tickets[instance_id]` mirrors tickets with `i_dont_know=true` for fast exclusion in `get_next_instances` (via the `candidates=` parameter on skactiveml query strategies). Rebuilt on restart from `label_decisions.skipped_for_training = TRUE`.
 
 ### AL Events (Audit Trail)
 - `al_events` stores a chronological audit trail of every action in an AL instance.
 - Each event carries:
-  - `action` — the event type. Actual values used in code: `"confirm_label"`, `"override_label"`, `"request_prediction"`, `"predict"`, `"lime"`, `"similar_tickets"`, `"benchmark_export"`, `"create_al_instance"`, `"request_batch"`, `"select_batch"`, `"train"`, `"evaluate"`, `"model_checkpoint"`.
+  - `action` — the event type. Actual values used in code: `"confirm_label"`, `"override_label"`, `"request_prediction"`, `"predict"`, `"lime"`, `"similar_tickets"`, `"benchmark_export"`, `"create_al_instance"`, `"request_batch"`, `"select_batch"`, `"train"`, `"evaluate"`, `"model_checkpoint"`, `"i_dont_know"`.
   - `actor_type` — `"system"` (orchestrator) or `"ai"` (model/agent) or `"human"` (label).
   - `agent` — e.g. `"orchestrator"`, `"classifier_model"`, `"xai_lime"`, `"xai_nearest"`, `"human_reviewer"`.
   - `object_id` — the associated ticket reference (nullable). For per-ticket events, this is the ticket ref. For batch-level events (e.g. `request_prediction`), this is `null` and the refs are in `payload.ticket_ids`.

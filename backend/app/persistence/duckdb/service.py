@@ -429,6 +429,9 @@ class DuckDbPersistenceService:
         model_prediction: Optional[str] = None,
         latency_ms: Optional[int] = None,
         most_helpful_feature: Optional[str] = None,
+        is_tired: Optional[bool] = None,
+        is_difficult: Optional[bool] = None,
+        i_dont_know: Optional[bool] = None,
         xai_result: Optional[Any] = None,
         similar_tickets: Optional[Any] = None,
     ) -> None:
@@ -447,10 +450,13 @@ class DuckDbPersistenceService:
                     model_prediction,
                     latency_ms,
                     most_helpful_feature,
+                    is_tired,
+                    is_difficult,
+                    i_dont_know,
                     xai_result,
                     similar_tickets
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (al_instance_id, ref) DO UPDATE SET
                     user_id = COALESCE(EXCLUDED.user_id, label_decisions.user_id),
                     label = COALESCE(EXCLUDED.label, label_decisions.label),
@@ -458,6 +464,9 @@ class DuckDbPersistenceService:
                     model_prediction = COALESCE(EXCLUDED.model_prediction, label_decisions.model_prediction),
                     latency_ms = COALESCE(EXCLUDED.latency_ms, label_decisions.latency_ms),
                     most_helpful_feature = COALESCE(EXCLUDED.most_helpful_feature, label_decisions.most_helpful_feature),
+                    is_tired = COALESCE(EXCLUDED.is_tired, label_decisions.is_tired),
+                    is_difficult = COALESCE(EXCLUDED.is_difficult, label_decisions.is_difficult),
+                    i_dont_know = COALESCE(EXCLUDED.i_dont_know, label_decisions.i_dont_know),
                     xai_result = COALESCE(EXCLUDED.xai_result, label_decisions.xai_result),
                     similar_tickets = COALESCE(EXCLUDED.similar_tickets, label_decisions.similar_tickets)
                 """,
@@ -470,6 +479,9 @@ class DuckDbPersistenceService:
                     model_prediction,
                     latency_ms,
                     most_helpful_feature,
+                    is_tired,
+                    is_difficult,
+                    i_dont_know,
                     json.dumps(xai_result, default=_json_default) if xai_result is not None else None,
                     json.dumps(similar_tickets, default=_json_default) if similar_tickets is not None else None,
                 ],
@@ -481,7 +493,8 @@ class DuckDbPersistenceService:
             row = conn.execute(
                 """
                 SELECT al_instance_id, ref, user_id, label, labeled_at, model_prediction,
-                       latency_ms, most_helpful_feature, xai_result, similar_tickets
+                       latency_ms, most_helpful_feature, is_tired, is_difficult, i_dont_know,
+                       skipped_for_training, xai_result, similar_tickets
                 FROM label_decisions
                 WHERE al_instance_id = ? AND ref = ?
                 """,
@@ -500,8 +513,12 @@ class DuckDbPersistenceService:
             "model_prediction": row[5],
             "latency_ms": row[6],
             "most_helpful_feature": row[7],
-            "xai_result": _deserialize_json(row[8]),
-            "similar_tickets": _deserialize_json(row[9]),
+            "is_tired": row[8],
+            "is_difficult": row[9],
+            "i_dont_know": row[10],
+            "skipped_for_training": row[11],
+            "xai_result": _deserialize_json(row[12]),
+            "similar_tickets": _deserialize_json(row[13]),
         }
 
     def load_label_decisions_with_xai(self, *, al_instance_id: int) -> list[Dict[str, Any]]:
@@ -546,6 +563,15 @@ class DuckDbPersistenceService:
             )
 
         return results
+
+    def load_skipped_refs(self, *, al_instance_id: int) -> list[str]:
+        """Return refs of label_decisions flagged skipped_for_training for an instance."""
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT ref FROM label_decisions WHERE al_instance_id = ? AND skipped_for_training = TRUE",
+                [al_instance_id],
+            ).fetchall()
+        return [str(r[0]) for r in rows]
 
     def load_labels(self, al_instance_id: int, user_id: Optional[str | uuid.UUID] = None, split: Optional[str] = None) -> pd.Series:
         """Load labels for an instance, optionally filtered by user and/or split."""
@@ -1293,7 +1319,8 @@ class DuckDbPersistenceService:
             rows = conn.execute(
                 """
                 SELECT al_instance_id, ref, user_id, label, labeled_at, model_prediction,
-                       latency_ms, most_helpful_feature, xai_result, similar_tickets
+                       latency_ms, most_helpful_feature, is_tired, is_difficult, i_dont_know,
+                       skipped_for_training, xai_result, similar_tickets
                 FROM label_decisions WHERE al_instance_id = ? ORDER BY ref
                 """,
                 [al_instance_id],
@@ -1308,8 +1335,12 @@ class DuckDbPersistenceService:
                     "model_prediction": r[5],
                     "latency_ms": r[6],
                     "most_helpful_feature": r[7],
-                    "xai_result": _deserialize_json(r[8]),
-                    "similar_tickets": _deserialize_json(r[9]),
+                    "is_tired": r[8],
+                    "is_difficult": r[9],
+                    "i_dont_know": r[10],
+                    "skipped_for_training": r[11],
+                    "xai_result": _deserialize_json(r[12]),
+                    "similar_tickets": _deserialize_json(r[13]),
                 }
                 for r in rows
             ]

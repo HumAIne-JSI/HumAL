@@ -1,5 +1,18 @@
 # HumAL API Endpoint Changelog
 
+**Date:** July 9, 2026
+
+### ✅ NEW LABELER SIGNALS: `is_tired`, `is_difficult`, `i_dont_know`
+
+Three optional boolean fields added to `POST /activelearning/{id}/label-with-info`:
+
+- **`is_tired`** / **`is_difficult`** — analysis-only; persisted to `label_decisions` with no effect on the unlabeled pool or retraining.
+- **`i_dont_know`** — when `true`, the ticket is retired from the unlabeled pool (never re-surfaced via `GET /next`) and excluded from retraining. The `label` field becomes optional for these items.
+- **`skipped_for_training`** — DuckDB generated column on `label_decisions` derived from `(i_dont_know IS TRUE)`. Not included in INSERT/UPDATE.
+- **Backend behavior:** `label_with_info` partitions the batch into real labels and idk items; idk items skip `save_labels` and `apply_labels`, log an `action="i_dont_know"` event, and get added to an in-memory skip set (`storage.skipped_tickets`). `get_next_instances` filters skipped refs via `candidates=`. An all-idk batch skips `update_model` and `calculate_metrics`.
+- **Restart survival:** `_load_from_persistence` rebuilds `skipped_tickets` by querying `label_decisions.skipped_for_training = TRUE` via `DuckDbPersistenceService.load_skipped_refs()`.
+- **`num_labeled` metric** is unaffected (idk stays `MISSING_LABEL` in `y_train`).
+
 **Date:** July 8, 2026
 
 ### ✅ NEW MANUAL TEST: Live E2E + Real LIME RabbitMQ Worker

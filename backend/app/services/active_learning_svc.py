@@ -1,5 +1,5 @@
 from skactiveml.classifier import SklearnClassifier
-from skactiveml.utils import MISSING_LABEL
+from skactiveml.utils import MISSING_LABEL, is_unlabeled
 import numpy as np
 import joblib
 import json
@@ -290,6 +290,9 @@ class ActiveLearningService:
             model_paths = self.duckdb_service.load_model_paths(instance_id)
             self.storage.model_paths_dict[instance_id] = model_paths
 
+            skipped_refs = self.duckdb_service.load_skipped_refs(al_instance_id=instance_id)
+            self.storage.skipped_tickets[instance_id] = set(skipped_refs)
+
     def _align_labels(
         self,
         labels: pd.Series,
@@ -379,12 +382,12 @@ class ActiveLearningService:
             )
 
     # Logic for getting the next instances
-    def get_next_instances(self, al_instance_id: int, batch_size: int = 1, user_id: str = SYSTEM_USER_ID):        
+    def get_next_instances(self, al_instance_id: int, batch_size: int = 1, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
         # Get the data
         X = self.storage.dataset_dict[al_instance_id]['X_train']
         y = self.storage.dataset_dict[al_instance_id]['y_train']
-        
+
         # Get the query strategy, model and classes
         instance = self.storage.al_instances_dict[al_instance_id]
         qs_name = instance['qs']
@@ -406,20 +409,44 @@ class ActiveLearningService:
             },
             user_id=user_id,
         )
-        
+
+        # Build the candidate set: unlabeled tickets that are not retired via i_dont_know.
+        skip_refs = self.storage.skipped_tickets.get(al_instance_id, set())
+        unlabeled_mask = np.asarray(is_unlabeled(y, missing_label=MISSING_LABEL))
+        not_skipped = ~np.asarray(y.index.isin(list(skip_refs)))
+        candidates_idx = np.where(unlabeled_mask & not_skipped)[0]
+
+        if len(candidates_idx) == 0:
+            batch_id = int(time.time() * 1000)
+            self._log_event(
+                al_instance_id=al_instance_id,
+                action="select_batch",
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
+                actor_type="ai",
+                agent="al_model",
+                object_id=f"BATCH_{batch_id}",
+                payload={
+                    "batch_id": batch_id,
+                    "ids": [],
+                    "uncertainties": None,
+                },
+                user_id=user_id,
+            )
+            return []
+
         # Initialize classifier
         clf = SklearnClassifier(model, classes=classes)
-        
+
         # Get the query indices
         if qs_name == 'random sampling':
-            query_idx = qs.query(X=X, y=y, batch_size=batch_size)
+            query_idx = qs.query(X=X, y=y, candidates=candidates_idx, batch_size=batch_size)
         #elif qs_name == 'query by committee':
-        #    query_idx = qs.query(X=X, y=y, batch_size=batch_size, ensemble=qb_c)
+        #    query_idx = qs.query(X=X, y=y, candidates=candidates_idx, batch_size=batch_size, ensemble=qb_c)
         elif qs_name == 'value of information':
-            query_idx = qs.query(X=X, y=y, clf=clf, ignore_partial_fit=True, batch_size=batch_size)
+            query_idx = qs.query(X=X, y=y, clf=clf, ignore_partial_fit=True, candidates=candidates_idx, batch_size=batch_size)
         else:
-            query_idx = qs.query(X=X, y=y, batch_size=batch_size, clf=clf)
-        
+            query_idx = qs.query(X=X, y=y, candidates=candidates_idx, batch_size=batch_size, clf=clf)
+
         # convert the query_idx to the original Ref values using positional lookup
         query_idx = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[query_idx])
 
@@ -438,7 +465,7 @@ class ActiveLearningService:
             },
             user_id=user_id,
         )
-        
+
         # Return the query indices
         return query_idx
 
@@ -465,26 +492,40 @@ class ActiveLearningService:
             ValueError: If the provided labels are invalid for the fitted encoder.
         """
         request_start = time.perf_counter()
-        query_idx = [item.ticket_id for item in label_info]
-        labels = [item.label for item in label_info]
 
-        self._apply_label_request(al_instance_id, query_idx, labels, user_id=user_id)
+        real_items = [item for item in label_info if not item.i_dont_know]
+        idk_items = [item for item in label_info if item.i_dont_know]
+
+        if real_items:
+            query_idx = [item.ticket_id for item in real_items]
+            labels = [item.label for item in real_items]
+            self._apply_label_request(al_instance_id, query_idx, labels, user_id=user_id)
+
+        skip_set = self.storage.skipped_tickets.setdefault(al_instance_id, set())
+        for item in idk_items:
+            skip_set.add(str(item.ticket_id))
 
         if self.duckdb_service is not None:
             for item in label_info:
-                action = "confirm_label"
-                if item.model_prediction is not None and item.label != item.model_prediction:
+                is_idk = bool(item.i_dont_know)
+                if is_idk:
+                    action = "i_dont_know"
+                elif item.model_prediction is not None and item.label != item.model_prediction:
                     action = "override_label"
+                else:
+                    action = "confirm_label"
 
                 duration_s = (item.end_time - item.start_time).total_seconds()
                 payload = {
                     "ticket_id": item.ticket_id,
-                    "new_label": item.label,
+                    "new_label": None if is_idk else item.label,
                 }
                 if item.model_prediction is not None:
                     payload["model_prediction"] = item.model_prediction
                 if item.most_helpful_feature is not None:
                     payload["most_helpful_feature"] = item.most_helpful_feature
+                if is_idk:
+                    payload["i_dont_know"] = True
 
                 self._log_event(
                     al_instance_id=al_instance_id,
@@ -494,7 +535,7 @@ class ActiveLearningService:
                     agent=username,
                     object_id=item.ticket_id,
                     duration_s=duration_s,
-                    correct=(item.label == item.model_prediction) if item.model_prediction is not None else None,
+                    correct=None if is_idk else ((item.label == item.model_prediction) if item.model_prediction is not None else None),
                     ai_suggested=item.model_prediction,
                     payload=payload,
                     user_id=user_id,
@@ -504,11 +545,14 @@ class ActiveLearningService:
                     al_instance_id=al_instance_id,
                     ref=str(item.ticket_id),
                     user_id=user_id,
-                    label=item.label,
+                    label=None if is_idk else item.label,
                     labeled_at=item.end_time,
                     model_prediction=item.model_prediction,
                     latency_ms=int(duration_s * 1000),
                     most_helpful_feature=item.most_helpful_feature,
+                    is_tired=item.is_tired,
+                    is_difficult=item.is_difficult,
+                    i_dont_know=item.i_dont_know,
                 )
 
         if self.duckdb_service is not None and self.benchmarking_service is not None:

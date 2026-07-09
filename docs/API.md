@@ -437,7 +437,9 @@ curl -X PUT "http://localhost:8000/activelearning/1/label" \
 
 ### POST /activelearning/{al_instance_id}/label-with-info
 
-**Description:** Submits human-assigned labels together with metadata such as review duration and model prediction. The API logs one event per labeled ticket (with a generated `meta_block` and `ticket_ref`), persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed. The reviewer's `username` is automatically captured from the JWT token.
+**Description:** Submits human-assigned labels together with metadata such as review duration, model prediction, and labeler signals. The API logs one event per labeled ticket (with a generated `meta_block` and `ticket_ref`), persists the decision metadata into `label_decisions`, and triggers benchmark exports when needed. The reviewer's `username` is automatically captured from the JWT token.
+
+When `i_dont_know` is `true` for an item, the `label` field may be omitted (`null`); the ticket is retired from the unlabeled pool (never re-surfaced via `GET /next`) and excluded from retraining. The other signals (`is_tired`, `is_difficult`) are analysis-only with no effect on the pool or training.
 
 **Parameters:**
 | Name | In | Type | Required | Description |
@@ -449,13 +451,16 @@ Array of `label_info` objects.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `ticket_id` | string | **Yes** | Ticket reference being labeled |
-| `label` | string | **Yes** | Human-assigned label |
+| `label` | string or null | No | Human-assigned label (required unless `i_dont_know=true`) |
 | `model_prediction` | string or null | No | Model prediction shown to the reviewer |
 | `start_time` | string (date-time) | **Yes** | RFC3339 timestamp when review started |
 | `end_time` | string (date-time) | **Yes** | RFC3339 timestamp when review ended |
 | `most_helpful_feature` | string or null | No | One of: `"lime"`, `"predicted_class_neighbors"`, `"historical_neighbors"`, `"model_prediction"` |
+| `is_tired` | boolean or null | No | Labeler felt tired during this review (analysis-only) |
+| `is_difficult` | boolean or null | No | Labeler found this ticket difficult (analysis-only) |
+| `i_dont_know` | boolean or null | No | Labeler was uncertain; ticket is retired from pool and excluded from retraining |
 
-The stored `label_decisions` row is updated in stages and keeps the latest non-null values for `label`, `labeled_at`, `model_prediction`, `latency_ms`, and `most_helpful_feature`.
+The stored `label_decisions` row is updated in stages and keeps the latest non-null values for `label`, `labeled_at`, `model_prediction`, `latency_ms`, `most_helpful_feature`, `is_tired`, `is_difficult`, and `i_dont_know`. The generated column `skipped_for_training` is derived from `(i_dont_know IS TRUE)`.
 
 **Swagger-style UI Example:**
 *Request Payload*
@@ -467,14 +472,24 @@ The stored `label_decisions` row is updated in stages and keeps the latest non-n
     "model_prediction": "team_a",
     "start_time": "2026-05-20T10:00:00Z",
     "end_time": "2026-05-20T10:00:03Z",
-    "most_helpful_feature": "lime"
+    "most_helpful_feature": "lime",
+    "is_tired": false,
+    "is_difficult": true,
+    "i_dont_know": false
   },
   {
     "ticket_id": "R-544315",
     "label": "team_b",
     "model_prediction": "team_a",
     "start_time": "2026-05-20T10:01:00Z",
-    "end_time": "2026-05-20T10:01:04Z"
+    "end_time": "2026-05-20T10:01:04Z",
+    "is_difficult": true
+  },
+  {
+    "ticket_id": "R-544316",
+    "i_dont_know": true,
+    "start_time": "2026-05-20T10:02:00Z",
+    "end_time": "2026-05-20T10:02:02Z"
   }
 ]
 ```
@@ -489,7 +504,7 @@ The stored `label_decisions` row is updated in stages and keeps the latest non-n
 ```bash
 curl -X POST "http://localhost:8000/activelearning/1/label-with-info" \
 	-H "Content-Type: application/json" \
-	-d "[{\"ticket_id\":\"R-544314\",\"label\":\"team_a\",\"model_prediction\":\"team_a\",\"start_time\":\"2026-05-20T10:00:00Z\",\"end_time\":\"2026-05-20T10:00:03Z\"}]"
+	-d "[{\"ticket_id\":\"R-544314\",\"label\":\"team_a\",\"model_prediction\":\"team_a\",\"start_time\":\"2026-05-20T10:00:00Z\",\"end_time\":\"2026-05-20T10:00:03Z\",\"is_tired\":false,\"is_difficult\":true,\"i_dont_know\":false}]"
 ```
 ### GET /activelearning/{al_instance_id}/info
 

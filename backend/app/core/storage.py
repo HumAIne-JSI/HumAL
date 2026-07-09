@@ -11,4 +11,5 @@ class ActiveLearningStorage:
         self.model_paths_dict = {}
         self.results_dict = {}
         self.dataset_dict = {}
+        self.skipped_tickets: dict[int, set[str]] = {}
     

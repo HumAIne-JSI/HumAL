@@ -467,6 +467,273 @@ class TestLabelInstanceLogging:
         assert duckdb_service.save_labels.call_args.kwargs["user_id"] == custom_user_id
 
 
+class TestLabelWithInfoSkipSignals:
+    """Tests for label_with_info with i_dont_know, is_tired, is_difficult signals."""
+
+    def test_label_with_info_i_dont_know_skips_apply_and_adds_to_skip_set(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        benchmarking_service = MagicMock()
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        label_encoder = LabelEncoder().fit(["Hardware", "Network"])
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan], index=["T001"]),
+            "le": label_encoder,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+            benchmarking_service=benchmarking_service,
+        )
+
+        response = service.label_with_info(
+            1,
+            [
+                LabelInfo(
+                    ticket_id="T001",
+                    label=None,
+                    i_dont_know=True,
+                    start_time=pd.Timestamp("2026-05-20T10:00:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:00:02"),
+                ),
+            ],
+        )
+
+        assert response == {"message": "Labels updated"}
+        assert "T001" in storage.skipped_tickets.get(1, set())
+        assert pd.isna(storage.dataset_dict[1]["y_train"].loc["T001"])
+        duckdb_service.save_labels.assert_not_called()
+        minio_service.save_labels.assert_not_called()
+
+        assert duckdb_service.log_event.call_count == 1
+        log_kw = duckdb_service.log_event.call_args_list[0].kwargs
+        assert log_kw["action"] == "i_dont_know"
+        assert log_kw["correct"] is None
+
+        assert duckdb_service.upsert_label_decision.call_count == 1
+        ups_kw = duckdb_service.upsert_label_decision.call_args_list[0].kwargs
+        assert ups_kw["ref"] == "T001"
+        assert ups_kw["label"] is None
+        assert ups_kw["i_dont_know"] is True
+        assert ups_kw["is_tired"] is None
+        assert ups_kw["is_difficult"] is None
+
+    def test_label_with_info_mixed_batch_applies_real_and_skips_idk(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        benchmarking_service = MagicMock()
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        label_encoder = LabelEncoder().fit(["Hardware", "Network"])
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan, np.nan], index=["T001", "T002"]),
+            "le": label_encoder,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+            benchmarking_service=benchmarking_service,
+        )
+
+        response = service.label_with_info(
+            1,
+            [
+                LabelInfo(
+                    ticket_id="T001",
+                    label="Network",
+                    start_time=pd.Timestamp("2026-05-20T10:00:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:00:02"),
+                ),
+                LabelInfo(
+                    ticket_id="T002",
+                    label=None,
+                    i_dont_know=True,
+                    start_time=pd.Timestamp("2026-05-20T10:01:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:01:03"),
+                ),
+            ],
+        )
+
+        assert response == {"message": "Labels updated"}
+        assert "T002" in storage.skipped_tickets.get(1, set())
+        assert "T001" not in storage.skipped_tickets.get(1, set())
+        assert not pd.isna(storage.dataset_dict[1]["y_train"].loc["T001"])
+        assert pd.isna(storage.dataset_dict[1]["y_train"].loc["T002"])
+
+        duckdb_service.save_labels.assert_called_once()
+        assert duckdb_service.save_labels.call_args.kwargs["labels_dict"] == {"T001": "Network"}
+
+        assert duckdb_service.log_event.call_count == 2
+        log1 = duckdb_service.log_event.call_args_list[0].kwargs
+        assert log1["action"] == "confirm_label"
+        log2 = duckdb_service.log_event.call_args_list[1].kwargs
+        assert log2["action"] == "i_dont_know"
+
+        assert duckdb_service.upsert_label_decision.call_count == 2
+        ups1 = duckdb_service.upsert_label_decision.call_args_list[0].kwargs
+        assert ups1["ref"] == "T001"
+        assert ups1["label"] == "Network"
+        assert ups1["i_dont_know"] is None
+        ups2 = duckdb_service.upsert_label_decision.call_args_list[1].kwargs
+        assert ups2["ref"] == "T002"
+        assert ups2["label"] is None
+        assert ups2["i_dont_know"] is True
+
+    def test_label_with_info_persists_is_tired_is_difficult_without_skip_effect(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+        minio_service = MagicMock()
+        benchmarking_service = MagicMock()
+
+        storage.al_instances_dict[1] = {
+            "model_name": "svm",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+        label_encoder = LabelEncoder().fit(["Hardware", "Network"])
+        storage.dataset_dict[1] = {
+            "y_train": pd.Series([np.nan], index=["T001"]),
+            "le": label_encoder,
+            "oh": MagicMock(),
+            "X_train": pd.DataFrame(),
+            "X_test": pd.DataFrame(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+            minio_service=minio_service,
+            benchmarking_service=benchmarking_service,
+        )
+
+        response = service.label_with_info(
+            1,
+            [
+                LabelInfo(
+                    ticket_id="T001",
+                    label="Network",
+                    model_prediction="Network",
+                    start_time=pd.Timestamp("2026-05-20T10:00:00"),
+                    end_time=pd.Timestamp("2026-05-20T10:00:02"),
+                    is_tired=True,
+                    is_difficult=True,
+                ),
+            ],
+        )
+
+        assert response == {"message": "Labels updated"}
+        assert 1 not in storage.skipped_tickets or len(storage.skipped_tickets[1]) == 0
+        assert not pd.isna(storage.dataset_dict[1]["y_train"].loc["T001"])
+
+        ups_kw = duckdb_service.upsert_label_decision.call_args_list[0].kwargs
+        assert ups_kw["is_tired"] is True
+        assert ups_kw["is_difficult"] is True
+        assert ups_kw["i_dont_know"] is None
+
+        log_kw = duckdb_service.log_event.call_args_list[0].kwargs
+        assert log_kw["action"] == "confirm_label"
+        assert log_kw["action"] != "i_dont_know"
+
+    def test_get_next_instances_excludes_skipped_refs(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+
+        storage.al_instances_dict[1] = {
+            "model": _DummyClassifier(),
+            "model_name": "random forest",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+
+        refs = ["U1", "U2", "U3", "U4", "U5", "U6"]
+        storage.dataset_dict[1] = {
+            "X_train": pd.DataFrame(
+                [[float(i)] * 4 for i in range(6)],
+                index=refs,
+                columns=["a", "b", "c", "d"],
+            ),
+            "y_train": pd.Series([MISSING_LABEL] * 6, index=refs),
+            "le": MagicMock(),
+            "oh": MagicMock(),
+            "X_test": pd.DataFrame(),
+            "y_test": pd.Series(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+        )
+
+        storage.skipped_tickets[1] = {"U3", "U5"}
+        collected = set()
+        for _ in range(10):
+            result = service.get_next_instances(1, batch_size=1)
+            if result:
+                collected.update(result)
+
+        assert collected.isdisjoint({"U3", "U5"}), "skipped refs should never be returned"
+
+    def test_get_next_instances_returns_empty_when_all_unlabeled_skipped(self, storage):
+        duckdb_service = MagicMock(spec=DuckDbPersistenceService)
+        local_artifacts = MagicMock(spec=LocalArtifactsStore)
+
+        storage.al_instances_dict[1] = {
+            "model": _DummyClassifier(),
+            "model_name": "random forest",
+            "qs": "random sampling",
+            "classes": [0, 1],
+        }
+
+        refs = ["U1", "U2"]
+        storage.dataset_dict[1] = {
+            "X_train": pd.DataFrame(
+                [[float(i)] * 4 for i in range(2)],
+                index=refs,
+                columns=["a", "b", "c", "d"],
+            ),
+            "y_train": pd.Series([MISSING_LABEL] * 2, index=refs),
+            "le": MagicMock(),
+            "oh": MagicMock(),
+            "X_test": pd.DataFrame(),
+            "y_test": pd.Series(),
+        }
+
+        service = ActiveLearningService(
+            storage,
+            duckdb_service=duckdb_service,
+            local_artifacts_store=local_artifacts,
+        )
+
+        storage.skipped_tickets[1] = {"U1", "U2"}
+        result = service.get_next_instances(1, batch_size=1)
+        assert result == []
+
+
 class TestCalculateMetrics:
     """Tests for ActiveLearningService.calculate_metrics (single inference pass + expanded metrics)."""
 

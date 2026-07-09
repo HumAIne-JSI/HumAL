@@ -105,6 +105,7 @@ def client(monkeypatch, tmp_path):
         dependencies.storage.dataset_dict,
         dependencies.storage.model_paths_dict,
         dependencies.storage.results_dict,
+        dependencies.storage.skipped_tickets,
     ):
         d.clear()
 
@@ -253,3 +254,85 @@ def test_e2e_offline_active_learning_loop(client):
 
     # 10th-label benchmarking export fired exactly once.
     assert len(duckdb.get_al_events(instance_id, actions=["benchmark_export"])) == 1
+
+
+def test_e2e_all_idk_batch_skips_retrain_and_retires_ticket(client):
+    """Submit an i_dont_know batch and verify no retrain, no re-surface, survive restart rebuild."""
+    duckdb = dependencies.duckdb_persistence_service
+    headers = _auth(client)
+
+    # --- Create an AL instance ---
+    new_resp = client.post(
+        "/activelearning/new",
+        json={"model_name": "random forest", "qs_strategy": "random sampling", "class_list": CLASSES},
+        headers=headers,
+    )
+    assert new_resp.status_code == 200, new_resp.text
+    instance_id = new_resp.json()["instance_id"]
+
+    # --- Baseline metrics ---
+    metrics_before = len(duckdb.load_all_metrics(instance_id))
+    assert metrics_before >= 1
+
+    # --- Get a ref from 'next' ---
+    nxt = client.get(
+        f"/activelearning/{instance_id}/next", params={"batch_size": 1}, headers=headers,
+    )
+    assert nxt.status_code == 200, nxt.text
+    qidx = nxt.json()["query_idx"]
+    assert isinstance(qidx, list) and len(qidx) == 1
+    ref = qidx[0]
+
+    # --- Submit an all-idk batch (no label) ---
+    start = datetime(2026, 6, 1, 0, 0, 0)
+    end = start + timedelta(seconds=5)
+    lbl = client.post(
+        f"/activelearning/{instance_id}/label-with-info",
+        json=[{
+            "ticket_id": ref,
+            "i_dont_know": True,
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
+        }],
+        headers=headers,
+    )
+    assert lbl.status_code == 200, lbl.text
+    assert lbl.json() == {"message": "Labels updated"}
+
+    # --- No retrain → no new metrics row ---
+    metrics_after = len(duckdb.load_all_metrics(instance_id))
+    assert metrics_after == metrics_before, f"metrics grew from {metrics_before} to {metrics_after}"
+
+    # --- label_decisions row persisted correctly ---
+    ld = duckdb.get_label_decision(al_instance_id=instance_id, ref=ref)
+    assert ld is not None
+    assert ld["i_dont_know"] is True
+    assert ld["skipped_for_training"] is True
+    assert ld["label"] is None
+
+    # --- Ticket is retired: 'next' never returns it ---
+    seen = set()
+    for _ in range(5):
+        nxt2 = client.get(
+            f"/activelearning/{instance_id}/next", params={"batch_size": 1}, headers=headers,
+        )
+        assert nxt2.status_code == 200, nxt2.text
+        ret = nxt2.json()["query_idx"]
+        if ret:
+            seen.update(ret)
+    assert ref not in seen, f"retired ref {ref} re-surfaced in next"
+
+    # --- Restart simulation: rebuild skip set from persistence ---
+    dependencies.al_service._load_from_persistence()
+    assert ref in dependencies.storage.skipped_tickets.get(instance_id, set()), \
+        f"skipped_tickets should contain {ref} after reload"
+
+    # --- Still no re-surface after simulated restart ---
+    for _ in range(3):
+        nxt3 = client.get(
+            f"/activelearning/{instance_id}/next", params={"batch_size": 1}, headers=headers,
+        )
+        assert nxt3.status_code == 200, nxt3.text
+        ret = nxt3.json()["query_idx"]
+        if ref in ret:
+            pytest.fail(f"ref {ref} re-surfaced after restart rebuild")
