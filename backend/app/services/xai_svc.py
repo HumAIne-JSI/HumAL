@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
-from app.data_models.active_learning_dm import Data
+from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMessage
 from sentence_transformers import SentenceTransformer
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 from typing import Optional, Dict, Any
@@ -877,8 +877,12 @@ class XaiService:
 
 
         job_id = uuid.uuid4()
-        
-        # Payload for DuckDB (follows schema column names)
+
+        # Raw test-split dataset object names in MinIO (a list); reused for both
+        # the DuckDB array column and the single-path RabbitMQ artifact below.
+        raw_tickets_names = self.minio_service.return_data_names(config.TEST_SPLIT)
+
+        # Payload for DuckDB (follows schema column names; raw_tickets stays a list)
         xai_job_duckdb_args = {
             "al_instance_id": al_instance_id,
             "job_id": job_id,
@@ -888,24 +892,26 @@ class XaiService:
             "request_model_location": config.model_location(al_instance_id, model_id),
             "request_preprocessor_location": vectorizer_path,
             "request_one_hot_encoder_location": config.encoder_location(al_instance_id, "one_hot"),
-            "request_raw_tickets_locations": self.minio_service.return_data_names(config.TEST_SPLIT),
+            "request_raw_tickets_locations": raw_tickets_names,
         }
 
-        # Format the payload for RabbitMQ (artifacts nesting; job_id to string; friendly names)
-        xai_job_payload = {
-            "version": os.getenv("MESSAGE_VERSION", "0.1"),
-            "job_id": str(job_id),
-            "al_instance_id": al_instance_id,
-            "model_id": model_id,
-            "ticket_sha": ticket_storage_info["ticket_sha"],
-            "artifacts": {
-                "ticket": ticket_storage_info["object"],
-                "model": config.model_location(al_instance_id, model_id),
-                "preprocessor": vectorizer_path,
-                "one_hot_encoder": config.encoder_location(al_instance_id, "one_hot"),
-                "raw_tickets": self.minio_service.return_data_names(config.TEST_SPLIT),
-            }
-        }
+        # RabbitMQ payload built via the XaiRequestMessage contract:
+        # version is a JSON number (float); raw_tickets is a single path (the
+        # first available test-split dataset object), not a list.
+        xai_job_payload = XaiRequestMessage(
+            version=float(os.getenv("MESSAGE_VERSION", "0.3")),
+            job_id=str(job_id),
+            al_instance_id=al_instance_id,
+            model_id=model_id,
+            ticket_sha=ticket_storage_info["ticket_sha"],
+            artifacts=XaiArtifacts(
+                ticket=ticket_storage_info["object"],
+                model=config.model_location(al_instance_id, model_id),
+                preprocessor=vectorizer_path,
+                one_hot_encoder=config.encoder_location(al_instance_id, "one_hot"),
+                raw_tickets=raw_tickets_names[0] if raw_tickets_names else None,
+            ),
+        ).model_dump()
 
         # Publish the message to RabbitMQ for asynchronous processing
         if self.rabbitmq_client is not None and os.getenv("USE_RABBITMQ", "0") == "1":

@@ -1,5 +1,17 @@
 # HumAL API Endpoint Changelog
 
+**Date:** July 10, 2026
+
+### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/requests` — task-queue message schema v0.3
+
+The message published to `TASK_QUEUE` now follows schema version **0.3**:
+
+- **`version`** is now a JSON **number** (`float`), default `0.3` (was a string from `MESSAGE_VERSION`, default `"0.1"`). `MESSAGE_VERSION` must now be float-parseable.
+- **`artifacts.raw_tickets`** is now a **single string** — the first available test-split dataset object from MinIO — instead of a `list[str]` of all dataset objects.
+- The message is now built through the `XaiRequestMessage` / `XaiArtifacts` Pydantic models (`app/data_models/active_learning_dm.py`) to enforce the contract.
+- **DuckDB unchanged:** the `xai_jobs.request_raw_tickets_locations` column remains a `VARCHAR[]` array storing the full list of dataset object names.
+- Downstream impact: none — the XAI worker does not consume `raw_tickets` or `version` (inference is delegated to the API).
+
 **Date:** July 9, 2026
 
 ### ✅ NEW LABELER SIGNALS: `is_tired`, `is_difficult`, `i_dont_know`

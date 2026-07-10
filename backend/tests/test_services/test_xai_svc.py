@@ -387,6 +387,92 @@ def test_create_xai_request(xai_service, test_data):
     xai_service.rabbitmq_client.publish.assert_called_once()
 
 
+def test_create_xai_request_message_matches_contract(xai_service, test_data, monkeypatch):
+    monkeypatch.setenv("USE_RABBITMQ", "1")
+    monkeypatch.setenv("TASK_QUEUE", "test_queue")
+    monkeypatch.delenv("MESSAGE_VERSION", raising=False)
+
+    xai_service.minio_service.save_ticket_for_xai.return_value = {
+        "ticket_sha": "testsha123", "object": "ticket/testsha123.json"}
+    xai_service.ticket_vectorizer_service.create_vectorizer.return_value = MagicMock()
+    xai_service.ticket_vectorizer_service.save_vectorizer.return_value = {"object": "vectorizer/path"}
+    xai_service.minio_service.return_data_names.return_value = ["datasets/test/foo.xlsx"]
+
+    asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))
+
+    msg = xai_service.rabbitmq_client.publish.call_args.kwargs["message"]
+    assert set(msg.keys()) == {"version", "job_id", "al_instance_id", "model_id", "ticket_sha", "artifacts"}
+    assert msg["version"] == 0.3 and isinstance(msg["version"], float)
+    assert msg["al_instance_id"] == 1 and msg["model_id"] == 0
+    assert msg["ticket_sha"] == "testsha123" and isinstance(msg["job_id"], str)
+    arts = msg["artifacts"]
+    assert set(arts.keys()) == {"ticket", "model", "preprocessor", "one_hot_encoder", "raw_tickets"}
+    assert arts["ticket"] == "ticket/testsha123.json"
+    assert arts["preprocessor"] == "vectorizer/path"
+    assert isinstance(arts["raw_tickets"], str) and arts["raw_tickets"] == "datasets/test/foo.xlsx"
+
+
+def test_create_xai_request_raw_tickets_first_element_duckdb_keeps_list(xai_service, test_data, monkeypatch):
+    monkeypatch.setenv("USE_RABBITMQ", "1")
+    monkeypatch.setenv("TASK_QUEUE", "test_queue")
+    xai_service.minio_service.save_ticket_for_xai.return_value = {"ticket_sha": "sha", "object": "t.json"}
+    xai_service.ticket_vectorizer_service.create_vectorizer.return_value = MagicMock()
+    xai_service.ticket_vectorizer_service.save_vectorizer.return_value = {"object": "v"}
+    xai_service.minio_service.return_data_names.return_value = ["first.xlsx", "second.xlsx"]
+
+    asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))
+
+    msg = xai_service.rabbitmq_client.publish.call_args.kwargs["message"]
+    assert msg["artifacts"]["raw_tickets"] == "first.xlsx"
+    assert not isinstance(msg["artifacts"]["raw_tickets"], list)
+    assert xai_service.duckdb_service.create_xai_job.call_args.kwargs["request_raw_tickets_locations"] == ["first.xlsx", "second.xlsx"]
+
+
+def test_create_xai_request_raw_tickets_empty_list_yields_none(xai_service, test_data, monkeypatch):
+    monkeypatch.setenv("USE_RABBITMQ", "1")
+    monkeypatch.setenv("TASK_QUEUE", "test_queue")
+    xai_service.minio_service.save_ticket_for_xai.return_value = {"ticket_sha": "sha", "object": "t.json"}
+    xai_service.ticket_vectorizer_service.create_vectorizer.return_value = MagicMock()
+    xai_service.ticket_vectorizer_service.save_vectorizer.return_value = {"object": "v"}
+    xai_service.minio_service.return_data_names.return_value = []
+
+    asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))  # must not raise
+
+    msg = xai_service.rabbitmq_client.publish.call_args.kwargs["message"]
+    assert msg["artifacts"]["raw_tickets"] is None
+    assert xai_service.duckdb_service.create_xai_job.call_args.kwargs["request_raw_tickets_locations"] == []
+
+
+def test_create_xai_request_version_env_override(xai_service, test_data, monkeypatch):
+    monkeypatch.setenv("USE_RABBITMQ", "1")
+    monkeypatch.setenv("TASK_QUEUE", "test_queue")
+    monkeypatch.setenv("MESSAGE_VERSION", "0.5")
+    xai_service.minio_service.save_ticket_for_xai.return_value = {"ticket_sha": "sha", "object": "t.json"}
+    xai_service.ticket_vectorizer_service.create_vectorizer.return_value = MagicMock()
+    xai_service.ticket_vectorizer_service.save_vectorizer.return_value = {"object": "v"}
+    xai_service.minio_service.return_data_names.return_value = ["d.xlsx"]
+
+    asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))
+
+    msg = xai_service.rabbitmq_client.publish.call_args.kwargs["message"]
+    assert msg["version"] == 0.5 and isinstance(msg["version"], float)
+
+
+def test_create_xai_request_no_vectorizer_preprocessor_none(xai_service, test_data, monkeypatch):
+    monkeypatch.setenv("USE_RABBITMQ", "1")
+    monkeypatch.setenv("TASK_QUEUE", "test_queue")
+    monkeypatch.delenv("MESSAGE_VERSION", raising=False)
+    xai_service.ticket_vectorizer_service = None
+    xai_service.minio_service.save_ticket_for_xai.return_value = {"ticket_sha": "sha", "object": "t.json"}
+    xai_service.minio_service.return_data_names.return_value = ["d.xlsx"]
+
+    asyncio.run(xai_service.create_xai_request(1, test_data, model_id=0))  # must not raise
+
+    msg = xai_service.rabbitmq_client.publish.call_args.kwargs["message"]
+    assert msg["artifacts"]["preprocessor"] is None
+    assert msg["artifacts"]["raw_tickets"] == "d.xlsx"
+
+
 def test_get_xai_job(xai_service):
     job_id = uuid.uuid4()
     xai_service.duckdb_service.get_xai_job.return_value = {"job_id": job_id}

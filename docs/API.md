@@ -900,6 +900,31 @@ Accepts a single `Data` ticket representation chunk.
 }
 ```
 
+**Published task-queue message (TASK_QUEUE):**
+The backend publishes the following JSON to the configured `TASK_QUEUE` for the XAI worker:
+
+```json
+{
+  "version": 0.3,
+  "job_id": "<uuid-string>",
+  "al_instance_id": 1,
+  "model_id": 0,
+  "ticket_sha": "<sha256>",
+  "artifacts": {
+    "ticket": "xai_tickets/<id>/<sha>.json",
+    "model": "models/<id>/<model_id>.joblib",
+    "preprocessor": "vectorizers/<id>/ticket_vectorizer.pkl",
+    "one_hot_encoder": "encoders/<id>/one_hot_encoder.joblib",
+    "raw_tickets": "datasets/test/<latest-dataset>.xlsx"
+  }
+}
+```
+
+- `version` is a JSON **number** (float), sourced from `MESSAGE_VERSION` (default `0.3`).
+- `artifacts.raw_tickets` is a **single string** — the first available test-split dataset object in MinIO (`datasets/test/...`), not a list. It is `null` only when no test dataset exists.
+- `artifacts.preprocessor` is `null` when no ticket vectorizer service is configured.
+- This is the queue message, not the HTTP response (which is `{"job_id": "<uuid>"}`).
+
 
 ### GET /xai/jobs/{job_id}
 

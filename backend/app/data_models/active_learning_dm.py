@@ -141,3 +141,22 @@ class DelegateResponse(BaseModel):
 class DelegateListResponse(BaseModel):
     """Response for listing all delegates of an instance."""
     delegates: list[DelegateResponse]
+
+
+class XaiArtifacts(BaseModel):
+    """MinIO artifact locations attached to an XAI task-queue message."""
+    ticket: str
+    model: str
+    preprocessor: Optional[str] = None
+    one_hot_encoder: Optional[str] = None
+    raw_tickets: Optional[str] = None
+
+
+class XaiRequestMessage(BaseModel):
+    """Contract for the message published to the XAI TASK_QUEUE by POST /xai/{id}/requests."""
+    version: float
+    job_id: str
+    al_instance_id: int
+    model_id: int
+    ticket_sha: str
+    artifacts: XaiArtifacts
