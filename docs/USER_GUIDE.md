@@ -51,6 +51,5 @@ The labeling workflow:
 Run predictions on new tickets using a trained model:
 - `POST /activelearning/{al_instance_id}/infer` - Get model predictions
 - `POST /xai/{al_instance_id}/explain_lime` - Get LIME explanations
-- `POST /xai/{al_instance_id}/nearest_ticket` - Find similar training examples
 
 See [API.md](API.md) for complete endpoint documentation.

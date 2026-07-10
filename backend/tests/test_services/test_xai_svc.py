@@ -740,3 +740,9 @@ def test_explain_lime_no_persistence_when_duckdb_none(mock_storage, mock_inferen
             )
             res = svc.explain_lime(1, [test_data], model_id=0, top_k=1, user_id="u1")
             assert len(res) == 1
+
+
+def test_find_nearest_by_ticket_and_query_idx_removed(xai_service):
+    """The /nearest_ticket endpoint and its backing service methods were removed."""
+    assert not hasattr(xai_service, "find_nearest_by_ticket")
+    assert not hasattr(xai_service, "find_nearest_by_query_idx")

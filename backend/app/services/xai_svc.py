@@ -12,7 +12,6 @@ from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMes
 from sentence_transformers import SentenceTransformer
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 from typing import Optional, Dict, Any
-from collections.abc import Sequence
 from app.persistence.local_artifacts import LocalArtifactsStore
 from app.persistence.duckdb.service import DuckDbPersistenceService
 from app.persistence.minio_storage import MinioService
@@ -763,92 +762,6 @@ class XaiService:
             })
             
         return results
-
-    def find_nearest_by_ticket(self, al_instance_id: int, ticket: Data, model_id: int = 0):
-        """
-        This function finds the nearest already labeled ticket to the given ticket.
-
-        Returns:
-            - nearest_ticket_ref: str
-            - nearest_ticket_label: str
-            - similarity_score: float
-        """
-        target_embedding = inference(
-            df=pd.DataFrame([ticket.model_dump()]), 
-            le=self.storage.dataset_dict[al_instance_id]['le'], 
-            oh=self.storage.dataset_dict[al_instance_id]['oh'], 
-            sentence_model=self.sentence_model).values
-
-        # Extract the train data that is already labeled
-        X_train = self.storage.dataset_dict[al_instance_id]['X_train']
-        y_train = self.storage.dataset_dict[al_instance_id]['y_train']
-        labeled_mask = y_train.notna() # Check if the label is not missing
-        X_labeled = X_train[labeled_mask]
-
-        # Extract the indices of the labeled tickets
-        X_labeled_indices = np.where(labeled_mask)[0]
-            
-        # Get the most similar ticket
-        similarities = cosine_similarity(target_embedding, X_labeled.values)
-        nearest_ticket_idx = np.argmax(similarities[0])
-
-        # Convert the index to the X_train index
-        nearest_ticket_idx_X_train = X_labeled_indices[nearest_ticket_idx]
-
-        # Convert the index to the original reference id (Ref)
-        nearest_ticket_ref = self.storage.dataset_dict[al_instance_id]['X_train'].index[nearest_ticket_idx_X_train]
-
-        # Retrieve nearest ticket's true label
-        le = self.storage.dataset_dict[al_instance_id]['le']
-        nearest_ticket_label = le.inverse_transform([int(y_train[nearest_ticket_ref])])[0]
-
-        return {
-            "nearest_ticket_ref": nearest_ticket_ref,
-            "nearest_ticket_label": nearest_ticket_label,
-            "similarity_score": float(similarities[0, nearest_ticket_idx])
-        }
-
-    def find_nearest_by_query_idx(self, al_instance_id: int, indices: Sequence[str | int], model_id: int = 0):
-        """
-        This function finds the nearest already labeled tickets to the tickets given by the indices.
-
-        Returns:
-            - nearest_ticket_refs: list[str]
-            - nearest_ticket_labels: list[str]
-            - similarity_score: list[float]
-        """
-        # Indices are Ref values; select rows directly
-        target_embeddings = self.storage.dataset_dict[al_instance_id]['X_train'].loc[indices].values
-
-        # Extract the train data that is already labeled
-        X_train = self.storage.dataset_dict[al_instance_id]['X_train']
-        y_train = self.storage.dataset_dict[al_instance_id]['y_train']
-        labeled_mask = y_train.notna() # Check if the label is not missing
-        X_labeled = X_train[labeled_mask]
-
-        # Extract the indices of the labeled tickets
-        X_labeled_indices = np.where(labeled_mask)[0]
-                
-        # Get the most similar tickets
-        similarities = cosine_similarity(target_embeddings, X_labeled.values)
-        nearest_ticket_idxs = np.argmax(similarities, axis=1)
-
-        # Convert the indices to the X_train indices
-        nearest_ticket_idxs_X_train = X_labeled_indices[nearest_ticket_idxs]
-
-        # Convert the indices to the original reference ids (Ref)
-        nearest_ticket_refs = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[nearest_ticket_idxs_X_train])
-
-        # Retrieve nearest tickets' true labels
-        le = self.storage.dataset_dict[al_instance_id]['le']
-        nearest_ticket_labels = le.inverse_transform([int(y_train[idx]) for idx in nearest_ticket_refs]).tolist()
-        similarity_scores = [similarities[i, nearest_ticket_idxs[i]] for i in range(len(nearest_ticket_idxs))]
-
-        return {
-            "nearest_ticket_ref": nearest_ticket_refs,
-            "nearest_ticket_label": nearest_ticket_labels,
-            "similarity_score": similarity_scores
-        }
 
     async def create_xai_request(self, al_instance_id: int, ticket_data: Data, model_id: int, ticket_ref: Optional[str] = None, user_id: str = SYSTEM_USER_ID):
         """Saves the ticket and vectorizer to MinIO.

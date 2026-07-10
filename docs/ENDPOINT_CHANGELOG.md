@@ -2,6 +2,17 @@
 
 **Date:** July 10, 2026
 
+### ✅ REMOVED ENDPOINT: `POST /xai/{al_instance_id}/nearest_ticket`
+
+**Change:** The `POST /xai/{al_instance_id}/nearest_ticket` endpoint has been removed. Nearest-neighbor functionality is provided by `POST /xai/{al_instance_id}/nearest`, which returns `predicted_class_neighbors` and `historical_neighbors` in a single response.
+
+**Removed code:**
+- Route handler `find_nearest_ticket` in `app/routers/xai_router.py`.
+- Service methods `find_nearest_by_ticket` and `find_nearest_by_query_idx` in `app/services/xai_svc.py` (used only by this endpoint).
+- The now-unused `from collections.abc import Sequence` import in `app/services/xai_svc.py`.
+
+**Migration:** Call `POST /xai/{al_instance_id}/nearest` instead.
+
 ### ✅ CANONICAL XAI RESULT MODEL: `XaiResultFile` for all LIME outputs
 
 **Purpose:** Unify LIME output shape across the in-process `explain_lime` path and the external RabbitMQ XAI worker. Replace duck-typed walkers with Pydantic-validated parsing at all I/O boundaries.
@@ -666,12 +677,4 @@ curl "http://localhost:8000/xai/jobs/a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6"
 
 **Behavior update:** Completed job payloads are now persisted into `label_decisions.xai_result` so the tracked XAI output stays associated with the originating ticket reference or SHA.
 
----
 
-#### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/nearest_ticket`
-
-**Behavior update:** When a ticket reference is available, nearest-neighbor results are now persisted into `label_decisions.similar_tickets` with `title` and `description` retained for display, while recursive `xai_result` and `similar_tickets` content is stripped to avoid duplication and bloat.
-
-**Note:** The "result" field structure is not yet fully decided upon.
-
----

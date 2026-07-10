@@ -100,31 +100,6 @@ def explain_lime(
         ticket_refs=ticket_refs,
     )
 
-@router.post("/{al_instance_id}/nearest_ticket")
-def find_nearest_ticket(
-    al_instance_id: int, 
-    ticket_data: Optional[Data] = Body(None), 
-    query_idx: Optional[list[str]] = Query(None), 
-    model_id: int = Query(0),
-    current_user: dict = Depends(get_current_user),
-    ):
-    require_instance_access(al_instance_id, current_user, xai_service.storage)
-    
-    # check if the model is trained
-    if al_instance_id not in xai_service.storage.model_paths_dict:
-        raise HTTPException(status_code=404, detail="Model not trained yet, please train the model first")
-    
-    
-    # require exactly one source
-    if (ticket_data is None) == (query_idx is None):
-        raise HTTPException(status_code=400, detail="Provide exactly one of ticket_data or query_idx")
-    
-    if ticket_data is not None:
-        return xai_service.find_nearest_by_ticket(al_instance_id, ticket_data, model_id)
-    else:
-        assert query_idx is not None
-        return xai_service.find_nearest_by_query_idx(al_instance_id, query_idx, model_id)
-
 @router.post("/{al_instance_id}/requests")
 async def create_xai_request(
     al_instance_id: int,

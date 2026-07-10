@@ -871,28 +871,6 @@ curl -X POST "http://localhost:8000/xai/1/explain_lime?top_k=2" \
 ```
 
 
-### POST /xai/{al_instance_id}/nearest_ticket
-
-**Description:** Recommends the structurally contextual "nearest neighbors" in embedding-space from the known historical dataset. When a ticket reference is available, the returned neighbor list is also persisted into `label_decisions.similar_tickets` with `title` and `description` retained for display, but with recursive `xai_result` and `similar_tickets` content stripped to avoid duplication and bloat.
-
-**Parameters:**
-| Name | In | Type | Required | Description |
-|---|---|---|---|---|
-| `al_instance_id` | path | integer | **Yes** | The ID of the active learning instance |
-| `model_id` | query | integer | No (Default: 0) | Version ID of the persisted model |
-| `query_idx` | query | array | No | Ticket identifier arrays |
-
-**Swagger-style UI Example:**
-*HTTP 200 OK*
-```json
-{
-  "nearest_ticket_ref": ["R-544310", "R-544311"],
-  "nearest_ticket_label": ["team_a", "team_b"],
-  "similarity_score": [0.91, 0.87]
-}
-```
-
-
 ## Asynchronous XAI (RabbitMQ)
 
 ### POST /xai/{al_instance_id}/requests
