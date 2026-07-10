@@ -8,7 +8,7 @@ import pytest
 import uuid
 
 from app.core.storage import ActiveLearningStorage
-from app.data_models.active_learning_dm import Data
+from app.data_models.active_learning_dm import Data, XaiResultFile, parse_xai_result
 from app.core.rabbitmq_client import RabbitMQClient
 from app.persistence.duckdb.service import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
@@ -482,6 +482,7 @@ def test_get_xai_job(xai_service):
 
 
 def test_update_xai_job(xai_service):
+    """update_xai_job parses canonical XaiResultFile and logs per-ticket event."""
     job_id = uuid.uuid4()
     data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
 
@@ -494,8 +495,19 @@ def test_update_xai_job(xai_service):
         "created_at": pd.Timestamp("2026-01-01 10:00:00"),
         "finished_at": pd.Timestamp("2026-01-01 10:00:01"),
     }
+    canonical_result = {
+        "text": "Fix printer Printer is broken",
+        "prediction": {"label": "Team A", "probabilities": {"Team A": 0.8, "Team B": 0.2}},
+        "word_weights": [["printer", 0.15]],
+        "highlighted_tokens": [
+            {"token": "printer", "weight": 0.15, "direction": "support", "intensity": 1.0}
+        ],
+        "index": "ref1",
+        "error": None,
+        "class_explanations": [],
+    }
     xai_service.minio_service.load_xai_results.return_value = {
-        "lime": [{"top_words": [("printer", 0.15)], "error": None}]
+        "result.json": canonical_result
     }
 
     asyncio.run(xai_service.update_xai_job(data))
@@ -507,10 +519,43 @@ def test_update_xai_job(xai_service):
         result_file_names={"lime": "f.json"},
     )
     xai_service.duckdb_service.log_event.assert_called_once()
+    call_kwargs = xai_service.duckdb_service.log_event.call_args.kwargs
+    assert call_kwargs["action"] == "lime"
+    assert call_kwargs["object_id"] == "ref1"
+    assert call_kwargs["payload"]["ticket_id"] == "ref1"
+    assert call_kwargs["payload"]["error"] is None
+    assert call_kwargs["payload"]["result"]["index"] == "ref1"
+
+
+def test_update_xai_job_rejects_old_format(xai_service):
+    """Old-format [{class, top_words, error}] results are rejected with result: null."""
+    job_id = uuid.uuid4()
+    data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
+
+    xai_service.duckdb_service.get_xai_job.return_value = {
+        "job_id": job_id,
+        "al_instance_id": 1,
+        "ticket_ref_or_sha": "ref1",
+        "result_location": "minio/res",
+        "result_file_names": ["f.json"],
+        "created_at": pd.Timestamp("2026-01-01 10:00:00"),
+        "finished_at": pd.Timestamp("2026-01-01 10:00:01"),
+    }
+    old_format_result = [{"class": "Team A", "top_words": [["printer", 0.15]], "error": None}]
+    xai_service.minio_service.load_xai_results.return_value = {
+        "result.json": old_format_result
+    }
+
+    asyncio.run(xai_service.update_xai_job(data))
+
+    xai_service.duckdb_service.log_event.assert_called_once()
+    call_kwargs = xai_service.duckdb_service.log_event.call_args.kwargs
+    assert call_kwargs["payload"]["result"] is None
+    assert "rejected" in (call_kwargs["payload"]["error"] or "")
 
 
 def test_explain_lime_top_k_classes(xai_service, test_data):
-    """Happy path: explain_lime returns one inner list per ticket with top-k class explanations."""
+    """Happy path: explain_lime returns one XaiResultFile per ticket with canonical fields."""
     mock_explanation = MagicMock()
     mock_explanation.as_list.side_effect = lambda label: [("word1", 0.5), ("word2", 0.3)]
 
@@ -525,12 +570,15 @@ def test_explain_lime_top_k_classes(xai_service, test_data):
 
     assert len(res) == 1
     ticket_result = res[0]
-    assert len(ticket_result) == 2
-    assert "class" in ticket_result[0]
-    assert "top_words" in ticket_result[0]
-    assert "error" in ticket_result[0]
-    assert ticket_result[0]["error"] is None
-    assert ticket_result[1]["error"] is None
+    assert isinstance(ticket_result, XaiResultFile)
+    assert ticket_result.text == "Fix printer Printer is broken"
+    assert ticket_result.prediction.label == "Team A"
+    assert ticket_result.prediction.probabilities == {"Team A": 0.8, "Team B": 0.2}
+    assert len(ticket_result.word_weights) == 2
+    assert ticket_result.word_weights[0] == ["word1", 0.5]
+    assert ticket_result.index == "ref1"
+    assert ticket_result.error is None
+    assert len(ticket_result.class_explanations) == 2
 
 
 def test_explain_lime_top_k_capped_by_num_classes(xai_service, test_data):
@@ -547,7 +595,7 @@ def test_explain_lime_top_k_capped_by_num_classes(xai_service, test_data):
             1, [test_data], model_id=0, top_k=10, user_id="u1", ticket_refs=["ref1"]
         )
 
-    assert len(res[0]) == 2
+    assert len(res[0].class_explanations) == 2
 
 
 def test_explain_lime_logs_event(xai_service, test_data):
@@ -573,8 +621,9 @@ def test_explain_lime_logs_event(xai_service, test_data):
     assert call_kwargs["actor_type"] == "ai"
     assert call_kwargs["agent"] == "xai_lime"
     assert call_kwargs["object_id"] == "ref1"
-    assert "top_features" in call_kwargs["payload"]
+    assert "result" in call_kwargs["payload"]
     assert call_kwargs["payload"]["ticket_id"] == "ref1"
+    assert call_kwargs["payload"]["error"] is None
 
 
 def test_explain_lime_upserts_label_decision_with_ref(xai_service, test_data):
@@ -597,6 +646,9 @@ def test_explain_lime_upserts_label_decision_with_ref(xai_service, test_data):
     assert call_kwargs["ref"] == "ref1"
     assert call_kwargs["user_id"] == "u1"
     assert call_kwargs["xai_result"] is not None
+    assert isinstance(call_kwargs["xai_result"], dict)
+    assert call_kwargs["xai_result"]["index"] == "ref1"
+    assert call_kwargs["xai_result"]["error"] is None
 
 
 def test_explain_lime_no_upsert_without_ref(xai_service, test_data):
@@ -636,8 +688,10 @@ def test_explain_lime_logs_one_event_per_ref(xai_service, test_data):
     second = xai_service.duckdb_service.log_event.call_args_list[1]
     assert first.kwargs["object_id"] == "refA"
     assert first.kwargs["payload"]["ticket_id"] == "refA"
+    assert "result" in first.kwargs["payload"]
     assert second.kwargs["object_id"] == "refB"
     assert second.kwargs["payload"]["ticket_id"] == "refB"
+    assert "result" in second.kwargs["payload"]
 
 
 def test_explain_lime_skips_none_refs_in_mixed_batch(xai_service, test_data):

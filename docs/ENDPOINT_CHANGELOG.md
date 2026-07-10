@@ -2,6 +2,21 @@
 
 **Date:** July 10, 2026
 
+### ✅ CANONICAL XAI RESULT MODEL: `XaiResultFile` for all LIME outputs
+
+**Purpose:** Unify LIME output shape across the in-process `explain_lime` path and the external RabbitMQ XAI worker. Replace duck-typed walkers with Pydantic-validated parsing at all I/O boundaries.
+
+**Changes:**
+- **`POST /xai/{al_instance_id}/explain_lime`** — response shape changed from `list[list[{class, top_words, error}]]` to `list[XaiResultFile]`. Each entry is now a structured object with `text`, `prediction {label, probabilities}`, `word_weights` (top-1 class only), `highlighted_tokens` (with `direction` and `intensity`), `index`, `error`, and `class_explanations` (per-class breakdowns).
+- **`GET /xai/jobs/{job_id}`** — the `result` field now contains per-file validated `XaiResultFile` dicts instead of the raw MinIO payload. Old-format lists are coerced to `null`.
+- **`update_xai_job`** — the duck-typed walker is removed. Results from MinIO are validated through `parse_xai_result`. Old-format results (`[{class, top_words, error}]`) are logged with `result: null` and a descriptive error.
+- **`xai_rabbitmq_worker.py`** — now emits a single canonical `XaiResultFile` dict instead of a list of per-class dicts.
+- **al_events payload** — for `action="lime"` events, the payload is now `{"ticket_id": ..., "result": <full XaiResultFile dict>, "error": ...}` (replacing `{"ticket_id": ..., "top_features": [...], "error": ...}`).
+- **New Pydantic models**: `XaiResultFile`, `HighlightedToken`, `PredictionInfo`, `ClassExplanation` in `app/data_models/active_learning_dm.py` with `XaiResultFile.from_lime()` factory and `parse_xai_result()` parser.
+- **Backward compatibility**: old-format result JSON files already stored in MinIO are gracefully handled — they are logged but produce `result: null` with an explanatory error. No runtime crash.
+
+**Date:** July 10, 2026
+
 ### ✅ UPDATED BEHAVIOR: `POST /xai/{al_instance_id}/requests` — task-queue message schema v0.3
 
 The message published to `TASK_QUEUE` now follows schema version **0.3**:

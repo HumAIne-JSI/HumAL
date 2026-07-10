@@ -814,30 +814,53 @@ Array of string ticket references, e.g. `["R-544314","R-544315"]`.
 Accepts a single `Data` structure representing ticket text. Provide **exactly one** of `ticket_data` (body) or `query_idx` (query parameter).
 
 **Response Shape:**
+Returns a list of canonical `XaiResultFile` objects, one per input ticket:
 ```json
 [
-  [
-    {
-      "class": "Team A",
-      "top_words": [
-        ["vpn", 0.42],
-        ["connect", 0.18]
-      ],
-      "error": null
+  {
+    "text": "VPN not working Cannot connect to VPN",
+    "prediction": {
+      "label": "Team A",
+      "probabilities": {
+        "Team A": 0.85,
+        "Team B": 0.15
+      }
     },
-    {
-      "class": "Team B",
-      "top_words": [
-        ["network", 0.12]
-      ],
-      "error": null
-    }
-  ]
+    "word_weights": [
+      ["vpn", 0.42],
+      ["connect", 0.18]
+    ],
+    "highlighted_tokens": [
+      {"token": "vpn", "weight": 0.42, "direction": "support", "intensity": 1.0},
+      {"token": "connect", "weight": 0.18, "direction": "support", "intensity": 0.43}
+    ],
+    "index": "R-523890",
+    "error": null,
+    "class_explanations": [
+      {
+        "class_name": "Team A",
+        "word_weights": [["vpn", 0.42], ["connect", 0.18]]
+      }
+    ]
+  }
 ]
 ```
 
+**Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | string | The full ticket text that was explained |
+| `prediction.label` | string | Top predicted class |
+| `prediction.probabilities` | object | Per-class probabilities |
+| `word_weights` | array | LIME feature attributions for the top-1 class: `[[token, weight], ...]` |
+| `highlighted_tokens` | array | Token-level attributions with `direction` (`"support"`/`"oppose"`/`"neutral"`) and `intensity` (0–1 normalised) |
+| `index` | string | Ticket reference string (e.g. `"R-523890"`), or empty for ad-hoc requests |
+| `error` | string\|null | Error message if LIME failed, otherwise `null` |
+| `class_explanations` | array | Per-class breakdowns; only populated by the in-process LIME path (empty for the external RabbitMQ worker) |
+
 **Persistence Behavior:**
-- When `query_idx` is provided, each `query_idx` value is used as the ticket ref. **One `lime` event is logged per ticket** to `al_events` (`action="lime"`, `actor_type="ai"`, `agent="xai_lime"`, `object_id=<ref>`, `payload={"ticket_id": <ref>, "top_features": [...], "error": <str|null>}`), and the result is upserted into `label_decisions.xai_result` keyed by `(al_instance_id, ref)`.
+- When `query_idx` is provided, each `query_idx` value is used as the ticket ref. **One `lime` event is logged per ticket** to `al_events` (`action="lime"`, `actor_type="ai"`, `agent="xai_lime"`, `object_id=<ref>`, `payload={"ticket_id": <ref>, "result": {...}, "error": <str|null>}`), and the canonical `XaiResultFile` dict is upserted into `label_decisions.xai_result` keyed by `(al_instance_id, ref)`.
 - When `ticket_data` is provided, there is no ref. **No events are logged** and nothing is persisted to `label_decisions`.
 
 **cURL Example:**
@@ -947,12 +970,26 @@ The backend publishes the following JSON to the configured `TASK_QUEUE` for the 
 {
   "status": "completed",
   "result": {
-    "top_words": [["vpn", 0.42]],
-    "error": null
+    "result.json": {
+      "text": "VPN not working Cannot connect to VPN",
+      "prediction": {
+        "label": "Team A",
+        "probabilities": {"Team A": 0.85, "Team B": 0.15}
+      },
+      "word_weights": [["vpn", 0.42], ["connect", 0.18]],
+      "highlighted_tokens": [
+        {"token": "vpn", "weight": 0.42, "direction": "support", "intensity": 1.0}
+      ],
+      "index": "R-523890",
+      "error": null,
+      "class_explanations": []
+    }
   },
-  "result_location": "xai_results/job-id.json"
+  "result_location": "xai_results/job-id"
 }
 ```
+
+Each file in the result is validated through the canonical `XaiResultFile` model. Old-format results (`[{class, top_words, error}]`) are rejected and appear as `null` in the response.
 
 ---
 

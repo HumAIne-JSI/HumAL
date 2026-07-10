@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, ValidationError, root_validator, validator
 
 MostHelpfulFeature = Literal[
     "lime",
@@ -160,3 +160,137 @@ class XaiRequestMessage(BaseModel):
     model_id: int
     ticket_sha: str
     artifacts: XaiArtifacts
+
+
+class HighlightedToken(BaseModel):
+    token: str
+    weight: float | None = None
+    direction: Literal["support", "oppose", "neutral"]
+    intensity: float
+
+
+class PredictionInfo(BaseModel):
+    label: str
+    probabilities: dict[str, float]
+
+
+class ClassExplanation(BaseModel):
+    class_name: str
+    word_weights: list[list[str | float]]
+
+
+class XaiResultFile(BaseModel):
+    """Canonical model for a single XAI LIME result.
+
+    Emitted by both the in-process ``explain_lime`` and the external RabbitMQ
+    XAI worker.  The canonical shape matches the external service's actual
+    result.json stored in MinIO.
+    """
+    text: str
+    prediction: PredictionInfo
+    word_weights: list[list[str | float]]
+    highlighted_tokens: list[HighlightedToken]
+    index: str
+    error: str | None = None
+    class_explanations: list[ClassExplanation] = Field(default_factory=list)
+
+    @classmethod
+    def from_lime(
+        cls,
+        *,
+        text: str,
+        classes: list,
+        probabilities: list[float],
+        lime_explanation: Any,
+        sorted_class_idx: list[int],
+        index: str,
+    ) -> "XaiResultFile":
+        """Build a canonical XaiResultFile from a LIME ``Explanation`` object.
+
+        Args:
+            text: The full ticket text that was explained.
+            classes: Class-name list matching the inference output order.
+            probabilities: Probability values aligned with *classes*.
+            lime_explanation: A LIME ``Explanation`` returned by
+                ``LimeTextExplainer.explain_instance``.
+            sorted_class_idx: Class indices sorted by probability descending.
+            index: Ticket reference string (e.g. ``"R-523890"``).
+
+        Returns:
+            A validated ``XaiResultFile``.
+        """
+        top_class_idx = sorted_class_idx[0]
+        label = str(classes[top_class_idx])
+        proba_dict = {str(c): float(p) for c, p in zip(classes, probabilities)}
+
+        top_class_weights = lime_explanation.as_list(label=top_class_idx)
+        word_weights = [[str(w), float(s)] for w, s in top_class_weights]
+
+        max_abs = max((abs(s) for _, s in top_class_weights), default=1.0)
+        if max_abs == 0:
+            max_abs = 1.0
+        highlighted_tokens = [
+            HighlightedToken(
+                token=str(w),
+                weight=float(s),
+                direction="support" if s > 0 else ("oppose" if s < 0 else "neutral"),
+                intensity=abs(s) / max_abs,
+            )
+            for w, s in top_class_weights
+        ]
+
+        class_explanations = [
+            ClassExplanation(
+                class_name=str(classes[idx]),
+                word_weights=[[str(w), float(s)] for w, s in lime_explanation.as_list(label=idx)],
+            )
+            for idx in sorted_class_idx
+        ]
+
+        return cls(
+            text=text,
+            prediction=PredictionInfo(label=label, probabilities=proba_dict),
+            word_weights=word_weights,
+            highlighted_tokens=highlighted_tokens,
+            index=index,
+            error=None,
+            class_explanations=class_explanations,
+        )
+
+    @classmethod
+    def from_lime_error(cls, index: str, text: str, error: str) -> "XaiResultFile":
+        """Build a canonical XaiResultFile for a failed LIME explanation."""
+        return cls(
+            text=text,
+            prediction=PredictionInfo(label="", probabilities={}),
+            word_weights=[],
+            highlighted_tokens=[],
+            index=index,
+            error=error,
+            class_explanations=[],
+        )
+
+
+def parse_xai_result(data: Any) -> Optional[XaiResultFile]:
+    """Parse and validate a raw XAI result into a canonical ``XaiResultFile``.
+
+    Args:
+        data: The raw XAI result (typically deserialised from JSON).
+
+    Returns:
+        An ``XaiResultFile`` if *data* matches the canonical shape.
+        ``None`` if *data* is an old-format ``[{class, top_words, error}]`` list.
+
+    Raises:
+        ValueError: If *data* cannot be parsed as either format.
+    """
+    if isinstance(data, dict):
+        try:
+            return XaiResultFile.model_validate(data)
+        except ValidationError as exc:
+            raise ValueError(
+                f"XAI result dict does not match the canonical XaiResultFile schema: {exc}"
+            ) from exc
+    if isinstance(data, list):
+        return None
+    raise ValueError(f"Unexpected XAI result type: {type(data).__name__}")

@@ -79,18 +79,19 @@ def _infer_proba(al_instance_id: int, data_list: list[dict]) -> tuple[list, list
     return body["classes"], body["probabilities"]
 
 
-def run_lime(payload: dict) -> list[dict]:
+def run_lime(payload: dict) -> dict:
     """Execute real LIME on the ticket described in *payload*.
 
     Inference is delegated to the backend ``POST /infer_proba`` endpoint,
     so no model/encoder/vectorizer artifacts are loaded by this worker.
 
-    Returns a **flat** list of per-class dicts (``{class, top_words, error}``)
-    that the backend ``update_xai_job`` walker can parse.
+    Returns a canonical ``XaiResultFile``-shaped dict that the backend's
+    ``update_xai_job`` validates through ``XaiResultFile.model_validate``.
     """
     al_instance_id: int = payload["al_instance_id"]
     artifacts: dict = payload["artifacts"]
     job_id: str = payload["job_id"]
+    ticket_index: str = payload.get("ticket_sha", job_id)
 
     minio_svc = _init_minio()
     _client = minio_svc.client
@@ -122,10 +123,19 @@ def run_lime(payload: dict) -> list[dict]:
         if not valid_idx:
             err = f"No valid classes found for instance {al_instance_id}"
             print(f"[worker] {err}", flush=True)
-            return [{"class": None, "top_words": [], "error": err}]
+            return {
+                "text": text,
+                "prediction": {"label": "", "probabilities": {}},
+                "word_weights": [],
+                "highlighted_tokens": [],
+                "index": ticket_index,
+                "error": err,
+                "class_explanations": [],
+            }
 
         top_k = min(TOP_K, len(valid_idx))
-        sorted_idx = np.argsort(base_proba)[::-1][:top_k]
+        sorted_idx = list(np.argsort(base_proba)[::-1][:top_k])
+        top_idx = int(sorted_idx[0])
 
         # --- LIME explainer ---
         explainer = LimeTextExplainer(class_names=classes)
@@ -142,32 +152,51 @@ def run_lime(payload: dict) -> list[dict]:
             labels=tuple(sorted_idx),
         )
 
-        # --- Build flat output list ---
-        out: list[dict] = []
-        for idx in sorted_idx:
-            out.append(
+        # --- Build canonical result dict ---
+        top_class_weights = [
+            [w, float(s)] for w, s in explanation.as_list(label=top_idx)
+        ]
+        max_abs = max((abs(s) for _, s in top_class_weights), default=1.0)
+        if max_abs == 0:
+            max_abs = 1.0
+
+        return {
+            "text": text,
+            "prediction": {
+                "label": str(classes[top_idx]),
+                "probabilities": {
+                    str(c): float(p) for c, p in zip(classes, probabilities[0])
+                },
+            },
+            "word_weights": top_class_weights,
+            "highlighted_tokens": [
                 {
-                    "class": classes[idx],
-                    "top_words": [
-                        [w, float(s)] for w, s in explanation.as_list(label=idx)
-                    ],
-                    "error": None,
+                    "token": str(w),
+                    "weight": float(s),
+                    "direction": "support" if s > 0 else ("oppose" if s < 0 else "neutral"),
+                    "intensity": abs(s) / max_abs,
                 }
-            )
-        return out
+                for w, s in top_class_weights
+            ],
+            "index": ticket_index,
+            "error": None,
+            "class_explanations": [],
+        }
 
     except Exception as exc:
         print(f"[worker] LIME error for job {job_id}: {exc}", flush=True)
-        return [
-            {
-                "class": None,
-                "top_words": [],
-                "error": f"LIME error: {exc}",
-            }
-        ]
+        return {
+            "text": "",
+            "prediction": {"label": "", "probabilities": {}},
+            "word_weights": [],
+            "highlighted_tokens": [],
+            "index": ticket_index,
+            "error": f"LIME error: {exc}",
+            "class_explanations": [],
+        }
 
 
-def build_result_message(payload: dict, lime_output: list[dict]) -> dict:
+def build_result_message(payload: dict, lime_output: dict) -> dict:
     """Write ``result.json`` to MinIO and return the RESULT_QUEUE message."""
     job_id: str = payload["job_id"]
     al_instance_id: int = payload["al_instance_id"]

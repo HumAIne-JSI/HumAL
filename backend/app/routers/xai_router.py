@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from app.core.dependencies import get_xai_service, get_data_service, get_current_user, require_instance_access
-from app.data_models.active_learning_dm import Data, Neighbor, NearestTicketResponse
+from app.data_models.active_learning_dm import Data, Neighbor, NearestTicketResponse, parse_xai_result
 from pydantic import BaseModel
 import pandas as pd
 from typing import Optional, List
@@ -178,17 +178,28 @@ def get_xai_job(job_id: uuid.UUID, current_user: dict = Depends(get_current_user
             files=result_file_names,
         )
 
+        parsed_results = {}
+        for fname, content in result_payload.items():
+            try:
+                parsed = parse_xai_result(content)
+                if parsed is None:
+                    parsed_results[fname] = None
+                else:
+                    parsed_results[fname] = parsed.model_dump()
+            except ValueError:
+                parsed_results[fname] = None
+
         if xai_service.duckdb_service is not None:
             xai_service.duckdb_service.upsert_label_decision(
                 al_instance_id=job_info["al_instance_id"],
                 ref=str(job_info["ticket_ref_or_sha"]),
                 user_id=current_user["user_id"],
-                xai_result=result_payload,
+                xai_result=parsed_results,
             )
 
         return {
             "status": job_info['status'],
-            "result": result_payload,
+            "result": parsed_results,
             "result_location": result_location,
         }
 

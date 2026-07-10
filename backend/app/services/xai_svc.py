@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
-from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMessage
+from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMessage, XaiResultFile, parse_xai_result
 from sentence_transformers import SentenceTransformer
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 from typing import Optional, Dict, Any
@@ -484,30 +484,37 @@ class XaiService:
         user_id: str = SYSTEM_USER_ID,
         ticket_refs: Optional[list[str]] = None,
     ):
-        """
-        This function returns a Lime explanation for the texts.
+        """Return a list of LIME explanations as canonical ``XaiResultFile`` objects.
+
+        Args:
+            al_instance_id: Active learning instance identifier.
+            tickets: Ticket objects to explain.
+            model_id: Model identifier.
+            top_k: Number of top predicted classes to explain.
+            user_id: User identifier for event logging.
+            ticket_refs: Optional ticket reference strings aligned with *tickets*.
+
+        Returns:
+            A list of ``XaiResultFile`` instances, one per input ticket.
         """
         start_time = time.perf_counter()
         le = self.storage.dataset_dict[al_instance_id]['le']
-        lime_explainer = LimeTextExplainer(class_names = le.classes_)
-        lime_explanation_outputs = []
+        lime_explainer = LimeTextExplainer(class_names=le.classes_)
+        outputs: list[XaiResultFile] = []
 
-        for ticket in tickets:
+        for ticket, ticket_ref in zip(tickets, ticket_refs or [None] * len(tickets)):
+            text = self._ticket_text(ticket)
             try:
                 def _predict_probabilities_wrapper(texts):
                     return self._predict_probabilities(al_instance_id=al_instance_id, texts=texts, ticket=ticket, model_id=model_id)
 
-                # Predict probabilities and select top-k classes
                 res = self.inference_service.infer_proba(al_instance_id, ticket, model_id)
                 probabilities = res["probabilities"][0]
                 classes = res["classes"]
-                top_k = min(top_k, len(classes))
-                sorted_class_idx = np.argsort(probabilities)[::-1][:top_k]
+                n_classes = len(classes)
+                local_top_k = min(top_k, n_classes)
+                sorted_class_idx = list(np.argsort(probabilities)[::-1][:local_top_k])
 
-                # Extract the text of the ticket (Title + Description)
-                text = (ticket.title_anon or "") + " " + (ticket.description_anon or "")
-
-                # Explain instance for the predicted class
                 lime_explanation = lime_explainer.explain_instance(
                     text,
                     _predict_probabilities_wrapper,
@@ -515,35 +522,28 @@ class XaiService:
                     num_samples=1000,
                     labels=tuple(sorted_class_idx),
                 )
-                # Extract (word, weight) pairs for each top class
-                ticket_explanations = []
-                for idx in sorted_class_idx:
-                    ticket_explanations.append({
-                        "class": classes[idx],
-                        "top_words": [(w, float(s)) for w, s in lime_explanation.as_list(label=idx)],
-                        "error": None,
-                    })
-                lime_explanation_outputs.append(ticket_explanations)
+
+                outputs.append(XaiResultFile.from_lime(
+                    text=text,
+                    classes=classes,
+                    probabilities=probabilities,
+                    lime_explanation=lime_explanation,
+                    sorted_class_idx=sorted_class_idx,
+                    index=str(ticket_ref) if ticket_ref else "",
+                ))
             except Exception as e:
-                lime_explanation_outputs.append([{
-                    "class": None,
-                    "top_words": [],
-                    "error": f"LIME error: {str(e)}",
-                }])
+                outputs.append(XaiResultFile.from_lime_error(
+                    index=str(ticket_ref) if ticket_ref else "",
+                    text=text,
+                    error=f"LIME error: {str(e)}",
+                ))
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
         if self.duckdb_service is not None and ticket_refs:
-            for ticket_ref, ticket_result in zip(ticket_refs, lime_explanation_outputs):
+            for ticket_ref, xai_result in zip(ticket_refs, outputs):
                 if not ticket_ref:
                     continue
-                ticket_top_features = []
-                ticket_error = None
-                for item in ticket_result:
-                    if item.get("top_words"):
-                        ticket_top_features.append(item["top_words"][:10])
-                    if item.get("error"):
-                        ticket_error = item["error"]
                 self.duckdb_service.log_event(
                     al_instance_id=al_instance_id,
                     user_id=user_id,
@@ -554,22 +554,21 @@ class XaiService:
                     object_id=str(ticket_ref),
                     payload={
                         "ticket_id": str(ticket_ref),
-                        "top_features": ticket_top_features,
-                        "error": ticket_error,
+                        "result": xai_result.model_dump(),
+                        "error": xai_result.error,
                     },
                 )
 
-            if ticket_refs:
-                for ticket_ref, ticket_result in zip(ticket_refs, lime_explanation_outputs):
-                    if ticket_ref:
-                        self.duckdb_service.upsert_label_decision(
-                            al_instance_id=al_instance_id,
-                            ref=str(ticket_ref),
-                            user_id=user_id,
-                            xai_result=ticket_result,
-                        )
+            for ticket_ref, xai_result in zip(ticket_refs, outputs):
+                if ticket_ref:
+                    self.duckdb_service.upsert_label_decision(
+                        al_instance_id=al_instance_id,
+                        ref=str(ticket_ref),
+                        user_id=user_id,
+                        xai_result=xai_result.model_dump(),
+                    )
 
-        return lime_explanation_outputs
+        return outputs
 
     def find_nearest(self, al_instance_id: int, ticket: Data, top_k: int = 1, model_id: int = 0, user_id: str = SYSTEM_USER_ID):
         start_time = time.perf_counter()
@@ -935,7 +934,11 @@ class XaiService:
 
     async def update_xai_job(self, data: Dict[str, Any]):
         """Update XAI job details in the database.
-           This method is called by the worker after processing the XAI request."""
+
+        This method is called by the worker after processing the XAI request.
+        Results are validated through the canonical ``XaiResultFile`` model.
+        Old-format results (``[{class, top_words, error}]``) are rejected.
+        """
         logger.info(f"Received XAI job update message: {data}")
         
         if self.duckdb_service is None:
@@ -953,7 +956,7 @@ class XaiService:
                 except ValueError as e:
                     logger.error(f"Failed to parse job_id '{job_id}' as UUID: {e}")
                     raise
-            
+
             if data["status"] == "completed" and ("result_location" not in data or "result_file_names" not in data):
                 logger.error(f"Status is 'completed' but missing result_location or result_file_names. Data: {data}")
                 raise ValueError("Missing result_location or result_file_names for completed XAI job")
@@ -967,53 +970,57 @@ class XaiService:
 
             if data["status"] == "completed":
                 job_info = self.duckdb_service.get_xai_job(job_id)
-                ticket_ids = []
-                top_features = []
-                errors = None
 
-                if job_info and job_info.get("ticket_ref_or_sha"):
-                    ticket_ids = [job_info["ticket_ref_or_sha"]]
+                latency_ms = None
+                if job_info and job_info.get("created_at") and job_info.get("finished_at"):
+                    latency_ms = int((job_info["finished_at"] - job_info["created_at"]).total_seconds() * 1000)
 
-                if job_info and job_info.get("result_location") and job_info.get("result_file_names") and self.minio_service is not None:
+                if job_info is None:
+                    return
+
+                job_user_id = job_info.get("user_id", SYSTEM_USER_ID)
+
+                if self.minio_service is not None and job_info.get("result_location") and job_info.get("result_file_names"):
                     try:
                         result_payload = self.minio_service.load_xai_results(
                             result_location=job_info["result_location"],
                             files=job_info["result_file_names"],
                         )
                         for value in result_payload.values():
-                            if isinstance(value, list):
-                                for item in value:
-                                    if isinstance(item, dict) and item.get("top_words"):
-                                        top_features.append(item["top_words"][:10])
-                                        if item.get("error"):
-                                            errors = (errors or []) + [item["error"]]
-                            elif isinstance(value, dict) and value.get("top_words"):
-                                top_features.append(value["top_words"][:10])
-                                if value.get("error"):
-                                    errors = (errors or []) + [value["error"]]
+                            parsed = parse_xai_result(value)
+                            if parsed is None:
+                                self.duckdb_service.log_event(
+                                    al_instance_id=job_info["al_instance_id"],
+                                    user_id=job_user_id,
+                                    action="lime",
+                                    latency_ms=latency_ms,
+                                    actor_type="ai",
+                                    agent="xai_lime",
+                                    object_id=job_info.get("ticket_ref_or_sha"),
+                                    payload={
+                                        "ticket_id": str(job_info.get("ticket_ref_or_sha", "")),
+                                        "result": None,
+                                        "error": "Old-format XAI result rejected - expected canonical XaiResultFile shape",
+                                    },
+                                )
+                                continue
+
+                            self.duckdb_service.log_event(
+                                al_instance_id=job_info["al_instance_id"],
+                                user_id=job_user_id,
+                                action="lime",
+                                latency_ms=latency_ms,
+                                actor_type="ai",
+                                agent="xai_lime",
+                                object_id=parsed.index,
+                                payload={
+                                    "ticket_id": parsed.index,
+                                    "result": parsed.model_dump(),
+                                    "error": parsed.error,
+                                },
+                            )
                     except Exception as exc:
-                        errors = (errors or []) + [str(exc)]
-
-                latency_ms = None
-                if job_info and job_info.get("created_at") and job_info.get("finished_at"):
-                    latency_ms = int((job_info["finished_at"] - job_info["created_at"]).total_seconds() * 1000)
-
-                if job_info is not None:
-                    job_user_id = job_info.get("user_id", SYSTEM_USER_ID)
-                    self.duckdb_service.log_event(
-                        al_instance_id=job_info["al_instance_id"],
-                        user_id=job_user_id,
-                        action="lime",
-                        latency_ms=latency_ms,
-                        actor_type="ai",
-                        agent="xai_lime",
-                        object_id=ticket_ids[0] if ticket_ids else None,
-                        payload={
-                            "ticket_ids": ticket_ids,
-                            "top_features": top_features,
-                            "errors": errors,
-                        },
-                    )
+                        logger.error(f"Failed to load or parse XAI results for job {job_id}: {exc}")
         
         
 
