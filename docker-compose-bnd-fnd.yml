@@ -1,6 +1,6 @@
 services:
   backend:
-    image: harbor.gftinnovation.eu/humaine/humaine-al-api:v0.5.1
+    image: harbor.gftinnovation.eu/humaine/humaine-al-api:v0.6.1
     ports:
       - "8000:8000"
     environment:
@@ -14,6 +14,7 @@ services:
       - RESULT_QUEUE=xai_results
       - USE_RABBITMQ=0
       - MESSAGE_VERSION=0.3
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     networks:
       - humal-network
 
