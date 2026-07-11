@@ -1,0 +1,19 @@
+services:
+  backend:
+    image: ${HUMAL_IMAGE}
+    ports:
+      - "8000:8000"
+    volumes:
+      - humal-schema-test:/app/storage
+    env_file:
+      - .env.al_api
+    environment:
+      - DUCKDB_PATH=storage/db/humal.duckdb
+      - MINIO_PREFIX=SCHEMA_TEST
+      - USE_RABBITMQ=0
+      - RABBIT_URL=amqp://guest:guest@127.0.0.1:1
+      - SENTENCE_TRANSFORMERS_CACHE_DIR=/app/cache/sentence_transformers
+      - HF_HUB_CACHE=/app/cache/sentence_transformers
+
+volumes:
+  humal-schema-test:

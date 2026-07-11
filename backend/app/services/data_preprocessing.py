@@ -86,10 +86,12 @@ def dispatch_team(duckdb_service: DuckDbPersistenceService, test_set: bool = Fal
     
     # Convert one-hot sparse matrix to dense array then DataFrame
     one_hot = pd.DataFrame(one_hot.toarray(), index=df.index)  # keep Ref alignment
+    # Name columns explicitly to avoid duplicate names with the embedding block
+    # (pandas 3.0+ raises "Expected unique column names" on duplicated integer names)
+    X.columns = [f"emb_{i}" for i in range(X.shape[1])]
+    one_hot.columns = [f"oh_{i}" for i in range(one_hot.shape[1])]
     # Add the dataframes together
     X = pd.concat([X, one_hot], axis=1)
-    # Convert the column names to strings
-    X.columns = X.columns.astype(str)
 
     # If train set, fit the label encoder
     if not test_set:
@@ -142,10 +144,12 @@ def inference(df: pd.DataFrame, le: LabelEncoder, oh: OneHotEncoder, sentence_mo
     # Convert one-hot sparse matrix to dense array then DataFrame
     one_hot = pd.DataFrame(one_hot.toarray(), index=df.index)  # keep original row alignment
 
+    # Name columns explicitly to avoid duplicate names with the embedding block
+    # (pandas 3.0+ raises "Expected unique column names" on duplicated integer names)
+    X.columns = [f"emb_{i}" for i in range(X.shape[1])]
+    one_hot.columns = [f"oh_{i}" for i in range(one_hot.shape[1])]
+
     # Add the dataframes together
     X = pd.concat([X, one_hot], axis=1)
-    
-    # Convert the column names to strings
-    X.columns = X.columns.astype(str)
     
     return X

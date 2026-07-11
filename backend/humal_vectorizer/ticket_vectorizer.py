@@ -256,8 +256,12 @@ class TicketVectorizer:
         one_hot = self.one_hot_encoder.transform(df[self.cat_cols])
         one_hot_df = pd.DataFrame(one_hot.toarray(), index=df.index)
 
+        # Name columns explicitly to avoid duplicate names with the embedding block
+        # (pandas 3.0+ raises "Expected unique column names" on duplicated integer names)
+        X.columns = [f"emb_{i}" for i in range(X.shape[1])]
+        one_hot_df.columns = [f"oh_{i}" for i in range(one_hot_df.shape[1])]
+
         # Combine embeddings + one-hot features
         X = pd.concat([X, one_hot_df], axis=1)
-        X.columns = X.columns.astype(str)
 
         return X

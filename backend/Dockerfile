@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
     SENTENCE_TRANSFORMERS_CACHE_DIR=/app/cache/sentence_transformers \
+    HF_HUB_CACHE=/app/cache/sentence_transformers \
     SENTENCE_TRANSFORMERS_LOCAL_ONLY=1 \
     SPACY_MODEL_NAME=en_core_web_sm \
     HF_HUB_OFFLINE=1 \
@@ -18,7 +19,9 @@ ENV SENTENCE_TRANSFORMERS_MODEL=all-MiniLM-L6-v2 \
     MINIO_BASE_URL=https://humaine-minio-api.euprojects.net \
     RABBIT_URL=amqp://guest:guest@localhost:5672 \
     TASK_QUEUE=xai_jobs \
-    RESULT_QUEUE=xai_results
+    RESULT_QUEUE=xai_results \
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60 \
+    JWT_ALGORITHM=HS256
     
 
 # Install Python dependencies first for better Docker layer caching
