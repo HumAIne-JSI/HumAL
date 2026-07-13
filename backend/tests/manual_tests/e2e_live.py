@@ -21,16 +21,16 @@ Prerequisites:
     ``pandas``, ``numpy``.
   - ``backend/sentence_transformers_cache/`` populated (offline).
 
-Flow (10 iterations):
+Flow (12 iterations; 7 confirm / 3 override / 2 i_dont_know):
   /config/capabilities (poll) → register → login → /activelearning/new
-  → 10×[ /next → /data/tickets → /infer_proba → /xai/{id}/nearest
+  → 12×[ /next → /data/tickets → /infer_proba → /xai/{id}/nearest
   → /xai/{id}/requests → poll /xai/jobs/{job_id} →
   simulated human delay → /label-with-info ]
   → /activelearning/{id}/export → assertions
 
 Artifacts saved to ``./artifacts/``:
   - ``instance_{id}_export.zip``
-  - ``backend.log``, ``worker.log``
+  - ``backend.log``, ``worker.log``, ``api_calls.log``
 
 Invoke (from project root, using ``al_api_venv``):
     python backend/tests/manual_tests/e2e_live.py
@@ -72,7 +72,11 @@ WORKER_SCRIPT = Path(__file__).resolve().parent / "xai_rabbitmq_worker.py"
 ARTIFACTS_DIR = Path("artifacts").resolve()
 TEST_DUCKDB_REL = "storage/db/humal_e2e_live.duckdb"
 
-N_ITERATIONS = 10
+N_CONFIRM = 7
+N_OVERRIDE = 3
+N_IDK = 2
+N_ITERATIONS = N_CONFIRM + N_OVERRIDE + N_IDK
+N_REAL = N_CONFIRM + N_OVERRIDE
 JOB_POLL_TIMEOUT = 60
 HUMAN_DELAY_MIN = 5
 HUMAN_DELAY_MAX = 15
@@ -87,6 +91,66 @@ EXPECTED_ZIP_TABLES = [
     "al_events",
     "model_paths",
 ]
+
+
+# ---------------------------------------------------------------------------
+# API call logging
+# ---------------------------------------------------------------------------
+
+_api_log_file = None
+
+
+def _log_api_call(
+    method: str,
+    url: str,
+    params: dict | None,
+    json_body: Any,
+    status_code: int,
+    resp_text: str | None,
+    elapsed: float,
+) -> None:
+    if _api_log_file is None:
+        return
+    entry: list[str] = [f'\n{"=" * 70}']
+    entry.append(f"{datetime.now(timezone.utc).isoformat()}  {method} {url}")
+    if params:
+        entry.append(f"  params: {json.dumps(params, indent=2, default=str)}")
+    if json_body is not None:
+        entry.append(
+            f"  request body:\n{json.dumps(json_body, indent=2, default=str)}"
+        )
+    entry.append(f"  -> {status_code} ({elapsed:.3f}s)")
+    if resp_text:
+        try:
+            resp_json = json.loads(resp_text)
+            entry.append(
+                f"  response body:\n{json.dumps(resp_json, indent=2, default=str)}"
+            )
+        except (json.JSONDecodeError, ValueError):
+            entry.append(f"  response body: {resp_text[:2000]}")
+    _api_log_file.write("\n".join(entry) + "\n")
+    _api_log_file.flush()
+
+
+def _logged_request(
+    method: str,
+    url: str,
+    *,
+    params: dict | None = None,
+    json: Any = None,
+    headers: dict | None = None,
+    timeout: int = 15,
+    stream: bool = False,
+) -> requests.Response:
+    t0 = time.perf_counter()
+    r = requests.request(
+        method, url, params=params, json=json, headers=headers,
+        timeout=timeout, stream=stream,
+    )
+    elapsed = time.perf_counter() - t0
+    resp_text: str | None = None if stream else r.text
+    _log_api_call(method, url, params, json, r.status_code, resp_text, elapsed)
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +183,7 @@ def wait_for_server(timeout: int = 60) -> list[str]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            r = requests.get(f"{BASE_URL}/config/capabilities", timeout=5)
+            r = _logged_request("GET", f"{BASE_URL}/config/capabilities", timeout=5)
             if r.status_code == 200:
                 caps = r.json().get("capabilities", [])
                 if "xai" in caps:
@@ -138,8 +202,8 @@ def wait_for_server(timeout: int = 60) -> list[str]:
 
 def register_and_login(username: str, password: str) -> dict[str, str]:
     """Register (tolerate 409) and login; return Authorization headers."""
-    r = requests.post(
-        f"{BASE_URL}/users/register",
+    r = _logged_request(
+        "POST", f"{BASE_URL}/users/register",
         json={"username": username, "password": password},
     )
     if r.status_code == 409:
@@ -147,8 +211,8 @@ def register_and_login(username: str, password: str) -> dict[str, str]:
     elif r.status_code != 200:
         raise RuntimeError(f"Register failed: {r.status_code} {r.text}")
 
-    r = requests.post(
-        f"{BASE_URL}/users/login",
+    r = _logged_request(
+        "POST", f"{BASE_URL}/users/login",
         json={"username": username, "password": password},
     )
     if r.status_code != 200:
@@ -161,8 +225,8 @@ def get_ticket_fields(
     headers: dict[str, str], ref: str
 ) -> dict[str, str | None]:
     """Fetch ticket fields for *ref* via ``POST /data/tickets``."""
-    r = requests.post(
-        f"{BASE_URL}/data/tickets", json=[ref], headers=headers, timeout=15
+    r = _logged_request(
+        "POST", f"{BASE_URL}/data/tickets", json=[ref], headers=headers, timeout=15
     )
     assert r.status_code == 200, f"/data/tickets: {r.status_code} {r.text}"
     tickets = r.json().get("tickets", [])
@@ -183,8 +247,8 @@ def poll_xai_job(
     """Poll ``GET /xai/jobs/{job_id}`` until ``completed`` (or raise)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        r = requests.get(
-            f"{BASE_URL}/xai/jobs/{job_id}", headers=headers, timeout=10
+        r = _logged_request(
+            "GET", f"{BASE_URL}/xai/jobs/{job_id}", headers=headers, timeout=10
         )
         assert r.status_code in (
             200, 503,
@@ -215,8 +279,8 @@ def fetch_export_zip(
     headers: dict[str, str], instance_id: int
 ) -> bytes:
     """Download the export ZIP for *instance_id*."""
-    r = requests.get(
-        f"{BASE_URL}/activelearning/{instance_id}/export",
+    r = _logged_request(
+        "GET", f"{BASE_URL}/activelearning/{instance_id}/export",
         headers=headers,
         stream=True,
         timeout=30,
@@ -270,6 +334,9 @@ def main() -> None:
     instance_id: int | None = None
 
     try:
+        global _api_log_file
+        _api_log_file = open(ARTIFACTS_DIR / "api_calls.log", "w", buffering=1)
+
         # ---- Start worker FIRST (must declare queues before uvicorn) ----
         worker_log = open(ARTIFACTS_DIR / "worker.log", "w", buffering=1)
         worker_proc = subprocess.Popen(
@@ -315,7 +382,7 @@ def main() -> None:
         print(f"[e2e] Logged in as {username}", flush=True)
 
         # ---- Fetch real team names from the dataset ----
-        teams_resp = requests.get(f"{BASE_URL}/data/teams", timeout=15)
+        teams_resp = _logged_request("GET", f"{BASE_URL}/data/teams", timeout=15)
         assert teams_resp.status_code == 200, (
             f"GET /data/teams: {teams_resp.status_code} {teams_resp.text}"
         )
@@ -326,8 +393,8 @@ def main() -> None:
         print(f"[e2e] Real teams from dataset: {teams}", flush=True)
 
         # ---- Create AL instance ----
-        r = requests.post(
-            f"{BASE_URL}/activelearning/new",
+        r = _logged_request(
+            "POST", f"{BASE_URL}/activelearning/new",
             json={
                 "model_name": "random forest",
                 "qs_strategy": "random sampling",
@@ -343,24 +410,25 @@ def main() -> None:
         print(f"[e2e] Created AL instance {instance_id}", flush=True)
 
         # ---- Baseline info ----
-        info = requests.get(
-            f"{BASE_URL}/activelearning/{instance_id}/info",
+        info = _logged_request(
+            "GET", f"{BASE_URL}/activelearning/{instance_id}/info",
             headers=headers,
             timeout=15,
         ).json()
         f1_before = len(info.get("f1_scores", []))
 
-        # ---- 10-iteration loop ----
+        # ---- 12-iteration loop (7 confirm / 3 override / 2 i_dont_know) ----
         job_ids: list[str] = []
         labeled_refs: list[str] = []
+        label_modes: list[str] = []
 
         for i in range(N_ITERATIONS):
             print(f"\n[e2e] === Iteration {i + 1}/{N_ITERATIONS} ===",
                   flush=True)
 
             # 1) next (batch_size=1)
-            nxt = requests.get(
-                f"{BASE_URL}/activelearning/{instance_id}/next",
+            nxt = _logged_request(
+                "GET", f"{BASE_URL}/activelearning/{instance_id}/next",
                 params={"batch_size": 1},
                 headers=headers,
                 timeout=15,
@@ -376,8 +444,8 @@ def main() -> None:
             print(f"[e2e]   fetched ticket data for {ref}", flush=True)
 
             # 3) infer_proba
-            ip = requests.post(
-                f"{BASE_URL}/activelearning/{instance_id}/infer_proba",
+            ip = _logged_request(
+                "POST", f"{BASE_URL}/activelearning/{instance_id}/infer_proba",
                 params={"query_idx": [ref]},
                 headers=headers,
                 timeout=30,
@@ -391,8 +459,8 @@ def main() -> None:
             print(f"[e2e]   inferred classes={classes}", flush=True)
 
             # 4) nearest
-            near = requests.post(
-                f"{BASE_URL}/xai/{instance_id}/nearest",
+            near = _logged_request(
+                "POST", f"{BASE_URL}/xai/{instance_id}/nearest",
                 params={"query_idx": [ref], "top_k": 1},
                 headers=headers,
                 timeout=15,
@@ -406,8 +474,8 @@ def main() -> None:
 
             # 5) XAI async request (pass ticket_ref=ref so xai_result
             #    lands on the same ref's label_decisions row)
-            xr = requests.post(
-                f"{BASE_URL}/xai/{instance_id}/requests",
+            xr = _logged_request(
+                "POST", f"{BASE_URL}/xai/{instance_id}/requests",
                 params={"model_id": 0, "ticket_ref": ref},
                 json=ticket_fields,
                 headers=headers,
@@ -435,7 +503,7 @@ def main() -> None:
             end_dt = datetime.now(timezone.utc)
             print(f"[e2e]   human delay ~{delay:.1f}s", flush=True)
 
-            # 8) label-with-info
+            # 8) label-with-info (explicit modes: 7 confirm / 3 override / 2 i_dont_know)
             valid_classes = [c for c in classes if c is not None]
             if not valid_classes:
                 raise RuntimeError(
@@ -446,20 +514,41 @@ def main() -> None:
             model_prediction = (
                 raw_pred if raw_pred is not None else valid_classes[0]
             )
-            label = valid_classes[i % len(valid_classes)]
 
-            lbl = requests.post(
+            if i < N_CONFIRM:
+                mode = "confirm"
+                label = model_prediction
+            elif i < N_CONFIRM + N_IDK:
+                mode = "i_dont_know"
+                label = None
+            else:
+                mode = "override"
+                candidates = [
+                    c for c in valid_classes if c != model_prediction
+                ]
+                if not candidates:
+                    raise RuntimeError(
+                        f"Cannot override: only one class ({valid_classes})"
+                        f" for ref={ref}"
+                    )
+                label = random.choice(candidates)
+
+            label_body: dict[str, Any] = {
+                "ticket_id": ref,
+                "model_prediction": model_prediction,
+                "start_time": start_dt.isoformat(),
+                "end_time": end_dt.isoformat(),
+                "most_helpful_feature": "lime",
+            }
+            if mode == "i_dont_know":
+                label_body["i_dont_know"] = True
+            else:
+                label_body["label"] = label
+
+            lbl = _logged_request(
+                "POST",
                 f"{BASE_URL}/activelearning/{instance_id}/label-with-info",
-                json=[
-                    {
-                        "ticket_id": ref,
-                        "label": label,
-                        "model_prediction": model_prediction,
-                        "start_time": start_dt.isoformat(),
-                        "end_time": end_dt.isoformat(),
-                        "most_helpful_feature": "lime",
-                    }
-                ],
+                json=[label_body],
                 headers=headers,
                 timeout=30,
             )
@@ -468,30 +557,31 @@ def main() -> None:
             )
             assert lbl.json() == {"message": "Labels updated"}
             labeled_refs.append(ref)
-            print(f"[e2e]   label-with-info OK (label={label},"
-                  f" pred={model_prediction})", flush=True)
+            label_modes.append(mode)
+            print(f"[e2e]   label-with-info OK (mode={mode},"
+                  f" label={label}, pred={model_prediction})", flush=True)
 
         # ---- Post-loop assertions ----------------------------------------
 
         print("\n[e2e] Running post-loop assertions...", flush=True)
 
-        # --- iteration_ids grew by 10 ---
-        info_after = requests.get(
-            f"{BASE_URL}/activelearning/{instance_id}/info",
+        # --- iteration_ids grew by N_REAL (idk skips retrain) ---
+        info_after = _logged_request(
+            "GET", f"{BASE_URL}/activelearning/{instance_id}/info",
             headers=headers,
             timeout=15,
         ).json()
         f1_after = len(info_after.get("f1_scores", []))
-        assert f1_after == f1_before + N_ITERATIONS, (
-            f"Expected {f1_before + N_ITERATIONS} iterations,"
+        assert f1_after == f1_before + N_REAL, (
+            f"Expected {f1_before + N_REAL} iterations,"
             f" got {f1_after}"
         )
-        print(f"[e2e]   iteration_ids grew by {N_ITERATIONS}", flush=True)
+        print(f"[e2e]   iteration_ids grew by {N_REAL}", flush=True)
 
         # --- All XAI jobs completed ---
         for jid in job_ids:
-            r = requests.get(
-                f"{BASE_URL}/xai/jobs/{jid}",
+            r = _logged_request(
+                "GET", f"{BASE_URL}/xai/jobs/{jid}",
                 headers=headers,
                 timeout=10,
             ).json()
@@ -511,21 +601,48 @@ def main() -> None:
 
         # --- Metrics row count ---
         metrics = tables["metrics"]
-        assert len(metrics) >= f1_before + N_ITERATIONS, (
-            f"Expected >= {f1_before + N_ITERATIONS} metrics rows,"
+        assert len(metrics) >= f1_before + N_REAL, (
+            f"Expected >= {f1_before + N_REAL} metrics rows,"
             f" got {len(metrics)}"
         )
         print(f"[e2e]   metrics rows = {len(metrics)}", flush=True)
 
         # --- al_events counts ---
         al_events = tables["al_events"]
-        label_events = [
+
+        confirm_events = [
             e for e in al_events
-            if e.get("action") in ("confirm_label", "override_label")
+            if e.get("action") == "confirm_label"
         ]
-        assert len(label_events) == N_ITERATIONS, (
-            f"Expected {N_ITERATIONS} label events, got {len(label_events)}"
+        override_events = [
+            e for e in al_events
+            if e.get("action") == "override_label"
+        ]
+        idk_events = [
+            e for e in al_events
+            if e.get("action") == "i_dont_know"
+        ]
+        benchmark_events = [
+            e for e in al_events
+            if e.get("action") == "benchmark_export"
+        ]
+        assert len(confirm_events) == N_CONFIRM, (
+            f"Expected {N_CONFIRM} confirm_label events,"
+            f" got {len(confirm_events)}"
         )
+        assert len(override_events) == N_OVERRIDE, (
+            f"Expected {N_OVERRIDE} override_label events,"
+            f" got {len(override_events)}"
+        )
+        assert len(idk_events) == N_IDK, (
+            f"Expected {N_IDK} i_dont_know events,"
+            f" got {len(idk_events)}"
+        )
+        assert len(benchmark_events) == 1, (
+            f"Expected 1 benchmark_export event (10 real labels"
+            f" hit threshold), got {len(benchmark_events)}"
+        )
+
         similar_events = [
             e for e in al_events
             if e.get("action") == "similar_tickets"
@@ -540,13 +657,15 @@ def main() -> None:
         assert len(lime_events) == N_ITERATIONS, (
             f"Expected {N_ITERATIONS} lime events, got {len(lime_events)}"
         )
-        print(f"[e2e]   al_events: label={len(label_events)},"
+        all_label_events = confirm_events + override_events + idk_events
+        print(f"[e2e]   al_events: confirm={len(confirm_events)},"
+              f" override={len(override_events)}, idk={len(idk_events)},"
               f" similar={len(similar_events)}, lime={len(lime_events)}",
               flush=True)
 
-        # --- duration_s in [5, 15] ---
+        # --- duration_s in [5, 15] (all labeling events including idk) ---
         in_range = [
-            e for e in label_events
+            e for e in all_label_events
             if e.get("duration_s") is not None
             and HUMAN_DELAY_MIN - 0.5 <= e["duration_s"]
             <= HUMAN_DELAY_MAX + 0.5
@@ -556,7 +675,7 @@ def main() -> None:
             f" [{HUMAN_DELAY_MIN},{HUMAN_DELAY_MAX}]"
         )
         print(f"[e2e]   duration_s values:"
-              f" {[round(e.get('duration_s', 0), 1) for e in label_events]}",
+              f" {[round(e.get('duration_s', 0), 1) for e in all_label_events]}",
               flush=True)
 
         # --- label_decisions.xai_result & similar_tickets populated ---
@@ -615,6 +734,12 @@ def main() -> None:
                     f.close()
                 except Exception:
                     pass
+        if _api_log_file is not None:
+            try:
+                _api_log_file.close()
+            except Exception:
+                pass
+            _api_log_file = None
 
         # Delete test DuckDB (after uvicorn is dead so Windows releases)
         for suffix in ("", ".wal"):

@@ -1,0 +1,267 @@
+
+
+{
+  // [ADDED] Top-level artifact envelope required by the platform.
+  "artifact_schema": "haic.decisions_artifact.v1",
+  "schema_version": "haic.decisions.v1",
+
+  // [ADDED] A stable identifier for this labeling session.
+  "session_id": "st_session_20260520T150411",
+
+  // [ADDED] Session-level metadata block.
+  // Required for EL baseline derivation and cross-pilot comparison.
+  "meta": {
+    "pilot_tag": "smart_ticketing",
+    "application": {
+      "name": "Smart Ticketing AL Platform",
+      "version": "1.0.0"
+    },
+    "ai_system": {
+      "model_name": "random forest",
+      "model_type": "classifier"
+    },
+    "task": {
+      "name": "active_learning_ticket_triage",
+      "domain": "customer_support",
+      "unit_of_work": "ticket"
+    },
+    "human": {
+      "actor_id": "labeler_01",  // [CHANGED] use role ID, not UUID (keep UUID in payload)
+      "role": "labeler",
+      "expertise": "domain_expert"
+    },
+    "timestamps": {
+      // [ADDED] Derived from first and last event timestamps in the session
+      "start_time": "2026-05-20T15:04:50.817219Z",
+      "end_time":   "2026-05-20T15:11:09.070334Z"
+    }
+  },
+
+  // ── DECISIONS ARRAY ──────────────────────────────────────────
+  // Only human and ai events go here.
+  // System events (see below) are logged separately or omitted.
+  "decisions": [
+
+    // ── EVENT 1: AL model selects a batch ────────────────────
+    {
+      // [ADDED] Sequential counter — set by haic-libs automatically,
+      // or assign manually if logging without the library.
+      "seq": 1,
+
+      // [CHANGED] "timestamp" → "t" (ISO string is accepted but
+      // the canonical field name is "t"). Alias resolution handles
+      // this automatically, but explicit is cleaner.
+      "t": "2026-05-20T15:07:02.460341Z",
+
+      // [ADDED] Role-based agent identifier.
+      // Original had no "agent" field at all.
+      "agent": "al_model",
+
+      // [ADDED] actor_type — CRITICAL. Was absent on all events.
+      // "al" (active learning selector) is an AI component.
+      "actor_type": "ai",
+
+      "action": "select_batch",
+
+      // [MOVE] ticket/item ID must be a top-level field, not buried
+      // in the payload. The batch ID serves as object_id here since
+      // this event acts on the batch rather than a single ticket.
+      "object_id": "BATCH_1779282422401",
+
+      // [NOTE] latency_ms here is the AL model's inference time — keep it.
+      "latency_ms": 98,
+
+      // [NOTE] No duration_s for AI events — that field is for human
+      // decision time only.
+      "duration_s": null,
+
+      // [NOTE] correct is not applicable for batch selection events;
+      // set null rather than omitting the field.
+      "correct": null,
+
+      // [ADDED] Links all events within this labeling turn together.
+      // Convention: {session_id}_{seq}
+      "interaction_id": "st_session_20260520T150411_001",
+
+      "session_id": "st_session_20260520T150411",
+
+      // Original payload kept as-is — fine to retain domain data here.
+      "payload": {
+        "batch_id": 1779282422401,
+        "ids": ["R-535527"],
+        "uncertainties": null,
+        // [NOTE] user_id moved here from top level
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+
+    // ── EVENT 2: Model produces prediction ───────────────────
+    {
+      "seq": 2,
+      "t": "2026-05-20T15:07:02.846843Z",
+      "agent": "classifier_model",   // [ADDED]
+      "actor_type": "ai",            // [ADDED]
+      "action": "predict",
+
+      // [MOVE] Ticket ID promoted to top level.
+      // In the original log, predict had no ticket_id at all —
+      // use the batch context to associate it.
+      "object_id": "R-535527",
+
+      "latency_ms": 109,
+      "duration_s": null,
+      "correct": null,               // [NOTE] correctness of prediction assessed at label time
+      "interaction_id": "st_session_20260520T150411_001",
+      "session_id": "st_session_20260520T150411",
+      "payload": {
+        "predictions": ["(GI-UX) Group"],
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+
+    // ── EVENT 3: XAI explanation generated ───────────────────
+    {
+      "seq": 3,
+      "t": "2026-05-20T15:07:09.499484Z",
+      "agent": "xai_lime",           // [ADDED]
+      "actor_type": "ai",            // [ADDED]
+      "action": "lime",
+
+      // [MOVE] Primary ticket being explained.
+      "object_id": "R-535527",
+
+      "latency_ms": 1006,
+      "duration_s": null,
+      "correct": null,
+      "interaction_id": "st_session_20260520T150411_001",
+      "session_id": "st_session_20260520T150411",
+      "payload": {
+        "errors": null,
+        "ticket_ids": ["R-535527"],
+        "top_features": [
+          [["password", 0.4213], ["reset", 0.2871], ["vpn", -0.1634],
+           ["access", 0.1012], ["expired", -0.0749]]
+        ],
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+
+    // ── EVENT 4: Human ACCEPTS the AI prediction ─────────────
+    {
+      "seq": 4,
+      "t": "2026-05-20T15:07:15.785937Z",
+      "agent": "labeler_01",         // [ADDED] role-based, not UUID
+      "actor_type": "human",         // [ADDED] — CRITICAL
+
+      // [NOTE] "confirm_label" is a valid HAIC action name.
+      // Semantically equivalent to "confirm" in the schema vocabulary.
+      "action": "confirm_label",
+
+      // [MOVE] ticket_id promoted from payload.ticket_id
+      "object_id": "R-535527",
+
+      // [FIX] duration_s must be the REAL wall-clock labeling time,
+      // measured as: timestamp(confirm_label) - timestamp(lime_delivered_to_UI)
+      // The original value of 15000ms is a hardcoded placeholder —
+      // Example below uses the gap between lime event and this event (~6.3 s).
+      "duration_s": 6.3,             // [FIX] replace placeholder with real value
+
+      // [NOTE] latency_ms here reflects the client-to-server round-trip
+      // for the label submission, not the human think time. Keep it.
+      "latency_ms": 15000,           // [NOTE] rename/repurpose if this is actually submit latency
+
+      // [ADDED] correct = (new_label == model_prediction)
+      // Derivable from existing payload fields — must be explicit here.
+      "correct": true,               // "(GI-UX) Group" == "(GI-UX) Group"
+
+      "interaction_id": "st_session_20260520T150411_001",
+      "session_id": "st_session_20260520T150411",
+
+      // [ADDED] ai_suggested — the value the AI proposed (used for Tr metric)
+      "ai_suggested": "(GI-UX) Group",
+
+      "payload": {
+        "model_prediction": "(GI-UX) Group",
+        "new_label": "(GI-UX) Group",
+        "most_helpful_feature": "xai",
+        "explanation": "test",
+        "ticket_id": "R-535527",
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+
+    // ── EVENT 5: Human OVERRIDES the AI prediction ───────────
+    {
+      "seq": 5,
+      "t": "2026-05-20T15:07:35.637737Z",
+      "agent": "labeler_01",         // [ADDED]
+      "actor_type": "human",         // [ADDED]
+      "action": "override_label",
+
+      // [MOVE] ticket_id promoted from payload
+      "object_id": "R-530447",
+
+      // [FIX] Same as above — replace 15 s placeholder with real value.
+      // Measure from when this ticket's XAI explanation was rendered in
+      // the UI to when the labeler submitted the override.
+      "duration_s": 14.7,            // [FIX] replace placeholder with real value
+
+      "latency_ms": 15000,           // [NOTE] same caveat as event 4
+
+      // [ADDED] correct = (new_label == model_prediction) → false for overrides
+      "correct": false,              // "(GI-UX) Account Mgmt" != "(GI-IaaS) Development Platform"
+
+      "interaction_id": "st_session_20260520T150411_002",
+      "session_id": "st_session_20260520T150411",
+
+      // [ADDED] ai_suggested — the value the AI proposed before the override
+      "ai_suggested": "(GI-IaaS) Development Platform",
+
+      "payload": {
+        "model_prediction": "(GI-IaaS) Development Platform",
+        "new_label": "(GI-UX) Account Management",
+        "most_helpful_feature": "xai",
+        "explanation": "test",
+        "ticket_id": "R-530447",
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+
+  ],
+
+  "events": [
+    {
+      "seq": 0,
+      "t": "2026-05-20T15:07:02.343974Z",
+      "agent": "orchestrator",
+      "actor_type": "system",        // [ADDED] — will be excluded from metrics
+      "action": "request_batch",
+      "object_id": "pool_main",
+      "latency_ms": 0,
+      "payload": {
+        "batch_size": 1,
+        "pool_size": 966,
+        "strategy": "random sampling",
+        "user_id": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  ]
+}
+
+// ============================================================
+// SUMMARY OF CHANGES
+//
+// Field          | Status in original  | Required action
+// ---------------|---------------------|---------------------------
+// actor_type     | MISSING (all events)| ADD to every event
+// agent          | MISSING             | ADD role-based identifier
+// object_id      | Buried in payload   | MOVE to top level
+// correct        | MISSING             | DERIVE from payload fields
+// duration_s     | 15 s placeholder    | MEASURE real labeling time
+// t              | "timestamp" alias   | RENAME for clarity
+// interaction_id | MISSING             | ADD per-turn link key
+// session_id     | MISSING             | ADD session grouping key
+// ai_suggested   | Buried in payload   | ADD top-level for Tr metric
+// Artifact wrapper| MISSING            | ADD haic.decisions_artifact.v1
+// System events  | Mixed in            | SEPARATE into "events" array
+// ============================================================
