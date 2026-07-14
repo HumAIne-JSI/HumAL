@@ -6,6 +6,7 @@ import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import InstanceSelector from '@/components/InstanceSelector.vue'
 import TicketForm from '@/components/TicketForm.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
@@ -128,7 +129,7 @@ const modelAccuracy = computed(() => {
     return instanceInfo.value.training_accuracy * 100
   }
   if (instanceInfo.value.f1_scores && instanceInfo.value.f1_scores.length > 0) {
-    return instanceInfo.value.f1_scores[instanceInfo.value.f1_scores.length - 1] * 100
+    return (instanceInfo.value.f1_scores[instanceInfo.value.f1_scores.length - 1] ?? 0) * 100
   }
   return 0
 })
@@ -136,9 +137,11 @@ const modelAccuracy = computed(() => {
 // Tickets query for fetching nearest ticket details
 const nearestTicketRef = computed(() => {
   if (!nearestResult.value) return []
-  const ref = Array.isArray(nearestResult.value.nearest_ticket_ref)
-    ? nearestResult.value.nearest_ticket_ref[0]
-    : nearestResult.value.nearest_ticket_ref
+  const neighbor =
+    nearestResult.value.predicted_class_neighbors?.[0] ??
+    nearestResult.value.historical_neighbors?.[0] ??
+    null
+  const ref = neighbor?.ref
   return ref ? [String(ref)] : []
 })
 
@@ -256,15 +259,16 @@ const runPrediction = async () => {
       // Only update if this is still the current prediction
       if (thisPredictionId === currentPredictionId) {
         explanation.value = limeRes
-        nearestResult.value = nearestRes
+        nearestResult.value = nearestRes?.[0] ?? null
         if (limeRes) {
           telemetry.recordView('view_explanation', null, 'inference', { explanation_type: 'lime' })
         }
         if (nearestRes) {
-          const nearestRef = Array.isArray(nearestRes.nearest_ticket_ref)
-            ? nearestRes.nearest_ticket_ref[0]
-            : nearestRes.nearest_ticket_ref
-          telemetry.recordView('view_nearest_ticket', null, 'inference', { nearest_ref: nearestRef })
+          const first =
+            nearestRes[0]?.predicted_class_neighbors?.[0] ??
+            nearestRes[0]?.historical_neighbors?.[0] ??
+            null
+          telemetry.recordView('view_nearest_ticket', null, 'inference', { nearest_ref: first?.ref })
         }
       }
     }).finally(() => {
@@ -452,8 +456,7 @@ const formatTime = (date: Date): string => {
             </template>
 
             <div v-if="isProcessing" class="results__loading">
-              <Progress :value="undefined" />
-              <span>Analyzing ticket...</span>
+              <Spinner label="Analyzing ticket..." />
             </div>
 
             <PredictionResult

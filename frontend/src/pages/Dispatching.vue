@@ -5,7 +5,7 @@ import { toast } from 'vue-sonner'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Select from '@/components/ui/Select.vue'
 import InstanceSelector from '@/components/InstanceSelector.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
@@ -168,17 +168,14 @@ interface NearestTicketDisplay {
 
 const nearestTickets = computed((): NearestTicketDisplay[] => {
   if (!nearestResult.value) return []
-  const { nearest_ticket_ref, nearest_ticket_label, similarity_score } = nearestResult.value
-  
-  // Handle both array and single value responses
-  const refs = Array.isArray(nearest_ticket_ref) ? nearest_ticket_ref : [nearest_ticket_ref]
-  const labels = Array.isArray(nearest_ticket_label) ? nearest_ticket_label : [nearest_ticket_label]
-  const scores = Array.isArray(similarity_score) ? similarity_score : [similarity_score]
-  
-  return refs.map((ref, i) => ({
-    ref,
-    team: labels[i] ?? 'Unknown',
-    similarity: scores[i] ?? 0,
+  const neighbors = [
+    ...(nearestResult.value.predicted_class_neighbors ?? []),
+    ...(nearestResult.value.historical_neighbors ?? []),
+  ]
+  return neighbors.map((n) => ({
+    ref: n.ref,
+    team: n.label ?? 'Unknown',
+    similarity: n.similarity ?? 0,
   }))
 })
 
@@ -233,7 +230,7 @@ const runDispatch = async () => {
     ])
 
     explanation.value = limeRes
-    nearestResult.value = nearestRes
+    nearestResult.value = nearestRes?.[0] ?? null
 
     // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
     // Both are capability-gated and silent — never block the labeling flow.
@@ -302,20 +299,21 @@ const fetchNextTicket = async () => {
     // Fetch next ticket index from active learning queue
     const nextData = await apiService.getNextInstances(selectedInstanceId.value, 1)
     const queryIdx = nextData.query_idx
-    if (!queryIdx || queryIdx.length === 0) {
+    const rawIdx = queryIdx?.[0]
+    if (rawIdx == null) {
       toast.info('No more tickets', { description: 'Active learning queue is empty' })
       return
     }
-    const idx = queryIdx[0].toString()
+    const idx = rawIdx.toString()
     currentTicketIdx.value = idx
     ticketShownAtMs.value = Date.now()
 
     // Fetch ticket details using POST with indices in body
     const ticketData = await apiService.getTickets(selectedInstanceId.value, [idx])
-    if (!ticketData.tickets || ticketData.tickets.length === 0) {
+    const t = ticketData.tickets?.[0]
+    if (!t) {
       throw new Error('Ticket not found')
     }
-    const t = ticketData.tickets[0]
     currentTicketRef.value = t.Ref ?? idx
 
     // Populate form with ticket data
@@ -542,8 +540,7 @@ const closeBreakModal = () => {
             </template>
 
             <div v-if="isRunning" class="results__loading">
-              <Progress :value="undefined" />
-              <span>Analyzing ticket...</span>
+              <Spinner label="Analyzing ticket..." />
             </div>
 
             <PredictionResult
@@ -641,8 +638,7 @@ const closeBreakModal = () => {
             </template>
 
             <div v-if="isRunning" class="results__loading">
-              <Progress :value="undefined" />
-              <span>Finding similar tickets...</span>
+              <Spinner label="Finding similar tickets..." />
             </div>
 
             <div v-else-if="nearestTickets.length > 0">
@@ -676,8 +672,7 @@ const closeBreakModal = () => {
             </template>
 
             <div v-if="isLoadingSimilarPerClass && similarPerClass.length === 0" class="results__loading">
-              <Progress :value="undefined" />
-              <span>Looking up similar tickets per class...</span>
+              <Spinner label="Looking up similar tickets per class..." />
             </div>
 
             <div v-else class="per-class-grid">

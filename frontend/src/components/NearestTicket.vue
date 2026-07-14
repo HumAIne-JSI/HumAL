@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Accordion from '@/components/ui/Accordion.vue'
 import { Search } from 'lucide-vue-next'
@@ -37,20 +37,18 @@ const telemetry = useBenchmarkTelemetry()
 // Process response into display format
 const displayData = computed((): NearestTicketDisplay | null => {
   if (!props.nearestTicket) return null
-  
-  const { nearest_ticket_ref, nearest_ticket_label, similarity_score } = props.nearestTicket
-  
-  // Handle both array and single value responses
-  const ref = Array.isArray(nearest_ticket_ref) ? nearest_ticket_ref[0] : nearest_ticket_ref
-  const label = Array.isArray(nearest_ticket_label) ? nearest_ticket_label[0] : nearest_ticket_label
-  const similarity = Array.isArray(similarity_score) ? similarity_score[0] : similarity_score
-  
-  if (!ref || label === undefined || similarity === undefined) return null
-  
+
+  const neighbor =
+    props.nearestTicket.predicted_class_neighbors?.[0] ??
+    props.nearestTicket.historical_neighbors?.[0] ??
+    null
+
+  if (!neighbor || !neighbor.ref) return null
+
   return {
-    ref: String(ref),
-    label: String(label),
-    similarity: Number(similarity),
+    ref: String(neighbor.ref),
+    label: String(neighbor.label ?? ''),
+    similarity: Number(neighbor.similarity ?? 0),
     details: props.ticketDetails,
   }
 })
@@ -97,8 +95,7 @@ watch(
 
     <!-- Loading State -->
     <div v-if="loading" class="nearest-ticket__loading">
-      <Progress :value="undefined" />
-      <span>Finding similar tickets...</span>
+      <Spinner label="Finding similar tickets..." />
     </div>
 
     <!-- Content -->

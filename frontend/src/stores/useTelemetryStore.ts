@@ -16,6 +16,14 @@ export interface LocalEvent {
   action: string
   latency_ms: number | null
   payload: Record<string, unknown>
+  /**
+   * Whether this event was recorded while Mock mode was ON. The benchmarking
+   * suite reads the SAME event stream in both modes, but scopes each view to
+   * the events recorded in that mode: mock -> demo/seed events, live -> only
+   * events produced by real tracked user interactions. This is what makes the
+   * dashboards behave identically while keeping live data untainted by seeds.
+   */
+  mock: boolean
 }
 
 const STORAGE_KEY = 'humal-mock-telemetry-events'
@@ -27,7 +35,8 @@ function loadFromStorage(): LocalEvent[] {
     if (!raw) return seedEvents()
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return seedEvents()
-    return parsed as LocalEvent[]
+    // Legacy events (persisted before the `mock` tag existed) are demo data.
+    return (parsed as LocalEvent[]).map((e) => ({ ...e, mock: e.mock ?? true }))
   } catch {
     return seedEvents()
   }
@@ -45,11 +54,12 @@ function seedEvents(): LocalEvent[] {
   const tickets = ['TKT-1042', 'TKT-1043', 'TKT-1044', 'TKT-1045', 'TKT-1046', 'TKT-1047', 'TKT-1048', 'TKT-1049']
   const teams = ['Team A', 'Team B', 'Team C']
 
-  function push(offsetMs: number, ev: Omit<LocalEvent, 'timestamp' | 'user_id'>) {
+  function push(offsetMs: number, ev: Omit<LocalEvent, 'timestamp' | 'user_id' | 'mock'>) {
     out.push({
       ...ev,
       timestamp: new Date(baseTs + offsetMs).toISOString(),
       user_id: null,
+      mock: true,
     })
   }
 
@@ -85,11 +95,23 @@ function seedEvents(): LocalEvent[] {
       payload: { ticket_ref: ref, page: 'queue_aided', prediction, confidence },
     })
     if (isAided) {
+      push(sessionStart + 1800, {
+        al_instance_id: null,
+        action: 'model_predict',
+        latency_ms: 70 + (idx % 4) * 20,
+        payload: { ticket_ref: ref, page: 'queue_aided', prediction, confidence },
+      })
       push(sessionStart + 2000, {
         al_instance_id: null,
         action: 'view_explanation',
         latency_ms: null,
         payload: { ticket_ref: ref, page: 'queue_aided', explanation_type: 'lime' },
+      })
+      push(sessionStart + 2200, {
+        al_instance_id: null,
+        action: 'xai_latency',
+        latency_ms: 620 + (idx % 5) * 90,
+        payload: { ticket_ref: ref, page: 'queue_aided', kind: 'lime' },
       })
       push(sessionStart + 2500, {
         al_instance_id: null,
@@ -110,12 +132,46 @@ function seedEvents(): LocalEvent[] {
       latency_ms: decisionLatency,
       payload: { ticket_ref: ref, page: 'queue_aided', label: prediction, prediction, confidence },
     })
+    if (idx % 6 === 5) {
+      push(sessionStart + 3200 + decisionLatency, {
+        al_instance_id: null,
+        action: 'labeler_feedback',
+        latency_ms: null,
+        payload: { ticket_ref: ref, page: 'queue_aided', feedback_type: 'I_AM_TIRED' },
+      })
+    } else if (!isAided && idx % 5 === 3) {
+      push(sessionStart + 3200 + decisionLatency, {
+        al_instance_id: null,
+        action: 'labeler_feedback',
+        latency_ms: null,
+        payload: { ticket_ref: ref, page: 'queue_aided', feedback_type: 'DIFFICULT_TICKET' },
+      })
+    }
     push(sessionStart + 3500 + decisionLatency, {
       al_instance_id: null,
       action: 'view_ticket_end',
       latency_ms: 2000 + decisionLatency,
       payload: { ticket_ref: ref, page: 'queue_aided', duration_s: (2000 + decisionLatency) / 1000 },
     })
+
+    // Lifecycle events for programme KPIs: some aided tickets are auto-managed
+    // & closed by the AI; one closed ticket is later re-opened.
+    if (isAided && idx <= 4) {
+      push(sessionStart + 4000 + decisionLatency, {
+        al_instance_id: null,
+        action: 'ticket_auto_closed',
+        latency_ms: null,
+        payload: { ticket_ref: ref, page: 'queue_aided', confidence: 0.9, prediction },
+      })
+    }
+    if (idx === 5) {
+      push(sessionStart + 5000 + decisionLatency, {
+        al_instance_id: null,
+        action: 'ticket_reopened',
+        latency_ms: null,
+        payload: { ticket_ref: ref, page: 'queue_aided' },
+      })
+    }
   })
 
   return out
@@ -146,6 +202,7 @@ export const useTelemetryStore = defineStore('telemetry', () => {
       action: event.action,
       latency_ms: event.latency_ms,
       payload: event.payload,
+      mock: event.mock,
     })
     persist()
   }
@@ -160,6 +217,15 @@ export const useTelemetryStore = defineStore('telemetry', () => {
     persist()
   }
 
+  /**
+   * Events recorded in the given mode. Mock mode reads seed/demo events;
+   * live mode reads only events produced by real tracked interactions, so the
+   * two never bleed into each other even though they share one store.
+   */
+  function eventsForMode(mock: boolean): LocalEvent[] {
+    return events.value.filter((e) => e.mock === mock)
+  }
+
   // Save when the user closes the tab; debounce to avoid hammering on rapid bursts.
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   watch(
@@ -171,5 +237,5 @@ export const useTelemetryStore = defineStore('telemetry', () => {
     { deep: true },
   )
 
-  return { events, addEvent, clear, reseed }
+  return { events, addEvent, clear, reseed, eventsForMode }
 })

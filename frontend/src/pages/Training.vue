@@ -10,7 +10,7 @@ import { useTeams } from '@/composables/api/useData'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { NewInstanceRequest } from '@/types/api'
-import { Plus, RefreshCw, X } from 'lucide-vue-next'
+import { Plus, RefreshCw, Upload, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
@@ -120,6 +120,9 @@ const strategyOptions = computed(() =>
   (strategies.value?.strategies ?? []).map((s) => ({ value: s, label: s })),
 )
 
+const trainFileName = computed(() => newInstanceForm.value.train_data_path?.split('/').pop() ?? '')
+const testFileName = computed(() => newInstanceForm.value.test_data_path?.split('/').pop() ?? '')
+
 const createInstanceMutation = useCreateInstance({
   onSuccess: (data) => {
     toast.success('Instance created', {
@@ -207,19 +210,28 @@ const onStrategyChange = (value: string) => {
 
         <div class="create-form__row">
           <div class="create-form__field">
-            <label>Training Data Path</label>
-            <Input
-              v-model="newInstanceForm.train_data_path"
-              placeholder="data/train.csv"
-            />
+            <label>
+              <Upload :size="14" />
+              Training Data (CSV)
+            </label>
+            <div class="file-input" aria-disabled="true">
+              <span class="file-input__button">Choose File</span>
+              <span class="file-input__name">{{ trainFileName }}</span>
+            </div>
           </div>
           <div class="create-form__field">
-            <label>Test Data Path</label>
-            <Input
-              v-model="newInstanceForm.test_data_path"
-              placeholder="data/test.csv"
-            />
+            <label>
+              <Upload :size="14" />
+              Test Data (CSV)
+            </label>
+            <div class="file-input" aria-disabled="true">
+              <span class="file-input__button">Choose File</span>
+              <span class="file-input__name">{{ testFileName }}</span>
+            </div>
           </div>
+          <p class="create-form__hint">
+            Uploading files from your machine is not available yet — disabled for demo purposes.
+          </p>
         </div>
 
         <div class="create-form__classes">
@@ -234,14 +246,14 @@ const onStrategyChange = (value: string) => {
               >
                 Load from Data
               </Button>
-              <Button
+              <!-- <Button
                 variant="outline"
                 size="sm"
                 @click="loadKnownTeams"
                 :disabled="allClasses.length >= KNOWN_TEAMS.length"
               >
                 Load Known Teams
-              </Button>
+              </Button> -->
             </div>
           </div>
           <div
@@ -381,6 +393,51 @@ const onStrategyChange = (value: string) => {
     label {
       font-size: 0.875rem;
       font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+  }
+
+  &__hint {
+    grid-column: 1 / -1;
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  .file-input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.25rem;
+    width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background-color: var(--input-background);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    color: var(--foreground);
+    box-sizing: border-box;
+    opacity: 0.7;
+    cursor: not-allowed;
+
+    &__button {
+      display: inline-flex;
+      align-items: center;
+      height: 1.75rem;
+      padding: 0 0.75rem;
+      border-radius: calc(var(--radius) - 2px);
+      border: 1px solid var(--border);
+      background-color: var(--muted);
+      font-weight: var(--font-weight-medium);
+      white-space: nowrap;
+    }
+
+    &__name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 

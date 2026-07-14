@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Select from '@/components/ui/Select.vue'
 import PredictionResult from '@/components/PredictionResult.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
@@ -188,16 +188,37 @@ function generateMockLime(): ExplainLimeResponse {
     const mag = (0.85 - idx * 0.08) * (0.7 + rng() * 0.3)
     return [w, Number((sign * Math.max(0.05, mag)).toFixed(3))]
   })
-  return [{ top_words: top, error: null }]
+  return [
+    {
+      text: `${props.ticket?.title ?? ''} ${props.ticket?.description ?? ''}`.trim(),
+      prediction: { label: '', probabilities: {} },
+      word_weights: top.map(([word, weight]) => ({ word, weight })),
+      highlighted_tokens: [],
+      index: 0,
+      error: null,
+      class_explanations: [],
+    },
+  ]
 }
 function generateMockNearest(pred: InferenceResponse): NearestTicketResponse {
   const rng = mulberry32(mockSeed() ^ 0x13572468)
   const refBase = props.ticket?.ref ?? 'TKT-0000'
-  return {
-    nearest_ticket_ref: `${refBase}-N1`,
-    nearest_ticket_label: String(pred.prediction),
-    similarity_score: Number((0.72 + rng() * 0.18).toFixed(3)),
+  const neighbor = {
+    ref: `${refBase}-N1`,
+    label: String(pred.prediction),
+    similarity: Number((0.72 + rng() * 0.18).toFixed(3)),
+    title: props.ticket?.title ?? null,
   }
+  return {
+    query_idx: null,
+    predicted_class_neighbors: [neighbor],
+    historical_neighbors: [neighbor],
+  }
+}
+/** First available neighbour across predicted-class then historical lists. */
+function firstNeighbor(n: NearestTicketResponse | null) {
+  if (!n) return null
+  return n.predicted_class_neighbors?.[0] ?? n.historical_neighbors?.[0] ?? null
 }
 function generateMockSimilarBody(): { title: string; description: string } {
   const rng = mulberry32(mockSeed() ^ 0x9e3779b9)
@@ -341,15 +362,13 @@ const { mutate: findNearest, isPending: isFindingNearest } = useNearestTicketMut
   computed(() => props.instanceId),
   {
     onSuccess: (data) => {
-      nearestTickets.value = data
+      nearestTickets.value = data[0] ?? null
       telemetry.recordView(
         'view_nearest_ticket',
         props.ticket?.ref ?? props.ticket?.id ?? null,
         'queue_aided',
         {
-          nearest_ref: Array.isArray(data.nearest_ticket_ref)
-            ? data.nearest_ticket_ref[0]
-            : data.nearest_ticket_ref,
+          nearest_ref: firstNeighbor(data[0] ?? null)?.ref,
         },
       )
     },
@@ -426,9 +445,7 @@ function runXaiAnalysis() {
       nearestTickets.value = nearest
       similarTicketBody.value = body
       mockFindingNearest.value = false
-      const nearestRef = Array.isArray(nearest.nearest_ticket_ref)
-        ? nearest.nearest_ticket_ref[0]
-        : nearest.nearest_ticket_ref
+      const nearestRef = firstNeighbor(nearest)?.ref
       telemetry.recordView(
         'view_nearest_ticket',
         props.ticket?.ref ?? props.ticket?.id ?? null,
@@ -553,13 +570,13 @@ watch(
 // Computed singular view of the nearest ticket response (the API returns the
 // same keys with either scalar or array values depending on entry point).
 const nearestSummary = computed(() => {
-  const n = nearestTickets.value
-  if (!n) return null
-  const refVal = Array.isArray(n.nearest_ticket_ref) ? n.nearest_ticket_ref[0] : n.nearest_ticket_ref
-  const labelVal = Array.isArray(n.nearest_ticket_label) ? n.nearest_ticket_label[0] : n.nearest_ticket_label
-  const simVal = Array.isArray(n.similarity_score) ? n.similarity_score[0] : n.similarity_score
-  if (!refVal) return null
-  return { ref: String(refVal), label: labelVal ? String(labelVal) : undefined, similarity: typeof simVal === 'number' ? simVal : undefined }
+  const first = firstNeighbor(nearestTickets.value)
+  if (!first) return null
+  return {
+    ref: String(first.ref),
+    label: first.label ? String(first.label) : undefined,
+    similarity: typeof first.similarity === 'number' ? first.similarity : undefined,
+  }
 })
 
 // When we have a nearest-ticket ref from the real API, fetch its body so the
@@ -646,8 +663,7 @@ const currentTicketForView = computed(() => ({
         <Transition name="prediction-fade" mode="out-in">
         <!-- Loading -->
         <div v-if="isInferringAny" key="loading" class="detail-panel__loading">
-          <Progress :value="undefined" />
-          <span>Analyzing ticket...</span>
+          <Spinner label="Analyzing ticket..." />
         </div>
 
         <!-- Prediction Result -->
@@ -773,8 +789,7 @@ const currentTicketForView = computed(() => ({
           v-if="isLoadingSimilarPerClass && similarPerClass.length === 0"
           class="detail-panel__per-class-loading"
         >
-          <Progress :value="undefined" />
-          <span>Looking up similar tickets per class...</span>
+          <Spinner label="Looking up similar tickets per class..." />
         </div>
 
         <div v-else class="detail-panel__per-class-grid">

@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import Button from '@/components/ui/Button.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import ManualTicketDetailPanel from '@/components/ManualTicketDetailPanel.vue'
@@ -349,8 +349,7 @@ const groupedShortcuts = computed(() => {
         </Transition>
 
         <div v-if="isLoading" class="ticket-queue__loading">
-          <Progress :value="undefined" />
-          <span>Loading tickets...</span>
+          <Spinner label="Loading tickets..." />
         </div>
 
         <div v-else-if="tickets.length === 0" class="ticket-queue__empty">

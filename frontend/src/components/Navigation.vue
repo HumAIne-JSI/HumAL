@@ -45,24 +45,41 @@
 
       <div v-if="!isCollapsed" class="sidebar__footer">
         <MockToggle />
+        <div class="sidebar__account">
+          <span class="sidebar__account-user" :title="accountLabel">{{ accountLabel }}</span>
+          <button type="button" class="sidebar__logout" @click="handleLogout">
+            <LogOut class="sidebar__logout-icon" />
+            <span>Sign out</span>
+          </button>
+        </div>
       </div>
     </aside>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next'
+import { ref, watch, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-vue-next'
 import { navItems } from '../router'
 import InstanceSelector from './InstanceSelector.vue'
 import MockToggle from './MockToggle.vue'
 import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 const STORAGE_KEY = 'humal-sidebar-collapsed'
 
 const route = useRoute()
+const router = useRouter()
 const instanceStore = useInstanceStore()
+const authStore = useAuthStore()
+
+const accountLabel = computed(() => authStore.user?.username || 'System user')
+
+const handleLogout = () => {
+  authStore.logout()
+  router.push({ name: 'login' })
+}
 
 const isCollapsed = ref(localStorage.getItem(STORAGE_KEY) === 'true')
 
@@ -230,6 +247,44 @@ const isActive = (path: string): boolean => {
   &__footer {
     padding: 1rem;
     border-top: 1px solid var(--sidebar-border);
+  }
+
+  &__account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  &__account-user {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__logout {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--sidebar-foreground, inherit);
+    background: transparent;
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius);
+    cursor: pointer;
+
+    &:hover {
+      background-color: var(--sidebar-accent, rgb(0 0 0 / 0.04));
+    }
+  }
+
+  &__logout-icon {
+    width: 0.875rem;
+    height: 0.875rem;
   }
 }
 </style>

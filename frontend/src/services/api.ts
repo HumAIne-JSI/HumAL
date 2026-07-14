@@ -12,7 +12,6 @@ import {
   type InferenceResponse,
   type InferenceTopKResponse,
   type InferProbaResponse,
-  type NearestNeighborsResponse,
   type LabelerFeedbackRequest,
   type LabelerFeedbackResponse,
   type ConfigModelsResponse,
@@ -44,12 +43,59 @@ import {
   type XaiRequestResponse,
   type XaiJobResponse,
   type ConfigCapabilitiesResponse,
+  // Auth / delegation types
+  type LoginRequest,
+  type UserRegisterRequest,
+  type TokenResponse,
+  type UserResponse,
+  type DelegateRequest,
+  type DelegateInfo,
 } from '@/types/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// Normalise: strip any trailing slash so `${base}${endpoint}` never doubles up.
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
+
+// ---------------------------------------------------------------------------
+// Auth token management
+// The backend accepts `Authorization: Bearer <jwt>` on all secured routes and
+// falls back to a system user when the header is absent/invalid. We keep the
+// token in a module-level variable (hydrated from localStorage) so every
+// request made through `apiCall` is authenticated automatically.
+// ---------------------------------------------------------------------------
+const AUTH_TOKEN_STORAGE_KEY = 'humal-auth-token';
+let authToken: string | null =
+  typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) : null;
+
+/** Set (or clear) the JWT used for all subsequent API calls. */
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+  if (typeof localStorage === 'undefined') return;
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  }
+}
+
+/** Current JWT, or null when unauthenticated. */
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+/** Optional hook invoked when the API returns 401 (e.g. to force re-login). */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
 
 // API endpoints
 export const API_ENDPOINTS = {
+  // Auth / users
+  LOGIN: '/users/login',
+  REGISTER: '/users/register',
+  ME: '/users/me',
+
   // Active Learning
   CREATE_INSTANCE: '/activelearning/new',
   GET_NEXT_INSTANCES: (id: number) => `/activelearning/${id}/next`,
@@ -61,13 +107,18 @@ export const API_ENDPOINTS = {
   GET_INSTANCES: '/activelearning/instances',
   DELETE_INSTANCE: (id: number) => `/activelearning/${id}`,
 
+  // Instance delegation (owner only)
+  DELEGATE_INSTANCE: (id: number) => `/activelearning/${id}/delegate`,
+  REVOKE_DELEGATION: (id: number, username: string) =>
+    `/activelearning/${id}/delegate/${encodeURIComponent(username)}`,
+  LIST_DELEGATES: (id: number) => `/activelearning/${id}/delegates`,
+
   // Inference
   INFER: (id: number) => `/activelearning/${id}/infer`,
   INFER_PROBA: (id: number) => `/activelearning/${id}/infer_proba`,
 
   // XAI
   EXPLAIN_LIME: (id: number) => `/xai/${id}/explain_lime`,
-  NEAREST_TICKET: (id: number) => `/xai/${id}/nearest_ticket`,
   XAI_NEAREST: (id: number) => `/xai/${id}/nearest`,
 
   // XAI
@@ -116,14 +167,21 @@ export const API_ENDPOINTS = {
 async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  // Attach the JWT when present. The backend falls back to a system user when
+  // the header is absent, so unauthenticated calls still succeed.
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
       ...options,
+      headers,
     });
   } catch (error) {
     // Network error (no connection, CORS, etc.)
@@ -136,6 +194,7 @@ async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<
   } catch {
     // Response is not valid JSON
     if (!response.ok) {
+      if (response.status === 401) onUnauthorized?.();
       throw new ApiError(response.status, response.statusText);
     }
     // If response was ok but not JSON, return empty object
@@ -143,6 +202,7 @@ async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
+    if (response.status === 401) onUnauthorized?.();
     const detail = (data as { detail?: string })?.detail || response.statusText;
     throw new ApiError(response.status, detail);
   }
@@ -152,6 +212,21 @@ async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 // API service functions - all throw ApiError on failure
 export const apiService = {
+  // Auth
+  login: (data: LoginRequest) =>
+    apiCall<TokenResponse>(API_ENDPOINTS.LOGIN, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  register: (data: UserRegisterRequest) =>
+    apiCall<UserResponse>(API_ENDPOINTS.REGISTER, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getMe: () => apiCall<UserResponse>(API_ENDPOINTS.ME),
+
   // Active Learning
   createInstance: (data: NewInstanceRequest) =>
     apiCall<CreateInstanceResponse>(API_ENDPOINTS.CREATE_INSTANCE, {
@@ -208,15 +283,37 @@ export const apiService = {
       method: 'DELETE',
     }),
 
-  // Inference
-  infer: async (id: number, data: InferenceData): Promise<InferenceResponse> => {
-    // Backend returns array of predictions, e.g., ["Team Name"]
-    // We need to transform it to InferenceResponse format
-    const rawResponse = await apiCall<string[] | InferenceResponse>(API_ENDPOINTS.INFER(id), {
+  // Instance delegation (owner only)
+  delegateInstance: (id: number, data: DelegateRequest) =>
+    apiCall<{ message?: string } & Record<string, unknown>>(API_ENDPOINTS.DELEGATE_INSTANCE(id), {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  revokeDelegation: (id: number, username: string) =>
+    apiCall<{ message?: string } & Record<string, unknown>>(
+      API_ENDPOINTS.REVOKE_DELEGATION(id, username),
+      { method: 'DELETE' },
+    ),
+
+  listDelegates: (id: number) =>
+    apiCall<DelegateInfo[]>(API_ENDPOINTS.LIST_DELEGATES(id)),
+
+  // Inference
+  infer: async (id: number, data?: InferenceData | null, queryIdx?: string[]): Promise<InferenceResponse> => {
+    // The API accepts EITHER an ad-hoc `data` body OR a `query_idx` query param
+    // (ticket refs) — never both. Passing query_idx logs events server-side.
+    const useQueryIdx = !!queryIdx?.length;
+    const params = new URLSearchParams();
+    if (useQueryIdx) queryIdx!.forEach((idx) => params.append('query_idx', idx));
+    const endpoint = `${API_ENDPOINTS.INFER(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    // Backend returns array of predictions, e.g., ["Team Name"]
+    const rawResponse = await apiCall<string[] | InferenceResponse>(endpoint, {
+      method: 'POST',
+      body: useQueryIdx ? undefined : JSON.stringify(data ?? {}),
     });
-    
+
     // If backend returns array, convert to InferenceResponse format
     if (Array.isArray(rawResponse)) {
       return {
@@ -225,28 +322,32 @@ export const apiService = {
         probabilities: undefined,
       };
     }
-    
+
     // If backend already returns InferenceResponse format, use it directly
     return rawResponse;
   },
 
   /**
    * Raw class-probability inference.
-   * Backend contract: POST /activelearning/{id}/infer_proba?ref=<ref>
+   * Backend contract: POST /activelearning/{id}/infer_proba with EITHER a
+   * `data` body OR a `query_idx` query param (ticket refs) — never both.
    * Response shape: { classes: [...], probabilities: [[...]] }
    */
-  inferProba: (id: number, data: InferenceData, ref?: string) => {
-    const endpoint = `${API_ENDPOINTS.INFER_PROBA(id)}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`;
+  inferProba: (id: number, data?: InferenceData | null, queryIdx?: string[]) => {
+    const useQueryIdx = !!queryIdx?.length;
+    const params = new URLSearchParams();
+    if (useQueryIdx) queryIdx!.forEach((idx) => params.append('query_idx', idx));
+    const endpoint = `${API_ENDPOINTS.INFER_PROBA(id)}${params.toString() ? `?${params.toString()}` : ''}`;
     return apiCall<InferProbaResponse>(endpoint, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: useQueryIdx ? undefined : JSON.stringify(data ?? {}),
     });
   },
 
   /**
    * Run top-K inference. Returns the K highest-probability predicted classes.
-   * The humaine-al-api backend has no dedicated top-K route, so this is derived
-   * from POST /activelearning/{id}/infer_proba by sorting the probability row.
+   * The backend has no dedicated top-K route, so this is derived from
+   * POST /activelearning/{id}/infer_proba by sorting the probability row.
    */
   inferTopK: async (id: number, data: InferenceData, topK: number = 2): Promise<InferenceTopKResponse> => {
     const proba = await apiService.inferProba(id, data);
@@ -261,28 +362,35 @@ export const apiService = {
   // XAI
   explainLime: (
     id: number,
-    payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number }
+    payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number; top_k?: number }
   ) => {
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
+    if (payload.top_k !== undefined) params.append('top_k', String(payload.top_k));
+    if (payload.query_idx) payload.query_idx.forEach((idx) => params.append('query_idx', idx));
     const endpoint = `${API_ENDPOINTS.EXPLAIN_LIME(id)}${params.toString() ? `?${params.toString()}` : ''}`;
     return apiCall<ExplainLimeResponse>(endpoint, {
       method: 'POST',
-      body: JSON.stringify(payload.ticket_data ?? payload.query_idx),
+      // Body is the ad-hoc ticket data (or null when using query_idx refs).
+      body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
     });
   },
 
-  findNearestTicket: (
+  /**
+   * Get nearest historical tickets via POST /xai/{id}/nearest.
+   * Returns one NearestTicketResponse per query (each with predicted-class and
+   * historical neighbour lists).
+   */
+  getNearest: (
     id: number,
-    payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number }
+    payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number; top_k?: number }
   ) => {
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
-    if (payload.query_idx) {
-      payload.query_idx.forEach((idx) => params.append('query_idx', idx));
-    }
-    const endpoint = `${API_ENDPOINTS.NEAREST_TICKET(id)}${params.toString() ? `?${params.toString()}` : ''}`;
-    return apiCall<NearestTicketResponse>(endpoint, {
+    if (payload.top_k !== undefined) params.append('top_k', String(payload.top_k));
+    if (payload.query_idx) payload.query_idx.forEach((idx) => params.append('query_idx', idx));
+    const endpoint = `${API_ENDPOINTS.XAI_NEAREST(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+    return apiCall<NearestTicketResponse[]>(endpoint, {
       method: 'POST',
       body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
     });
@@ -303,7 +411,7 @@ export const apiService = {
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
     params.append('top_k', String(Math.max(payload.class_labels.length, 1)));
     const endpoint = `${API_ENDPOINTS.XAI_NEAREST(id)}?${params.toString()}`;
-    const results = await apiCall<NearestNeighborsResponse[]>(endpoint, {
+    const results = await apiCall<NearestTicketResponse[]>(endpoint, {
       method: 'POST',
       body: JSON.stringify(payload.ticket_data),
     });
@@ -369,7 +477,7 @@ export const apiService = {
   getCategories: (_instanceId?: number, _trainDataPath?: string) => 
     apiCall<CategoriesResponse>(API_ENDPOINTS.GET_CATEGORIES),
 
-  getSubcategories: (_instanceId?: number, _trainDataPath?: string) => 
+  getSubcategories: (_instanceId?: number, _trainDataPath?: string, _category?: string) => 
     apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
 
   // Resolution

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Button from '@/components/ui/Button.vue'
 import { useInstances } from '@/composables/api/useActiveLearning'
 import { useConfig } from '@/composables/api/useConfig'
@@ -264,7 +265,9 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
         </Button>
       </div>
 
-      <div v-if="instancesLoading" class="dashboard__loading">Loading instances...</div>
+      <div v-if="instancesLoading" class="dashboard__loading">
+        <Spinner label="Loading instances..." />
+      </div>
 
       <div v-else-if="instancesList.length === 0" class="dashboard__empty">
         <Brain :size="48" class="dashboard__empty-icon" />

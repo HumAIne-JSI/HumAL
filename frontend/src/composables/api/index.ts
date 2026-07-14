@@ -64,11 +64,17 @@ export {
   resolutionKeys,
 } from './useResolution';
 
-// Analytics domain - benchmark sessions
+// Analytics domain - benchmarking suite (model performance, resource efficiency,
+// human satisfaction) + user-behavior engagement views
 export {
-  useAnalyticsOverview,
-  useSessions,
-  useSession,
+  useModelPerformance,
+  useUserBehaviorOverview,
+  useUserBehaviorAIImpact,
+  useUserBehaviorXaiEngagement,
+  useUserBehaviorPageEngagement,
+  useUserBehaviorTicketHeatmap,
+  useUserBehaviorTimeline,
+  useUserBehaviorFunnel,
   useSampleData,
   setUseSampleData,
   analyticsKeys,

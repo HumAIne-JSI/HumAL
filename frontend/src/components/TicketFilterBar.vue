@@ -149,6 +149,8 @@ function clearSearch() {
   }
 
   &__search-input {
+    width: 100%;
+    box-sizing: border-box;
     padding: 0.375rem 1.75rem 0.375rem 2rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);

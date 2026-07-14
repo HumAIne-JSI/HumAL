@@ -156,4 +156,64 @@ npm run dev
 
 The app will be available at http://localhost:5173.
 
-The backend API URL is configured in `src/.env` (`VITE_API_BASE_URL`, defaults to `http://localhost:8000/api`).
+The backend API URL is configured via `VITE_API_BASE_URL` in an `.env` file at the
+`frontend/` root (copy `.env.example` to `.env`). It defaults to `http://localhost:8000`;
+the deployed backend is `https://al-api.humaine-horizon.eu`.
+
+Authentication is JWT-based: sign in (or register) on the `/login` page. The token is
+stored locally and sent as `Authorization: Bearer <jwt>` on every request. Without a
+token the backend falls back to a shared system user, but owner-only features (instance
+delegation) require an account.
+
+Run `npm run test:api` to smoke-test every backend endpoint the app depends on
+(`VITE_API_BASE_URL` env or `--url <base>` selects the target server).
+
+
+
+
+
+The two tabs are different views on the Analytics page
+Benchmarking Suite (activeTab === 'benchmark')
+
+Shows pre-recorded, complete agent runs — "sessions". Each session is a script of events from all agents (the human "LAB" agent plus AI agents), with per-agent event counts, latencies, and human decision durations. You pick a session → see its overview cards, a ScriptTimeline, and can export the raw JSON.
+Backed by the useAnalyticsOverview / useSessions / useSession composables (originally /analytics/overview, /analytics/sessions, /analytics/sessions/{id}), whose data comes from benchmarking_suite/*.json.
+It's retrospective: analyzing finished benchmark runs.
+User Behavior (UserBehaviorDashboard.vue, activeTab === 'user-behavior')
+
+Shows aggregated metrics of the current user's own interactions — overview, AI impact, XAI engagement, page engagement, ticket heatmap, event timeline, and funnel.
+Backed by the useUserBehavior* composables. In mock mode these aggregate the client-side event log in useTelemetryStore via useUserBehaviorAggregator.ts.
+It's live/interactive: reflecting what you're clicking, viewing, and labeling right now.
+So: Benchmarking Suite = recorded multi-agent traces you replay/inspect. User Behavior = a real-time dashboard of your own telemetry stream.
+
+When is data actually sent to the backend?
+After the realignment to origin/humaine-al-api, the answer depends on the Mock toggle:
+
+Mock mode ON → nothing goes to the backend. Every telemetry event (clicks, page views, tab changes, view-ticket, label decisions) is written only to the client-side useTelemetryStore, and both dashboards read from sample fixtures / client aggregation.
+
+Mock mode OFF (live) → the branch backend has no generic /analytics/* telemetry endpoint, so:
+
+Granular UX telemetry (clicks, open_page, tab_change, view_ticket_*, filters, etc.) is a no-op — see the early return in recordLab in useBenchmarkTelemetry.ts and the dropped postTelemetryEvent in router/index.ts. It is not sent anywhere.
+
+The only telemetry that reaches the backend is a human label decision, sent at the moment you confirm or override a ticket, via POST /activelearning/{id}/label-with-info. That fires from:
+
+useTicketQueue.ts (single confirm/override in TicketQueue/ManualQueue), and
+Dispatching.vue (confirmPrediction / reassignTeam).
+The payload carries ticket_id, label, model_prediction, start_time/end_time (decision timing), and optional explanation / most_helpful_feature. Server-side this logs an al_events row + stages a label_decision, and the benchmarking service exports to MinIO once enough confirm/override events accumulate.
+
+Bulk labeling still uses PUT /activelearning/{id}/label (persists the label but is not the rich telemetry channel — no per-ticket timing).
+
+In live mode both Analytics tabs render sample/empty data (guarded to avoid 404s), so they're effectively mock-only features with this backend.
+
+In one sentence: in live mode the backend only receives telemetry when you label a ticket (through label-with-info); everything else the dashboards show is client-side only and, in mock mode, nothing is sent at all.
+
+
+
+
+
+
+
+
+TODO:
+
+
+- rejected tickets, come gestirli a FE

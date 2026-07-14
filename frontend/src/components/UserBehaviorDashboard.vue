@@ -63,11 +63,19 @@ const mockStore = useMockModeStore()
 const telemetryStore = useTelemetryStore()
 const scope = ref<'all' | 'current'>('all')
 
-const instanceId = computed<number | null>(() =>
-  scope.value === 'current' && instanceStore.selectedInstanceId > 0
+const props = defineProps<{
+  /** When embedded in the Benchmarking Suite, hide the standalone header. */
+  embedded?: boolean
+  /** Override the instance scope (used by the holistic Analytics page). */
+  instanceId?: number | null
+}>()
+
+const instanceId = computed<number | null>(() => {
+  if (props.instanceId !== undefined) return props.instanceId
+  return scope.value === 'current' && instanceStore.selectedInstanceId > 0
     ? instanceStore.selectedInstanceId
-    : null,
-)
+    : null
+})
 
 const { data: overview } = useUserBehaviorOverview(instanceId)
 const { data: aiImpact } = useUserBehaviorAIImpact(instanceId)
@@ -260,7 +268,7 @@ function clearMockEvents() {
 
 <template>
   <div class="user-behavior" data-track-region="user_behavior_dashboard">
-    <header class="user-behavior__header">
+    <header v-if="!props.embedded" class="user-behavior__header">
       <div>
         <h2 class="user-behavior__title">User Behavior</h2>
         <p class="user-behavior__subtitle">

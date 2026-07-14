@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import { Search, Sparkles } from 'lucide-vue-next'
 import type { ExplainLimeResponse } from '@/types/api'
 
@@ -40,9 +40,13 @@ interface Token {
 const wordWeights = computed(() => {
   const map = new Map<string, number>()
   const item = props.lime?.[0]
-  if (!item || !item.top_words) return map
-  for (const [word, weight] of item.top_words) {
-    if (!word) continue
+  if (!item || !item.word_weights) return map
+  for (const entry of item.word_weights) {
+    // The backend returns tuples ([word, weight]); mock/legacy data uses
+    // objects ({ word, weight }). Accept both.
+    const word = Array.isArray(entry) ? entry[0] : entry.word
+    const weight = Array.isArray(entry) ? entry[1] : entry.weight
+    if (!word || typeof weight !== 'number') continue
     const key = word.toLowerCase()
     const existing = map.get(key)
     if (existing === undefined || Math.abs(weight) > Math.abs(existing)) {
@@ -142,8 +146,7 @@ const hasSimilar = computed(
           <span class="side-by-side__col-label">Current ticket</span>
         </header>
         <div v-if="loadingLime" class="side-by-side__loading">
-          <Progress :value="undefined" />
-          <span>Computing word importance...</span>
+          <Spinner label="Computing word importance..." />
         </div>
         <div v-else class="side-by-side__body">
           <h4 v-if="currentTicket.title" class="side-by-side__body-title">
@@ -192,8 +195,7 @@ const hasSimilar = computed(
           </Badge>
         </header>
         <div v-if="loadingSimilar" class="side-by-side__loading">
-          <Progress :value="undefined" />
-          <span>Finding similar ticket...</span>
+          <Spinner label="Finding similar ticket..." />
         </div>
         <div v-else-if="hasSimilar" class="side-by-side__body">
           <h4 v-if="similarTicket?.title" class="side-by-side__body-title">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Button from '@/components/ui/Button.vue'
 import { ChevronDown, ChevronUp, Lightbulb } from 'lucide-vue-next'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
@@ -56,9 +56,15 @@ interface FeatureImportance {
 }
 
 const sortedFeatures = computed((): FeatureImportance[] => {
-  if (!props.explanation || !props.explanation[0]?.top_words) return []
-  return props.explanation[0].top_words
-    .map(([word, importance]) => ({ word, importance }))
+  const wordWeights = props.explanation?.[0]?.word_weights
+  if (!wordWeights) return []
+  return wordWeights
+    .map((entry) => {
+      // Accept both tuple ([word, weight]) and object ({ word, weight }) shapes.
+      const word = Array.isArray(entry) ? entry[0] : entry.word
+      const weight = Array.isArray(entry) ? entry[1] : entry.weight
+      return { word, importance: weight }
+    })
     .sort((a, b) => Math.abs(b.importance) - Math.abs(a.importance))
     .slice(0, props.maxWords)
 })
@@ -106,8 +112,7 @@ const toggleExpanded = () => {
 
     <!-- Loading State -->
     <div v-if="loading" class="lime-explanation__loading">
-      <Progress :value="undefined" />
-      <span>Generating explanation...</span>
+      <Spinner label="Generating explanation..." />
     </div>
 
     <!-- Content -->

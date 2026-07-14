@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import Accordion from '@/components/ui/Accordion.vue'
 import ExportButton from '@/components/ExportButton.vue'
 import { useInstances } from '@/composables/api/useActiveLearning'
@@ -58,7 +59,7 @@ const dataInstanceId = computed(() => {
 const { data: categoriesData } = useCategories(dataInstanceId, undefined, {
   enabled: computed(() => dataInstanceId.value > 0),
 })
-const { data: subcategoriesData } = useSubcategories(dataInstanceId, undefined, {
+const { data: subcategoriesData } = useSubcategories(dataInstanceId, undefined, undefined, {
   enabled: computed(() => dataInstanceId.value > 0),
 })
 
@@ -282,8 +283,7 @@ const clearForm = () => {
           </template>
 
           <div v-if="isProcessing" class="loading-state">
-            <Progress :value="undefined" />
-            <span>Analyzing ticket...</span>
+            <Spinner label="Analyzing ticket..." />
           </div>
 
           <template v-else-if="result">
@@ -323,8 +323,7 @@ const clearForm = () => {
           </template>
 
           <div v-if="isProcessing" class="loading-state">
-            <Progress :value="undefined" />
-            <span>Generating response...</span>
+            <Spinner label="Generating response..." />
           </div>
 
           <template v-else-if="result">

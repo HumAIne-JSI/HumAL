@@ -1,10 +1,32 @@
+// Auth Types
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface UserRegisterRequest {
+  username: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+export interface UserResponse {
+  user_id: string;
+  username: string;
+}
+
 // API Request Types
 export interface NewInstanceRequest {
   model_name: string;
   qs_strategy: string;
   class_list: (number | string | null)[];
-  train_data_path: string;
-  test_data_path: string;
+  /** Optional on the live API — defaults are resolved server-side. */
+  train_data_path?: string;
+  test_data_path?: string;
 }
 
 export interface LabelRequest {
@@ -13,20 +35,37 @@ export interface LabelRequest {
 }
 
 /**
+ * Strict literal for the feature the labeler found most helpful.
+ * Rendered as a dropdown / segmented control — no free text.
+ */
+export type MostHelpfulFeature =
+  | 'lime'
+  | 'predicted_class_neighbors'
+  | 'historical_neighbors'
+  | 'model_prediction';
+
+/**
  * Rich labelling payload for POST /activelearning/{id}/label-with-info.
  * This is the telemetry channel: it persists the human decision together
  * with timing, the model's prediction and any explanation surfaced to the user.
  */
 export interface LabelInfo {
   ticket_id: string;
-  label: string;
+  /** Optional: omitted when i_dont_know retires the ticket. */
+  label?: string | null;
   model_prediction?: string | null;
   /** ISO-8601 timestamp when the ticket was presented to the user. */
   start_time: string;
   /** ISO-8601 timestamp when the user submitted the decision. */
   end_time: string;
   explanation?: string | null;
-  most_helpful_feature?: string | null;
+  most_helpful_feature?: MostHelpfulFeature | null;
+  /** Analytics-only: labeler reported fatigue. */
+  is_tired?: boolean | null;
+  /** Analytics-only: labeler found the ticket difficult. */
+  is_difficult?: boolean | null;
+  /** When true: retires the ticket from the pool; label becomes optional. */
+  i_dont_know?: boolean | null;
 }
 
 export interface InferenceData {
@@ -65,6 +104,27 @@ export interface InstanceInfo {
   test_accuracy?: number;
   labeled_count?: number;
   total_count?: number;
+  // Additional per-iteration metric lists (parallel to f1_scores / num_labeled)
+  accuracies?: number[];
+  precisions_macro?: number[];
+  precisions_weighted?: number[];
+  recalls_macro?: number[];
+  recalls_weighted?: number[];
+  f1_per_class?: number[][];
+  confusion_matrices?: number[][][];
+  roc_aucs_ovr_macro?: number[];
+}
+
+// Instance delegation (owner-only)
+export interface DelegateRequest {
+  username: string;
+}
+
+export interface DelegateInfo {
+  username: string;
+  delegate_user_id: string;
+  granted_by: string;
+  granted_at: string;
 }
 
 export interface InstancesListResponse {
@@ -186,18 +246,44 @@ export interface SubcategoriesResponse {
 }
 
 // XAI Response Types
-export interface ExplainLimeItem {
-  top_words: [string, number][];
+/** A LIME word/weight pair from the new XaiResultFile shape. */
+export interface XaiWordWeight {
+  word: string;
+  weight: number;
+}
+
+export interface XaiHighlightedToken {
+  token: string;
+  direction: 'positive' | 'negative';
+  intensity: number;
+}
+
+export interface XaiPrediction {
+  label: string;
+  probabilities: Record<string, number>;
+}
+
+/**
+ * Response item of POST /xai/{id}/explain_lime (new shape).
+ * Replaces the old { class, top_words, error } parsing.
+ */
+export interface XaiResultFile {
+  text: string;
+  prediction: XaiPrediction;
+  /**
+   * Word weights for the top-1 class only. The backend returns tuples
+   * ([word, weight]); legacy/mocked data used objects. Consumers must
+   * handle both shapes.
+   */
+  word_weights: (XaiWordWeight | [string, number])[];
+  highlighted_tokens?: XaiHighlightedToken[];
+  index?: number;
   error?: string | null;
+  /** Per-class breakdowns. */
+  class_explanations?: unknown[];
 }
 
-export type ExplainLimeResponse = ExplainLimeItem[];
-
-export interface NearestTicketResponse {
-  nearest_ticket_ref: string | string[];
-  nearest_ticket_label: string | string[];
-  similarity_score: number | number[];
-}
+export type ExplainLimeResponse = XaiResultFile[];
 
 /** Single neighbour entry returned by POST /xai/{id}/nearest */
 export interface Neighbor {
@@ -213,11 +299,11 @@ export interface Neighbor {
   similar_tickets?: unknown;
   model_prediction?: string | null;
   explanation?: string | null;
-  most_helpful_feature?: string | null;
+  most_helpful_feature?: MostHelpfulFeature | null;
 }
 
-/** Response item of POST /xai/{id}/nearest */
-export interface NearestNeighborsResponse {
+/** Response item of POST /xai/{id}/nearest (one entry per query / top-k class). */
+export interface NearestTicketResponse {
   query_idx?: string | null;
   predicted_class_neighbors: Neighbor[];
   historical_neighbors: Neighbor[];
@@ -479,4 +565,91 @@ export interface FunnelMetrics {
   select_to_explanation_rate: number | null;
   explanation_to_label_rate: number | null;
   select_to_label_rate: number | null;
+}
+
+// ======
+// Benchmarking-suite pillar metrics (AFU: model performance, resource
+// efficiency, human satisfaction). Derived client-side from real model info
+// (/activelearning/{id}/info) + the tracked telemetry event stream.
+// ======
+
+/** Pillar 1 — Model performance summary derived from InstanceInfo. */
+export interface ModelPerformanceSummary {
+  latest_f1: number | null;
+  f1_improvement: number | null;
+  latest_accuracy: number | null;
+  latest_auroc: number | null;
+  entropy_reduction: number | null;
+  total_labeled: number;
+  iterations: number;
+  f1_trend: 'improving' | 'stable' | 'declining' | null;
+  convergence_iteration: number | null;
+}
+
+/** Pillar 2 — Resource utilisation / efficiency. */
+export interface ResourceEfficiencyMetrics {
+  // Label-budget efficiency (from model info arrays)
+  samples_to_f1_70: number | null;
+  samples_to_f1_80: number | null;
+  samples_to_f1_90: number | null;
+  f1_gain_per_100_labels: number | null;
+  labels_total: number;
+  // Human effort (from telemetry decision events)
+  total_human_seconds: number;
+  mean_decision_seconds: number | null;
+  decisions_per_hour: number | null;
+  // AI compute latency (from telemetry latency probes)
+  mean_ai_latency_ms: number | null;
+  p95_ai_latency_ms: number | null;
+  mean_predict_latency_ms: number | null;
+  mean_xai_latency_ms: number | null;
+  ai_latency_samples: number;
+}
+
+/** Pillar 3 — Human satisfaction / friction. */
+export interface SatisfactionMetrics {
+  confirm_count: number;
+  override_count: number;
+  abstain_count: number;
+  total_decisions: number;
+  acceptance_rate: number | null;
+  override_rate: number | null;
+  tired_count: number;
+  difficult_count: number;
+  idk_count: number;
+  flagged_decision_rate: number | null;
+  /** Composite 0..1 index: acceptance weighted down by reported friction. */
+  satisfaction_index: number | null;
+}
+
+/**
+ * Programme KPIs (AFU objectives) surfaced against their targets on the
+ * Benchmarking Suite. Each maps an AFU KPI to a value derived from the
+ * pillars + lifecycle telemetry.
+ */
+export type ProgramKpiStatus = 'on_track' | 'at_risk' | 'off_track' | 'no_data';
+
+export interface ProgramKpi {
+  id: string;
+  label: string;
+  /** 0..1 fraction (all current KPIs are ratios) or null when no data. */
+  value: number | null;
+  target: number | null;
+  higher_is_better: boolean;
+  status: ProgramKpiStatus;
+  hint: string;
+  source: string;
+  /** False = surfaced as a proxy / not yet backed by a real event stream. */
+  instrumented: boolean;
+}
+
+export interface ProgramKpiTargets {
+  auto_solve: number;
+  ai_managed: number;
+  resolution_time_reduction: number;
+  reopen_rate_max: number;
+  manual_effort_reduction: number;
+  trust: number;
+  assistance: number;
+  overall_satisfaction: number;
 }

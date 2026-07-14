@@ -14,6 +14,7 @@
 import { useInstanceStore } from '@/stores/useInstanceStore';
 import { useMockModeStore } from '@/stores/useMockModeStore';
 import { useTelemetryStore } from '@/stores/useTelemetryStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import type { ObjectId } from '@/types/api';
 
 // Allow-list mirrors backend AGENT_AFFORDANCES[AgentId.LAB] + UX-only events
@@ -41,6 +42,13 @@ const LAB_AFFORDANCES = new Set([
   'tab_change',
   'export',
   'labeler_feedback',
+  // Resource-efficiency latency probes (AI compute time)
+  'model_predict',
+  'model_train',
+  'xai_latency',
+  // Ticket-lifecycle events for programme KPIs (AI auto-close, re-open)
+  'ticket_auto_closed',
+  'ticket_reopened',
 ]);
 
 export type LabAction = (typeof LAB_AFFORDANCES extends Set<infer T> ? T : never) | string;
@@ -50,12 +58,13 @@ export function useBenchmarkTelemetry() {
   const instanceStore = useInstanceStore();
   const mockStore = useMockModeStore();
   const telemetryStore = useTelemetryStore();
+  const authStore = useAuthStore();
 
   function recordLab(
     action: string,
     object: ObjectId,
     effect: Record<string, unknown> = {},
-    options: { duration_s?: number; interaction_id?: string } = {},
+    options: { duration_s?: number; interaction_id?: string; latency_ms?: number } = {},
   ): Promise<void> {
     if (!LAB_AFFORDANCES.has(action)) {
       console.warn('[telemetry] unrecognised LAB action:', action);
@@ -63,26 +72,68 @@ export function useBenchmarkTelemetry() {
     }
     const instanceId = instanceStore.selectedInstanceId;
     const resolvedInstanceId = instanceId && instanceId > 0 ? instanceId : null;
-    const latencyMs = options.duration_s != null ? Math.round(options.duration_s * 1000) : null;
+    const latencyMs =
+      options.latency_ms != null
+        ? Math.round(options.latency_ms)
+        : options.duration_s != null
+          ? Math.round(options.duration_s * 1000)
+          : null;
 
-    // Mock mode: store events client-side so the User Behavior dashboard
-    // reflects real interactions without a backend round-trip.
-    if (mockStore.mockEnabled) {
-      telemetryStore.addEvent({
-        al_instance_id: resolvedInstanceId,
-        action,
-        latency_ms: latencyMs,
-        payload: { ...effect, object },
-      });
-      return Promise.resolve();
-    }
-
-    // Live mode: the humaine-al-api backend has no generic telemetry endpoint.
-    // Human label decisions are captured server-side via label-with-info at the
-    // point of labelling; all other granular UX events are intentionally not
-    // sent here (they would 404). This keeps live mode functional without a
-    // dedicated analytics service.
+    // Unified pipeline: every tracked interaction is recorded to the local
+    // event store in BOTH mock and live mode. Events are tagged with the mode
+    // they were captured in so the benchmarking suite can scope each view
+    // (mock -> demo/seed data, live -> real tracked interactions) without the
+    // two bleeding into each other.
+    //
+    // In live mode the durable server-of-record for HUMAN DECISIONS is
+    // POST /activelearning/{id}/label-with-info (fired from the labelling
+    // flows); the humaine-al-api backend has no generic telemetry endpoint, so
+    // granular UX events live client-side only.
+    telemetryStore.addEvent({
+      al_instance_id: resolvedInstanceId,
+      action,
+      latency_ms: latencyMs,
+      payload: { ...effect, object },
+      user_id: authStore.user?.user_id || null,
+      mock: mockStore.mockEnabled,
+    });
     return Promise.resolve();
+  }
+
+  /**
+   * Record an AI compute-latency probe for the Resource-efficiency pillar.
+   * `action` is one of 'model_predict' | 'model_train' | 'xai_latency'.
+   */
+  function recordLatency(
+    action: 'model_predict' | 'model_train' | 'xai_latency',
+    latencyMs: number,
+    effect: Record<string, unknown> = {},
+  ): Promise<void> {
+    return recordLab(action, 'Mdl', effect, { latency_ms: latencyMs });
+  }
+
+  /**
+   * Record that a ticket was managed & closed by the AI without a human
+   * decision (programme KPI: "% tickets auto-managed & closed by AI").
+   */
+  function recordAutoClose(
+    ticketRef: string | null,
+    page: LabPage,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    return recordLab('ticket_auto_closed', 'Ticket', { ticket_ref: ticketRef, page, ...extra });
+  }
+
+  /**
+   * Record that a previously closed ticket was re-opened (programme KPI:
+   * "reduction of re-opened tickets").
+   */
+  function recordReopen(
+    ticketRef: string | null,
+    page: LabPage,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    return recordLab('ticket_reopened', 'Ticket', { ticket_ref: ticketRef, page, ...extra });
   }
 
   function recordClick(
@@ -149,6 +200,6 @@ export function useBenchmarkTelemetry() {
     );
   }
 
-  return { recordLab, recordClick, recordLabelDecision, recordView };
+  return { recordLab, recordClick, recordLabelDecision, recordView, recordLatency, recordAutoClose, recordReopen };
 }
 

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
-import Progress from '@/components/ui/Progress.vue'
+import Spinner from '@/components/ui/Spinner.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
@@ -13,6 +13,7 @@ import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
+import { AUTO_CLOSE_CONFIDENCE } from '@/composables/useUserBehaviorAggregator'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
 import { useLabelerFeedbackMutation } from '@/composables/api/useActiveLearning'
@@ -171,6 +172,15 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
     confidence: meta.confidence ?? null,
     durationMs,
   })
+
+  // A high-confidence prediction that the operator confirms is effectively
+  // managed & closed by the AI (programme KPI: % auto-managed & closed).
+  if ((meta.confidence ?? 0) >= AUTO_CLOSE_CONFIDENCE) {
+    void telemetry.recordAutoClose(ticket.ref ?? ticket.id, 'queue_aided', {
+      confidence: meta.confidence ?? null,
+      prediction: meta.prediction ?? team,
+    })
+  }
 
   labelTicket(
     { ticketId: ticket.id, label: team, prediction: meta.prediction ?? team, durationMs },
@@ -432,8 +442,7 @@ const groupedShortcuts = computed(() => {
 
         <!-- Loading State -->
         <div v-if="isLoading" class="ticket-queue__loading">
-          <Progress :value="undefined" />
-          <span>Loading tickets...</span>
+          <Spinner label="Loading tickets..." />
         </div>
 
         <!-- Empty State -->

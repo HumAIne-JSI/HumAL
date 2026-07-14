@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { apiService } from '@/services/api'
 import { useTicketQueueStore, type QueueTicket, type TicketStatus } from '@/stores/useTicketQueueStore'
 import { useMockData, generateMockTickets, getMockTeams } from '@/composables/useMockTickets'
-import type { Ticket, LabelRequest, LabelInfo } from '@/types/api'
+import type { Ticket, LabelRequest, LabelInfo, MostHelpfulFeature } from '@/types/api'
 
 // Query keys for ticket queue
 export const ticketQueueKeys = {
@@ -123,6 +123,9 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       durationMs,
       explanation,
       mostHelpfulFeature,
+      isTired,
+      isDifficult,
+      iDontKnow,
     }: {
       ticketId: string
       label: string
@@ -131,7 +134,11 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       /** Time the user spent on the decision, in milliseconds. */
       durationMs?: number | null
       explanation?: string | null
-      mostHelpfulFeature?: string | null
+      mostHelpfulFeature?: MostHelpfulFeature | null
+      /** Human-satisfaction signals persisted with the decision (label-with-info). */
+      isTired?: boolean | null
+      isDifficult?: boolean | null
+      iDontKnow?: boolean | null
     }) => {
       const id = toValue(instanceId)
       if (id <= 0 || isMockMode.value) {
@@ -140,9 +147,9 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       }
 
       // Live mode: submit via label-with-info so the human decision is captured
-      // as a benchmark telemetry event (timing + model prediction + explanation)
-      // in addition to persisting the label. This retrains + recomputes metrics,
-      // so we must NOT also call labelInstance for the same ticket.
+      // as a benchmark telemetry event (timing + model prediction + satisfaction
+      // signals) in addition to persisting the label. This retrains + recomputes
+      // metrics, so we must NOT also call labelInstance for the same ticket.
       const endMs = Date.now()
       const startMs = durationMs != null ? endMs - durationMs : endMs
       const info: LabelInfo = {
@@ -153,6 +160,9 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
         end_time: new Date(endMs).toISOString(),
         explanation: explanation ?? undefined,
         most_helpful_feature: mostHelpfulFeature ?? undefined,
+        is_tired: isTired ?? undefined,
+        is_difficult: isDifficult ?? undefined,
+        i_dont_know: iDontKnow ?? undefined,
       }
       return apiService.labelWithInfo(id, [info])
     },

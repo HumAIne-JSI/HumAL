@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from '@tanstack/vue-query';
 import { computed, type MaybeRef, toValue } from 'vue';
 import { apiService } from '@/services/api';
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry';
 import type {
   InferenceData,
   ExplainLimeResponse,
@@ -57,8 +58,14 @@ export function useExplainLimeMutation(
     onSuccess?: (data: ExplainLimeResponse) => void;
   }
 ) {
+  const telemetry = useBenchmarkTelemetry();
   return useMutation({
-    mutationFn: (payload: ExplainLimePayload) => apiService.explainLime(toValue(instanceId), payload),
+    mutationFn: async (payload: ExplainLimePayload) => {
+      const start = performance.now();
+      const res = await apiService.explainLime(toValue(instanceId), payload);
+      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'lime' });
+      return res;
+    },
     onSuccess: options?.onSuccess,
     // Silent by default - LIME is a non-critical feature
     meta: {
@@ -69,28 +76,32 @@ export function useExplainLimeMutation(
 }
 
 /**
- * Find nearest ticket in training data (for explainability).
- * By default, errors are silent since this is a secondary/optional feature.
- * 
+ * Fetch nearest historical tickets via POST /xai/{id}/nearest.
+ * Returns one NearestTicketResponse per query (predicted-class + historical
+ * neighbour lists). Silent by default — supplementary explainability signal.
+ *
  * @example
  * ```ts
  * const { mutate: findNearest, data: nearest } = useNearestTicketMutation(instanceId);
  * findNearest({ ticket_data: { title_anon: '...' } });
- * 
- * // Access result
- * // nearest.value?.nearest_ticket_ref, nearest.value?.similarity_score
+ * // nearest.value?.[0]?.predicted_class_neighbors / historical_neighbors
  * ```
  */
 export function useNearestTicketMutation(
   instanceId: MaybeRef<number>,
   options?: {
     meta?: QueryMeta;
-    onSuccess?: (data: NearestTicketResponse) => void;
+    onSuccess?: (data: NearestTicketResponse[]) => void;
   }
 ) {
+  const telemetry = useBenchmarkTelemetry();
   return useMutation({
-    mutationFn: (payload: NearestTicketPayload) =>
-      apiService.findNearestTicket(toValue(instanceId), payload),
+    mutationFn: async (payload: NearestTicketPayload) => {
+      const start = performance.now();
+      const res = await apiService.getNearest(toValue(instanceId), payload);
+      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'nearest' });
+      return res;
+    },
     onSuccess: options?.onSuccess,
     // Silent by default - nearest ticket is a non-critical feature
     meta: {
