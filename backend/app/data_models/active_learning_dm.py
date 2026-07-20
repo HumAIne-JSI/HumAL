@@ -179,12 +179,38 @@ class ClassExplanation(BaseModel):
     word_weights: list[list[str | float]]
 
 
-class XaiResultFile(BaseModel):
-    """Canonical model for a single XAI LIME result.
+class XaiLimeExplanation(BaseModel):
+    """Per-prediction LIME explanation returned by the external XAI worker."""
+    word_weights: list[list[str | float]]
+    highlighted_tokens: list[HighlightedToken]
 
-    Emitted by both the in-process ``explain_lime`` and the external RabbitMQ
-    XAI worker.  The canonical shape matches the external service's actual
-    result.json stored in MinIO.
+
+class XaiPrediction(BaseModel):
+    """A single prediction entry in the external XAI worker's result."""
+    rank: int
+    class_index: int
+    label: str
+    probability: float
+    lime: XaiLimeExplanation
+
+
+class XaiWorkerResult(BaseModel):
+    """Top-level result returned by the external XAI worker.
+
+    Matches the ``schema_version: 1`` contract from the infrastructure.
+    The internal ``explain_lime`` path still produces ``XaiResultFile``.
+    """
+    schema_version: int
+    ticket_sha: str
+    text: str
+    predictions: list[XaiPrediction]
+
+
+class XaiResultFile(BaseModel):
+    """Canonical model for a single internal LIME explanation.
+
+    Produced by the in-process ``explain_lime`` and used for synchronous
+    explanations.  The external RabbitMQ worker now returns ``XaiWorkerResult``.
     """
     text: str
     prediction: PredictionInfo
@@ -271,26 +297,32 @@ class XaiResultFile(BaseModel):
         )
 
 
-def parse_xai_result(data: Any) -> Optional[XaiResultFile]:
-    """Parse and validate a raw XAI result into a canonical ``XaiResultFile``.
+def parse_xai_result(data: Any) -> Optional[XaiWorkerResult]:
+    """Parse and validate a raw XAI result into a canonical ``XaiWorkerResult``.
+
+    Only the new external-worker schema (with a ``predictions`` key) is
+    accepted.  Old-format results (``XaiResultFile``-shaped dicts or
+    ``[{class, top_words, error}]`` lists) are silently rejected.
 
     Args:
         data: The raw XAI result (typically deserialised from JSON).
 
     Returns:
-        An ``XaiResultFile`` if *data* matches the canonical shape.
-        ``None`` if *data* is an old-format ``[{class, top_words, error}]`` list.
+        An ``XaiWorkerResult`` if *data* matches the new external schema.
+        ``None`` if *data* is an unsupported format (old shape, list, …).
 
     Raises:
-        ValueError: If *data* cannot be parsed as either format.
+        ValueError: If *data* looks like the new schema but fails validation.
     """
     if isinstance(data, dict):
-        try:
-            return XaiResultFile.model_validate(data)
-        except ValidationError as exc:
-            raise ValueError(
-                f"XAI result dict does not match the canonical XaiResultFile schema: {exc}"
-            ) from exc
+        if "predictions" in data:
+            try:
+                return XaiWorkerResult.model_validate(data)
+            except ValidationError as exc:
+                raise ValueError(
+                    f"XAI result dict has a 'predictions' key but failed XaiWorkerResult validation: {exc}"
+                ) from exc
+        return None
     if isinstance(data, list):
         return None
     raise ValueError(f"Unexpected XAI result type: {type(data).__name__}")

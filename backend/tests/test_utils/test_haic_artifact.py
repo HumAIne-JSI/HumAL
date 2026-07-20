@@ -30,7 +30,7 @@ def _sample_events() -> List[Dict[str, Any]]:
             "payload": {"batch_id": 1779282422401, "ids": ["R-535527"], "uncertainties": None},
             "actor_type": "ai",
             "agent": "al_model",
-            "object_id": "BATCH_1779282422401",
+            "object_id": "R-535527",
             "duration_s": None,
             "correct": None,
             "ai_suggested": None,
@@ -80,23 +80,22 @@ def test_build_artifact_generates_session_id_from_first_timestamp():
     assert artifact["session_id"] == "st_session_20260520T150702"
 
 
-def test_build_artifact_generates_interaction_id():
+def test_build_artifact_sets_interaction_id_to_object_id():
     artifact = build_decisions_artifact(
         _sample_events(), al_instance_id=1, model_name="random forest", creator_username="labeler_01"
     )
     for entry in artifact["decisions"] + artifact["events"]:
-        expected = f"{artifact['session_id']}_{entry['seq']:03d}"
-        assert entry["interaction_id"] == expected
+        assert entry["interaction_id"] == entry["object_id"]
 
 
-def test_build_artifact_renames_timestamp_to_t():
+def test_build_artifact_uses_timestamp_field():
     artifact = build_decisions_artifact(
         _sample_events(), al_instance_id=1, model_name="random forest", creator_username="labeler_01"
     )
     for entry in artifact["decisions"] + artifact["events"]:
-        assert "timestamp" not in entry
-        assert entry["t"] is not None
-        assert entry["t"].endswith("Z")
+        assert "t" not in entry
+        assert entry["timestamp"] is not None
+        assert entry["timestamp"].endswith("Z")
 
 
 def test_build_artifact_promotes_object_id_to_top_level():
@@ -169,6 +168,7 @@ def test_build_artifact_builds_meta_block():
         _sample_events(), al_instance_id=1, model_name="random forest", creator_username="labeler_01"
     )
     meta = artifact["meta"]
+    assert meta["al_instance_id"] == 1
     assert meta["pilot_tag"] == "smart_ticketing"
     assert meta["application"]["name"] == "Smart Ticketing AL Platform"
     assert meta["application"]["version"] == "1.0.0"
@@ -205,7 +205,7 @@ def test_build_artifact_formats_timestamps_with_z_suffix():
         _sample_events(), al_instance_id=1, model_name="random forest", creator_username="labeler_01"
     )
     for entry in artifact["decisions"] + artifact["events"]:
-        assert entry["t"].endswith("Z"), f"t field {entry['t']} does not end with Z"
+        assert entry["timestamp"].endswith("Z"), f"timestamp field {entry['timestamp']} does not end with Z"
     assert artifact["meta"]["timestamps"]["start_time"].endswith("Z")
     assert artifact["meta"]["timestamps"]["end_time"].endswith("Z")
 

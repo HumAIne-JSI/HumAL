@@ -34,7 +34,7 @@ def test_export_if_needed_exports_and_logs_marker():
             "payload": {"batch_id": 123, "ids": ["T1"]},
             "actor_type": "ai",
             "agent": "al_model",
-            "object_id": "BATCH_123",
+            "object_id": "T1",
             "duration_s": None,
             "correct": None,
             "ai_suggested": None,

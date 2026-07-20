@@ -1,8 +1,11 @@
 """Real RabbitMQ XAI worker for the HumAL live e2e test.
 
 Replaces (does not delete) xai_rabbitmq_simulator.py. Runs real LIME
-explanations (10 features, 250 samples, per top-k class) matching
-XaiService.explain_lime semantics.
+explanations (10 features, 250 samples, per top-k class).
+
+Emits the ``XaiWorkerResult`` schema (``schema_version: 1``) — the
+current external-worker contract.  On LIME failure the worker publishes
+``status="failed"`` (no result file) instead of ``"completed"``.
 
 Prerequisites:
   - RabbitMQ reachable at RABBIT_URL (default from .env.al_api).
@@ -85,8 +88,9 @@ def run_lime(payload: dict) -> dict:
     Inference is delegated to the backend ``POST /infer_proba`` endpoint,
     so no model/encoder/vectorizer artifacts are loaded by this worker.
 
-    Returns a canonical ``XaiResultFile``-shaped dict that the backend's
-    ``update_xai_job`` validates through ``XaiResultFile.model_validate``.
+    Returns a dict matching the ``XaiWorkerResult`` schema (external worker
+    contract, ``schema_version: 1``).  Raises on failure — the caller
+    (`on_task`) publishes ``status="failed"`` instead of ``"completed"``.
     """
     al_instance_id: int = payload["al_instance_id"]
     artifacts: dict = payload["artifacts"]
@@ -96,108 +100,95 @@ def run_lime(payload: dict) -> dict:
     minio_svc = _init_minio()
     _client = minio_svc.client
 
-    try:
-        # --- Download the saved ticket ---
-        raw = _client.download_object("smart-finance-data", artifacts["ticket"])
-        ticket = Data.model_validate_json(raw.decode("utf-8"))
+    # --- Download the saved ticket ---
+    raw = _client.download_object("smart-finance-data", artifacts["ticket"])
+    ticket = Data.model_validate_json(raw.decode("utf-8"))
 
-        # --- Build the LIME input text ---
-        text = (ticket.title_anon or "") + " " + (ticket.description_anon or "")
+    # --- Build the LIME input text ---
+    text = (ticket.title_anon or "") + " " + (ticket.description_anon or "")
 
-        def _build_data(texts):
-            return [
-                {
-                    "title_anon": str(t),
-                    "description_anon": "",
-                    "service_name": ticket.service_name,
-                    "service_subcategory_name": ticket.service_subcategory_name,
-                }
-                for t in texts
-            ]
-
-        # --- Determine top-k classes via baseline prediction ---
-        classes, probabilities = _infer_proba(al_instance_id, _build_data([text]))
-        base_proba = probabilities[0]
-
-        valid_idx = [i for i, c in enumerate(classes) if c is not None]
-        if not valid_idx:
-            err = f"No valid classes found for instance {al_instance_id}"
-            print(f"[worker] {err}", flush=True)
-            return {
-                "text": text,
-                "prediction": {"label": "", "probabilities": {}},
-                "word_weights": [],
-                "highlighted_tokens": [],
-                "index": ticket_index,
-                "error": err,
-                "class_explanations": [],
+    def _build_data(texts):
+        return [
+            {
+                "title_anon": str(t),
+                "description_anon": "",
+                "service_name": ticket.service_name,
+                "service_subcategory_name": ticket.service_subcategory_name,
             }
-
-        top_k = min(TOP_K, len(valid_idx))
-        sorted_idx = list(np.argsort(base_proba)[::-1][:top_k])
-        top_idx = int(sorted_idx[0])
-
-        # --- LIME explainer ---
-        explainer = LimeTextExplainer(class_names=classes)
-
-        def _predict_proba(texts):
-            _, probs = _infer_proba(al_instance_id, _build_data(texts))
-            return np.array(probs)
-
-        explanation = explainer.explain_instance(
-            text,
-            _predict_proba,
-            num_features=10,
-            num_samples=NUM_SAMPLES,
-            labels=tuple(sorted_idx),
-        )
-
-        # --- Build canonical result dict ---
-        top_class_weights = [
-            [w, float(s)] for w, s in explanation.as_list(label=top_idx)
+            for t in texts
         ]
-        max_abs = max((abs(s) for _, s in top_class_weights), default=1.0)
-        if max_abs == 0:
-            max_abs = 1.0
 
-        return {
-            "text": text,
-            "prediction": {
-                "label": str(classes[top_idx]),
-                "probabilities": {
-                    str(c): float(p) for c, p in zip(classes, probabilities[0])
-                },
+    # --- Determine top-k classes via baseline prediction ---
+    classes, probabilities = _infer_proba(al_instance_id, _build_data([text]))
+    base_proba = probabilities[0]
+
+    valid_idx = [i for i, c in enumerate(classes) if c is not None]
+    if not valid_idx:
+        raise ValueError(f"No valid classes found for instance {al_instance_id}")
+
+    top_k = min(TOP_K, len(valid_idx))
+    sorted_idx = list(np.argsort(base_proba)[::-1][:top_k])
+
+    # --- LIME explainer ---
+    explainer = LimeTextExplainer(class_names=classes)
+
+    def _predict_proba(texts):
+        _, probs = _infer_proba(al_instance_id, _build_data(texts))
+        return np.array(probs)
+
+    explanation = explainer.explain_instance(
+        text,
+        _predict_proba,
+        num_features=10,
+        num_samples=NUM_SAMPLES,
+        labels=tuple(sorted_idx),
+    )
+
+    # --- Build predictions array (new external-worker schema) ---
+    predictions = []
+    for rank, idx in enumerate(sorted_idx, start=1):
+        class_idx = int(idx)
+        label = str(classes[class_idx])
+        proba = float(base_proba[class_idx])
+        class_weights = [
+            [w, float(s)] for w, s in explanation.as_list(label=class_idx)
+        ]
+        class_max_abs = max((abs(s) for _, s in class_weights), default=1.0)
+        if class_max_abs == 0:
+            class_max_abs = 1.0
+        predictions.append({
+            "rank": rank,
+            "class_index": class_idx,
+            "label": label,
+            "probability": proba,
+            "lime": {
+                "word_weights": class_weights,
+                "highlighted_tokens": [
+                    {
+                        "token": str(w),
+                        "weight": float(s),
+                        "direction": "support" if s > 0 else ("oppose" if s < 0 else "neutral"),
+                        "intensity": abs(s) / class_max_abs,
+                    }
+                    for w, s in class_weights
+                ],
             },
-            "word_weights": top_class_weights,
-            "highlighted_tokens": [
-                {
-                    "token": str(w),
-                    "weight": float(s),
-                    "direction": "support" if s > 0 else ("oppose" if s < 0 else "neutral"),
-                    "intensity": abs(s) / max_abs,
-                }
-                for w, s in top_class_weights
-            ],
-            "index": ticket_index,
-            "error": None,
-            "class_explanations": [],
-        }
+        })
 
-    except Exception as exc:
-        print(f"[worker] LIME error for job {job_id}: {exc}", flush=True)
-        return {
-            "text": "",
-            "prediction": {"label": "", "probabilities": {}},
-            "word_weights": [],
-            "highlighted_tokens": [],
-            "index": ticket_index,
-            "error": f"LIME error: {exc}",
-            "class_explanations": [],
-        }
+    return {
+        "schema_version": 1,
+        "ticket_sha": ticket_index,
+        "text": text,
+        "predictions": predictions,
+    }
 
 
 def build_result_message(payload: dict, lime_output: dict) -> dict:
-    """Write ``result.json`` to MinIO and return the RESULT_QUEUE message."""
+    """Write ``result.json`` to MinIO and return the ``status="completed"`` RESULT_QUEUE message.
+
+    Called only on success.  On failure the caller publishes ``status="failed"``
+    without writing any result file.
+    """
     job_id: str = payload["job_id"]
     al_instance_id: int = payload["al_instance_id"]
 
@@ -261,7 +252,28 @@ async def main() -> None:
                     flush=True,
                 )
 
-                lime_output = run_lime(payload)
+                try:
+                    lime_output = run_lime(payload)
+                except Exception as exc:
+                    print(f"[worker] LIME error for job_id={jid}: {exc}", flush=True)
+                    result_message = {
+                        "version": MESSAGE_VERSION,
+                        "job_id": str(jid),
+                        "status": "failed",
+                    }
+                    await channel.default_exchange.publish(
+                        Message(
+                            body=json.dumps(result_message).encode("utf-8"),
+                            delivery_mode=2,
+                        ),
+                        routing_key=RESULT_QUEUE,
+                    )
+                    print(
+                        f"[worker] Published failed result for job_id={jid}",
+                        flush=True,
+                    )
+                    return
+
                 result_message = build_result_message(payload, lime_output)
 
                 await channel.default_exchange.publish(

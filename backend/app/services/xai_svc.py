@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from skactiveml.utils import MISSING_LABEL
-from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMessage, XaiResultFile, parse_xai_result
+from app.data_models.active_learning_dm import Data, XaiArtifacts, XaiRequestMessage, XaiResultFile, XaiWorkerResult, parse_xai_result
 from sentence_transformers import SentenceTransformer
 from app.config.config import SENTENCE_TRANSFORMERS_CACHE_DIR, SENTENCE_TRANSFORMERS_MODEL, SENTENCE_TRANSFORMERS_LOCAL_ONLY
 from typing import Optional, Dict, Any
@@ -849,8 +849,9 @@ class XaiService:
         """Update XAI job details in the database.
 
         This method is called by the worker after processing the XAI request.
-        Results are validated through the canonical ``XaiResultFile`` model.
-        Old-format results (``[{class, top_words, error}]``) are rejected.
+        Results are validated through the canonical ``XaiWorkerResult`` model.
+        Old-format results (``XaiResultFile``-shaped dicts or
+        ``[{class, top_words, error}]`` lists) are rejected.
         """
         logger.info(f"Received XAI job update message: {data}")
         
@@ -913,7 +914,7 @@ class XaiService:
                                     payload={
                                         "ticket_id": str(job_info.get("ticket_ref_or_sha", "")),
                                         "result": None,
-                                        "error": "Old-format XAI result rejected - expected canonical XaiResultFile shape",
+                                        "error": "Old-format XAI result rejected - expected XaiWorkerResult schema",
                                     },
                                 )
                                 continue
@@ -925,11 +926,11 @@ class XaiService:
                                 latency_ms=latency_ms,
                                 actor_type="ai",
                                 agent="xai_lime",
-                                object_id=parsed.index,
+                                object_id=parsed.ticket_sha,
                                 payload={
-                                    "ticket_id": parsed.index,
+                                    "ticket_id": parsed.ticket_sha,
                                     "result": parsed.model_dump(),
-                                    "error": parsed.error,
+                                    "error": None,
                                 },
                             )
                     except Exception as exc:

@@ -8,7 +8,7 @@ import pytest
 import uuid
 
 from app.core.storage import ActiveLearningStorage
-from app.data_models.active_learning_dm import Data, XaiResultFile, parse_xai_result
+from app.data_models.active_learning_dm import Data, XaiResultFile, XaiWorkerResult, parse_xai_result
 from app.core.rabbitmq_client import RabbitMQClient
 from app.persistence.duckdb.service import DuckDbPersistenceService
 from app.persistence.local_artifacts import LocalArtifactsStore
@@ -482,7 +482,7 @@ def test_get_xai_job(xai_service):
 
 
 def test_update_xai_job(xai_service):
-    """update_xai_job parses canonical XaiResultFile and logs per-ticket event."""
+    """update_xai_job parses canonical XaiWorkerResult and logs per-ticket event."""
     job_id = uuid.uuid4()
     data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
 
@@ -496,15 +496,23 @@ def test_update_xai_job(xai_service):
         "finished_at": pd.Timestamp("2026-01-01 10:00:01"),
     }
     canonical_result = {
+        "schema_version": 1,
+        "ticket_sha": "ref1",
         "text": "Fix printer Printer is broken",
-        "prediction": {"label": "Team A", "probabilities": {"Team A": 0.8, "Team B": 0.2}},
-        "word_weights": [["printer", 0.15]],
-        "highlighted_tokens": [
-            {"token": "printer", "weight": 0.15, "direction": "support", "intensity": 1.0}
+        "predictions": [
+            {
+                "rank": 1,
+                "class_index": 0,
+                "label": "Team A",
+                "probability": 0.8,
+                "lime": {
+                    "word_weights": [["printer", 0.15]],
+                    "highlighted_tokens": [
+                        {"token": "printer", "weight": 0.15, "direction": "support", "intensity": 1.0}
+                    ],
+                },
+            },
         ],
-        "index": "ref1",
-        "error": None,
-        "class_explanations": [],
     }
     xai_service.minio_service.load_xai_results.return_value = {
         "result.json": canonical_result
@@ -524,7 +532,7 @@ def test_update_xai_job(xai_service):
     assert call_kwargs["object_id"] == "ref1"
     assert call_kwargs["payload"]["ticket_id"] == "ref1"
     assert call_kwargs["payload"]["error"] is None
-    assert call_kwargs["payload"]["result"]["index"] == "ref1"
+    assert call_kwargs["payload"]["result"]["ticket_sha"] == "ref1"
 
 
 def test_update_xai_job_rejects_old_format(xai_service):
@@ -544,6 +552,41 @@ def test_update_xai_job_rejects_old_format(xai_service):
     old_format_result = [{"class": "Team A", "top_words": [["printer", 0.15]], "error": None}]
     xai_service.minio_service.load_xai_results.return_value = {
         "result.json": old_format_result
+    }
+
+    asyncio.run(xai_service.update_xai_job(data))
+
+    xai_service.duckdb_service.log_event.assert_called_once()
+    call_kwargs = xai_service.duckdb_service.log_event.call_args.kwargs
+    assert call_kwargs["payload"]["result"] is None
+    assert "rejected" in (call_kwargs["payload"]["error"] or "")
+
+
+def test_update_xai_job_rejects_old_xairesultfile_shape(xai_service):
+    """Old XaiResultFile-shaped dicts are rejected with result: null."""
+    job_id = uuid.uuid4()
+    data = {"job_id": str(job_id), "status": "completed", "result_location": "minio/res", "result_file_names": {"lime": "f.json"}}
+
+    xai_service.duckdb_service.get_xai_job.return_value = {
+        "job_id": job_id,
+        "al_instance_id": 1,
+        "ticket_ref_or_sha": "ref1",
+        "result_location": "minio/res",
+        "result_file_names": ["f.json"],
+        "created_at": pd.Timestamp("2026-01-01 10:00:00"),
+        "finished_at": pd.Timestamp("2026-01-01 10:00:01"),
+    }
+    old_shape_result = {
+        "text": "Fix printer",
+        "prediction": {"label": "Team A", "probabilities": {"Team A": 0.8}},
+        "word_weights": [],
+        "highlighted_tokens": [],
+        "index": "ref1",
+        "error": None,
+        "class_explanations": [],
+    }
+    xai_service.minio_service.load_xai_results.return_value = {
+        "result.json": old_shape_result
     }
 
     asyncio.run(xai_service.update_xai_job(data))

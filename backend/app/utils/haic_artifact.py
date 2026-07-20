@@ -75,7 +75,7 @@ def build_decisions_artifact(
 
         entry: Dict[str, Any] = {
             "seq": seq,
-            "t": _format_t(event["timestamp"]),
+            "timestamp": _format_t(event["timestamp"]),
             "agent": event.get("agent"),
             "actor_type": actor_type,
             "action": action,
@@ -83,7 +83,7 @@ def build_decisions_artifact(
             "latency_ms": event.get("latency_ms"),
             "duration_s": event.get("duration_s"),
             "correct": event.get("correct"),
-            "interaction_id": f"{session_id}_{seq:03d}",
+            "interaction_id": event.get("object_id"),
             "session_id": session_id,
         }
         if ai_suggested_val is not None:
@@ -96,6 +96,7 @@ def build_decisions_artifact(
             decisions.append(entry)
 
     meta = {
+        "al_instance_id": al_instance_id,
         "pilot_tag": PILOT_TAG,
         "application": {"name": APP_NAME, "version": APP_VERSION},
         "ai_system": {"model_name": model_name, "model_type": AI_MODEL_TYPE},

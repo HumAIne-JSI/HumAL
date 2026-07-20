@@ -178,7 +178,7 @@ def build_clean_env() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def wait_for_server(timeout: int = 60) -> list[str]:
+def wait_for_server(timeout: int = 120) -> list[str]:
     """Poll ``GET /config/capabilities`` until the server responds."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -550,7 +550,7 @@ def main() -> None:
                 f"{BASE_URL}/activelearning/{instance_id}/label-with-info",
                 json=[label_body],
                 headers=headers,
-                timeout=30,
+                timeout=120,
             )
             assert lbl.status_code == 200, (
                 f"POST /label-with-info: {lbl.status_code} {lbl.text}"

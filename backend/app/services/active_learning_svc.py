@@ -451,13 +451,14 @@ class ActiveLearningService:
         query_idx = list(self.storage.dataset_dict[al_instance_id]['X_train'].index[query_idx])
 
         batch_id = int(time.time() * 1000)
+        batch_object_id = query_idx[0] if len(query_idx) == 1 else f"BATCH_{batch_id}"
         self._log_event(
             al_instance_id=al_instance_id,
             action="select_batch",
             latency_ms=int((time.perf_counter() - start_time) * 1000),
             actor_type="ai",
             agent="al_model",
-            object_id=f"BATCH_{batch_id}",
+            object_id=batch_object_id,
             payload={
                 "batch_id": batch_id,
                 "ids": query_idx,
