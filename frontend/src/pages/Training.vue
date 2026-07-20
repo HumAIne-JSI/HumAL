@@ -125,8 +125,8 @@ const testFileName = computed(() => newInstanceForm.value.test_data_path?.split(
 
 const createInstanceMutation = useCreateInstance({
   onSuccess: (data) => {
-    toast.success('Instance created', {
-      description: `Instance #${data.instance_id} created successfully`,
+    toast.success('Project created', {
+      description: `Project #${data.instance_id} created successfully`,
     })
     instanceStore.setInstance(data.instance_id)
     router.push({ path: '/queue', query: { instance: String(data.instance_id) } })
@@ -173,21 +173,21 @@ const onStrategyChange = (value: string) => {
   <div class="training" data-track-region="new_instance_page">
     <header class="training__header">
       <div class="training__header-content">
-        <h1 class="training__title">New Instance</h1>
+        <h1 class="training__title">New Project</h1>
         <p class="training__subtitle">
-          Configure a new active learning instance. You will be redirected to the queue once it is ready.
+          Set up a new labeling project. You'll go to the queue once it is ready.
         </p>
       </div>
     </header>
 
     <Card class="training__create-form">
-      <template #title>Create Instance</template>
-      <template #description>Pick a model, query strategy, and the classes to label.</template>
+      <template #title>Create Project</template>
+      <template #description>Pick an AI model, a labeling strategy, and the categories to label.</template>
 
       <div class="create-form">
         <div class="create-form__row">
           <div class="create-form__field">
-            <label>Model</label>
+            <label>AI Model</label>
             <Select
               :modelValue="newInstanceForm.model_name"
               @update:modelValue="onModelChange"
@@ -197,7 +197,7 @@ const onStrategyChange = (value: string) => {
             />
           </div>
           <div class="create-form__field">
-            <label>Query Strategy</label>
+            <label>Labeling Strategy</label>
             <Select
               :modelValue="newInstanceForm.qs_strategy"
               @update:modelValue="onStrategyChange"
@@ -236,7 +236,7 @@ const onStrategyChange = (value: string) => {
 
         <div class="create-form__classes">
           <div class="create-form__classes-header">
-            <label>Classes (Teams)</label>
+            <label>Categories (Teams)</label>
             <div style="display: flex; gap: 0.5rem;">
               <Button
                 variant="outline"
@@ -294,7 +294,7 @@ const onStrategyChange = (value: string) => {
             </Button>
           </div>
           <p v-else-if="!allClasses.length" class="create-form__classes-empty">
-            Click "Load from Data" or add classes manually below
+            Click "Load from Data" or add categories manually below
           </p>
           <div class="create-form__manual-input">
             <Input
@@ -326,7 +326,7 @@ const onStrategyChange = (value: string) => {
           "
         >
           <Plus :size="16" />
-          Create Instance
+          Create Project
         </Button>
       </template>
     </Card>

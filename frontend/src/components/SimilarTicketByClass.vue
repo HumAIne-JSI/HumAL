@@ -55,7 +55,7 @@ const similarityVariant = computed<'success' | 'info' | 'secondary'>(() => {
 
     <footer class="similar-by-class__footer">
       <Badge variant="outline">{{ item.ticket_ref }}</Badge>
-      <Badge :variant="similarityVariant">{{ similarityPercentage }}% similar</Badge>
+      <Badge :variant="similarityVariant">{{ similarityPercentage }}% match</Badge>
     </footer>
   </article>
 </template>

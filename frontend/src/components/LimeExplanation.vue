@@ -96,7 +96,7 @@ const toggleExpanded = () => {
     <div v-if="collapsible" class="lime-explanation__header">
       <div class="lime-explanation__title">
         <Lightbulb :size="18" />
-        <span>Why this prediction?</span>
+        <span>Why this suggestion?</span>
       </div>
       <Button
         v-if="hasExplanation"
@@ -118,7 +118,7 @@ const toggleExpanded = () => {
     <!-- Content -->
     <template v-else-if="hasExplanation">
       <div class="lime-explanation__summary">
-        <p>The model based its prediction on the following key words:</p>
+        <p>The AI focused on these key words:</p>
       </div>
 
       <div v-if="isExpanded || !collapsible" class="lime-explanation__features">

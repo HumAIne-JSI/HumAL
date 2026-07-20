@@ -20,6 +20,7 @@ import type {
   ProgramKpi,
   ProgramKpiStatus,
   ProgramKpiTargets,
+  ResolutionEffortMetrics,
   ResourceEfficiencyMetrics,
   SatisfactionMetrics,
   TicketHeatmap,
@@ -638,6 +639,52 @@ export function aggregateSatisfaction(
 }
 
 // --------------------------------------------------------------------------- //
+// Resolution assistance — operator effort on AI-suggested resolutions          //
+// --------------------------------------------------------------------------- //
+
+/**
+ * Estimate how much manual effort AI-suggested resolutions saved, from
+ * `validate_resolution` events emitted by the Resolution tab when an operator
+ * accepts (copies or saves) a suggested reply. `edit_ratio` is the normalised
+ * character edit distance between the generated reply and the final text, so
+ * `effort_saved` = 1 − mean edit ratio.
+ */
+export function aggregateResolutionEffort(
+  events: LocalEvent[],
+  instanceId: number | null,
+): ResolutionEffortMetrics {
+  const filtered = filterByInstance(events, instanceId)
+
+  const editRatios: number[] = []
+  const reviewSeconds: number[] = []
+  let used = 0
+  let verbatim = 0
+
+  for (const e of filtered) {
+    if (e.action !== 'validate_resolution' || pageOf(e) !== 'resolution') continue
+    used++
+    const ratio = e.payload?.['edit_ratio']
+    if (typeof ratio === 'number' && Number.isFinite(ratio)) {
+      editRatios.push(Math.max(0, Math.min(1, ratio)))
+    }
+    if (e.payload?.['edited'] === false) verbatim++
+    if (e.latency_ms != null) reviewSeconds.push(e.latency_ms / 1000)
+  }
+
+  const meanEdit = mean(editRatios)
+  const meanReview = mean(reviewSeconds)
+
+  return {
+    resolutions_used: used,
+    verbatim_count: verbatim,
+    verbatim_rate: used > 0 ? round(verbatim / used, 4) : null,
+    mean_edit_ratio: meanEdit != null ? round(meanEdit, 4) : null,
+    effort_saved: meanEdit != null ? round(1 - meanEdit, 4) : null,
+    mean_review_seconds: meanReview != null ? round(meanReview, 1) : null,
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // Programme KPIs (AFU objectives vs targets)                                  //
 // --------------------------------------------------------------------------- //
 
@@ -674,6 +721,7 @@ export function aggregateProgramKpis(
   const ai = aggregateAIImpact(events, instanceId)
   const xai = aggregateXaiEngagement(events, instanceId)
   const sat = aggregateSatisfaction(events, instanceId)
+  const resEffort = aggregateResolutionEffort(events, instanceId)
 
   let autoClosed = 0
   let reopened = 0
@@ -780,6 +828,20 @@ export function aggregateProgramKpis(
       hint: 'Share handled without manual correction',
       source: 'Resource / Satisfaction',
       instrumented: effort != null,
+    },
+    {
+      id: 'resolution_effort',
+      label: 'Effort saved on suggested resolutions',
+      value: resEffort.effort_saved,
+      target: targets.manual_effort_reduction,
+      higher_is_better: true,
+      status: kpiStatus(resEffort.effort_saved, targets.manual_effort_reduction, true),
+      hint:
+        resEffort.resolutions_used > 0
+          ? `${resEffort.resolutions_used} suggestions used · ${Math.round((resEffort.verbatim_rate ?? 0) * 100)}% used verbatim`
+          : 'No resolutions validated yet',
+      source: 'Resolution editing',
+      instrumented: resEffort.resolutions_used > 0,
     },
     {
       id: 'trust',

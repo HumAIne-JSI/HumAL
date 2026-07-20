@@ -7,10 +7,10 @@ const currentYear = new Date().getFullYear()
 
 const navLinks = [
   { path: '/', label: 'Home', icon: Home },
-  { path: '/training', label: 'Model Training', icon: Brain },
-  { path: '/dispatching', label: 'Dispatch Labeling', icon: Target },
+  { path: '/training', label: 'Training', icon: Brain },
+  { path: '/dispatching', label: 'Ticket Categorizing', icon: Target },
   { path: '/ticket-resolution', label: 'Ticket Resolution', icon: MessageSquareText },
-  { path: '/inference', label: 'Inference', icon: Zap },
+  { path: '/inference', label: 'Predictions', icon: Zap },
 ]
 </script>
 
@@ -24,7 +24,7 @@ const navLinks = [
             <HumaineLogo :width="150" :height="45" />
           </div>
           <p class="footer__description">
-            Advanced machine learning platform for intelligent ticket classification and routing using active learning algorithms.
+            A smart ticket platform that sorts and routes tickets to the right team, and learns from your feedback.
           </p>
           <div class="footer__social">
             <a

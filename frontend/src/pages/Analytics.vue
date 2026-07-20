@@ -14,6 +14,7 @@ import {
   aggregateResourceEfficiency,
   aggregateSatisfaction,
   aggregateProgramKpis,
+  aggregateResolutionEffort,
 } from '@/composables/useUserBehaviorAggregator';
 import { useInstanceStore } from '@/stores/useInstanceStore';
 import { useMockModeStore } from '@/stores/useMockModeStore';
@@ -74,6 +75,11 @@ const resource = computed(() =>
 );
 // Pillar 3 — human satisfaction.
 const satisfaction = computed(() => aggregateSatisfaction(modeEvents.value, filterInstanceId.value));
+
+// Resolution assistance — operator effort saved on AI-suggested resolutions.
+const resolutionEffort = computed(() =>
+  aggregateResolutionEffort(modeEvents.value, filterInstanceId.value),
+);
 
 // Programme KPIs (AFU objectives) vs targets.
 const programKpis = computed(() =>
@@ -154,6 +160,7 @@ function fmtPp(v?: number | null): string {
 function exportSnapshot() {
   const snapshot = {
     generated_at: new Date().toISOString(),
+    resolution_effort: resolutionEffort.value,
     mode: mockStore.mockEnabled ? 'mock' : 'live',
     instance_id: selectedInstanceId.value || null,
     programme_kpis: programKpis.value,
@@ -183,15 +190,15 @@ function exportSnapshot() {
       <div class="analytics__header-content">
         <h1 class="analytics__title">
           <BarChart3 class="w-8 h-8" />
-          Benchmarking Suite
+          Performance Overview
         </h1>
         <p class="analytics__subtitle">
-          Holistic evaluation — model performance, resource efficiency &amp; human satisfaction
+          A clear view of AI quality, effort, and team satisfaction
         </p>
       </div>
       <div class="analytics__header-actions">
         <span class="bs-mode" :class="mockStore.mockEnabled ? 'bs-mode--mock' : 'bs-mode--live'">
-          {{ mockStore.mockEnabled ? 'Mock data' : 'Live data' }}
+          {{ mockStore.mockEnabled ? 'Demo data' : 'Live data' }}
         </span>
         <div class="bs-instance">
           <Layers class="w-4 h-4" />
@@ -210,7 +217,7 @@ function exportSnapshot() {
     <!-- Programme KPIs vs AFU targets -->
     <section id="programme-kpis" class="bs-section">
       <h2 class="section-title">
-        <Target class="w-5 h-5" /> Programme KPIs vs targets
+        <Target class="w-5 h-5" /> Key results vs targets
         <span class="kpi-summary">{{ kpisOnTrack }}/{{ programKpis.length }} on track</span>
       </h2>
       <div class="kpi-grid">
@@ -249,7 +256,7 @@ function exportSnapshot() {
             <span class="bs-score__label">Model performance</span>
             <span class="bs-score__value">{{ fmtPct(summary.latest_f1) }}</span>
             <span class="bs-score__hint">
-              F1 macro ·
+              Quality score ·
               <span class="bs-trend" :data-trend="trendMeta.trend">{{ trendMeta.label }}</span>
             </span>
           </div>
@@ -261,7 +268,7 @@ function exportSnapshot() {
           <div class="bs-score__body">
             <span class="bs-score__label">Resource efficiency</span>
             <span class="bs-score__value">{{ scoreEfficiencyLabel }}</span>
-            <span class="bs-score__hint">to reach 0.80 F1</span>
+            <span class="bs-score__hint">to reach 0.80 quality</span>
           </div>
         </div>
       </Card>
@@ -271,14 +278,14 @@ function exportSnapshot() {
           <div class="bs-score__body">
             <span class="bs-score__label">Human satisfaction</span>
             <span class="bs-score__value">{{ fmtPct(satisfaction.satisfaction_index) }}</span>
-            <span class="bs-score__hint">acceptance {{ fmtPct(satisfaction.acceptance_rate) }}</span>
+            <span class="bs-score__hint">agreement {{ fmtPct(satisfaction.acceptance_rate) }}</span>
           </div>
         </div>
       </Card>
     </section>
 
     <nav class="bs-nav">
-      <a href="#programme-kpis">Programme KPIs</a>
+      <a href="#programme-kpis">Key results</a>
       <a href="#pillar-model">Model performance</a>
       <a href="#pillar-resource">Resource efficiency</a>
       <a href="#pillar-satisfaction">Human satisfaction</a>
@@ -292,12 +299,12 @@ function exportSnapshot() {
       </div>
       <div v-else-if="!hasModelData" class="analytics__empty">
         <template v-if="mockStore.mockEnabled">No sample data available.</template>
-        <template v-else>Select an instance with training history to see model metrics.</template>
+        <template v-else>Select a project with training history to see AI metrics.</template>
       </div>
       <template v-else>
         <div class="bs-metric-row">
           <div class="bs-metric">
-            <span class="bs-metric__label">Latest F1</span>
+            <span class="bs-metric__label">Quality score</span>
             <span class="bs-metric__value">{{ fmtPct(summary.latest_f1) }}</span>
           </div>
           <div class="bs-metric">
@@ -305,15 +312,15 @@ function exportSnapshot() {
             <span class="bs-metric__value">{{ fmtPct(summary.latest_accuracy) }}</span>
           </div>
           <div class="bs-metric">
-            <span class="bs-metric__label">AUROC</span>
+            <span class="bs-metric__label">Ranking score</span>
             <span class="bs-metric__value">{{ fmtPct(summary.latest_auroc) }}</span>
           </div>
           <div class="bs-metric">
-            <span class="bs-metric__label">F1 gain</span>
+            <span class="bs-metric__label">Quality gain</span>
             <span class="bs-metric__value">{{ fmtPp(summary.f1_improvement) }}</span>
           </div>
           <div class="bs-metric">
-            <span class="bs-metric__label">Entropy ↓</span>
+            <span class="bs-metric__label">Uncertainty ↓</span>
             <span class="bs-metric__value">
               {{ summary.entropy_reduction != null ? summary.entropy_reduction.toFixed(2) : '—' }}
             </span>
@@ -326,13 +333,13 @@ function exportSnapshot() {
 
         <div class="bs-grid-2">
           <Card padding="default">
-            <template #title>F1 (macro) over iterations</template>
+            <template #title>Quality score over training rounds</template>
             <div class="bs-chart">
-              <MetricsChart :scores="info?.f1_scores ?? []" label="F1 (macro)" :height="220" />
+              <MetricsChart :scores="info?.f1_scores ?? []" label="Quality score" :height="220" />
             </div>
           </Card>
           <Card padding="default">
-            <template #title>Accuracy over iterations</template>
+            <template #title>Accuracy over training rounds</template>
             <div class="bs-chart">
               <MetricsChart :scores="info?.accuracies ?? []" label="Accuracy" :height="220" />
             </div>
@@ -341,10 +348,10 @@ function exportSnapshot() {
 
         <div class="bs-grid-2">
           <Card v-if="latestPerClassF1.length" padding="default">
-            <template #title>Per-class F1 (latest)</template>
+            <template #title>Quality score by category</template>
             <ul class="bs-bars">
               <li v-for="(f1v, i) in latestPerClassF1" :key="i" class="bs-bar">
-                <span class="bs-bar__label">{{ classes[i] ?? 'class ' + i }}</span>
+                <span class="bs-bar__label">{{ classes[i] ?? 'category ' + i }}</span>
                 <span class="bs-bar__track">
                   <span class="bs-bar__fill" :style="{ width: f1v * 100 + '%' }" />
                 </span>
@@ -353,7 +360,7 @@ function exportSnapshot() {
             </ul>
           </Card>
           <Card v-if="latestConfusion.length" padding="default">
-            <template #title>Confusion matrix (latest)</template>
+            <template #title>Prediction breakdown</template>
             <div class="bs-cm-wrap">
               <table class="bs-cm">
                 <thead>
@@ -382,13 +389,13 @@ function exportSnapshot() {
       <h2 class="section-title"><Cpu class="w-5 h-5" /> Resource efficiency</h2>
       <div class="bs-grid-3">
         <Card padding="default">
-          <template #title>Label-budget efficiency</template>
+          <template #title>Labeling effort</template>
           <ul class="kv-list">
-            <li><span>Labels → 0.70 F1</span><strong>{{ fmtNum(resource.samples_to_f1_70) }}</strong></li>
-            <li><span>Labels → 0.80 F1</span><strong>{{ fmtNum(resource.samples_to_f1_80) }}</strong></li>
-            <li><span>Labels → 0.90 F1</span><strong>{{ fmtNum(resource.samples_to_f1_90) }}</strong></li>
+            <li><span>Labels → 0.70 quality</span><strong>{{ fmtNum(resource.samples_to_f1_70) }}</strong></li>
+            <li><span>Labels → 0.80 quality</span><strong>{{ fmtNum(resource.samples_to_f1_80) }}</strong></li>
+            <li><span>Labels → 0.90 quality</span><strong>{{ fmtNum(resource.samples_to_f1_90) }}</strong></li>
             <li>
-              <span>F1 gain / 100 labels</span><strong>{{ fmtPp(resource.f1_gain_per_100_labels) }}</strong>
+              <span>Quality gain / 100 labels</span><strong>{{ fmtPp(resource.f1_gain_per_100_labels) }}</strong>
             </li>
             <li><span>Total labels</span><strong>{{ fmtNum(resource.labels_total) }}</strong></li>
           </ul>
@@ -407,13 +414,29 @@ function exportSnapshot() {
           </ul>
         </Card>
         <Card padding="default">
-          <template #title>AI compute latency</template>
+          <template #title>AI response time</template>
           <ul class="kv-list">
-            <li><span>Mean AI latency</span><strong>{{ fmtMs(resource.mean_ai_latency_ms) }}</strong></li>
-            <li><span>p95 AI latency</span><strong>{{ fmtMs(resource.p95_ai_latency_ms) }}</strong></li>
-            <li><span>Mean predict</span><strong>{{ fmtMs(resource.mean_predict_latency_ms) }}</strong></li>
-            <li><span>Mean XAI</span><strong>{{ fmtMs(resource.mean_xai_latency_ms) }}</strong></li>
-            <li><span>Latency samples</span><strong>{{ fmtNum(resource.ai_latency_samples) }}</strong></li>
+            <li><span>Average AI response</span><strong>{{ fmtMs(resource.mean_ai_latency_ms) }}</strong></li>
+            <li><span>Slower responses (p95)</span><strong>{{ fmtMs(resource.p95_ai_latency_ms) }}</strong></li>
+            <li><span>Average prediction</span><strong>{{ fmtMs(resource.mean_predict_latency_ms) }}</strong></li>
+            <li><span>Average explanation</span><strong>{{ fmtMs(resource.mean_xai_latency_ms) }}</strong></li>
+            <li><span>Response samples</span><strong>{{ fmtNum(resource.ai_latency_samples) }}</strong></li>
+          </ul>
+        </Card>
+        <Card padding="default">
+          <template #title>Resolution assistance</template>
+          <ul class="kv-list">
+            <li>
+              <span>Suggestions used</span><strong>{{ fmtNum(resolutionEffort.resolutions_used) }}</strong>
+            </li>
+            <li><span>Used verbatim</span><strong>{{ fmtPct(resolutionEffort.verbatim_rate) }}</strong></li>
+            <li>
+              <span>Mean edit ratio</span><strong>{{ fmtPct(resolutionEffort.mean_edit_ratio) }}</strong>
+            </li>
+            <li><span>Effort saved</span><strong>{{ fmtPct(resolutionEffort.effort_saved) }}</strong></li>
+            <li>
+              <span>Mean review time</span><strong>{{ fmtSec(resolutionEffort.mean_review_seconds) }}</strong>
+            </li>
           </ul>
         </Card>
       </div>
@@ -427,10 +450,10 @@ function exportSnapshot() {
           <template #title>Decision quality</template>
           <ul class="kv-list">
             <li><span>Confirmations</span><strong>{{ fmtNum(satisfaction.confirm_count) }}</strong></li>
-            <li><span>Overrides</span><strong>{{ fmtNum(satisfaction.override_count) }}</strong></li>
-            <li><span>Abstentions</span><strong>{{ fmtNum(satisfaction.abstain_count) }}</strong></li>
-            <li><span>Acceptance rate</span><strong>{{ fmtPct(satisfaction.acceptance_rate) }}</strong></li>
-            <li><span>Override rate</span><strong>{{ fmtPct(satisfaction.override_rate) }}</strong></li>
+            <li><span>Corrections</span><strong>{{ fmtNum(satisfaction.override_count) }}</strong></li>
+            <li><span>Skips</span><strong>{{ fmtNum(satisfaction.abstain_count) }}</strong></li>
+            <li><span>Agreement rate</span><strong>{{ fmtPct(satisfaction.acceptance_rate) }}</strong></li>
+            <li><span>Correction rate</span><strong>{{ fmtPct(satisfaction.override_rate) }}</strong></li>
           </ul>
         </Card>
         <Card padding="default">
@@ -448,7 +471,7 @@ function exportSnapshot() {
           <template #title>Satisfaction index</template>
           <div class="bs-gauge">
             <span class="bs-gauge__value">{{ fmtPct(satisfaction.satisfaction_index) }}</span>
-            <span class="bs-gauge__hint">acceptance weighted down by reported friction</span>
+            <span class="bs-gauge__hint">agreement, lowered by reported friction</span>
           </div>
         </Card>
       </div>

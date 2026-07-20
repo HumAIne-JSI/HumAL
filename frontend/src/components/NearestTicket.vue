@@ -117,7 +117,7 @@ watch(
           <Badge variant="secondary">{{ displayData.label }}</Badge>
         </div>
         <div class="info-row">
-          <span class="info-row__label">Similarity Score:</span>
+          <span class="info-row__label">Match:</span>
           <Badge :variant="similarityVariant">
             {{ similarityPercentage }}%
           </Badge>

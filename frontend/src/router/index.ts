@@ -30,7 +30,7 @@ const routes = [
     path: '/training',
     name: 'training',
     component: () => import('../pages/Training.vue'),
-    meta: { label: 'New Instance', icon: Brain, showInNav: true }
+    meta: { label: 'New Project', icon: Brain, showInNav: true }
   },
     {
     path: '/queue',
@@ -48,7 +48,7 @@ const routes = [
     path: '/analytics',
     name: 'analytics',
     component: () => import('../pages/Analytics.vue'),
-    meta: { label: 'Analytics', icon: BarChart3, showInNav: true }
+    meta: { label: 'Performance', icon: BarChart3, showInNav: true }
   },
   // {
   //   path: '/dispatching',

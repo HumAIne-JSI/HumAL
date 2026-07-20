@@ -663,7 +663,7 @@ const currentTicketForView = computed(() => ({
         <Transition name="prediction-fade" mode="out-in">
         <!-- Loading -->
         <div v-if="isInferringAny" key="loading" class="detail-panel__loading">
-          <Spinner label="Analyzing ticket..." />
+          <Spinner label="Getting suggestion..." />
         </div>
 
         <!-- Prediction Result -->
@@ -707,7 +707,7 @@ const currentTicketForView = computed(() => ({
               size="sm"
               @click="handlePredict"
               :disabled="isInferringAny"
-              title="Re-analyze"
+              title="Try again"
             >
               <RefreshCw :size="14" :class="{ 'animate-spin': isInferringAny }" />
             </Button>
@@ -717,7 +717,7 @@ const currentTicketForView = computed(() => ({
         <!-- Empty state -->
         <div v-else key="empty" class="detail-panel__empty">
           <Button variant="default" size="sm" @click="handlePredict">
-            Analyze Ticket
+            Get AI Suggestion
           </Button>
         </div>
         </Transition>
@@ -779,17 +779,17 @@ const currentTicketForView = computed(() => ({
       >
         <h3 class="detail-panel__per-class-title">
           <Sparkles :size="16" />
-          Similar Tickets by Predicted Class
+          Similar Tickets by Category
         </h3>
         <p class="detail-panel__per-class-desc">
-          The closest historical ticket for each of the model's top predictions.
+          The closest past ticket for each of the AI's top suggestions.
         </p>
 
         <div
           v-if="isLoadingSimilarPerClass && similarPerClass.length === 0"
           class="detail-panel__per-class-loading"
         >
-          <Spinner label="Looking up similar tickets per class..." />
+          <Spinner label="Finding similar tickets by category..." />
         </div>
 
         <div v-else class="detail-panel__per-class-grid">

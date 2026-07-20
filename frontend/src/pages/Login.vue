@@ -65,7 +65,7 @@ const handleSubmit = async () => {
     <Card class="login__card">
       <div class="login__brand">
         <HumaineLogo class="login__logo" />
-        <p class="login__subtitle">Human-in-the-loop Active Learning</p>
+        <p class="login__subtitle">AI-Assisted Ticket Labeling</p>
       </div>
 
       <div class="login__tabs" role="tablist">

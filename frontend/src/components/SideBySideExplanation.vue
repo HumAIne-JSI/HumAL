@@ -126,7 +126,7 @@ const hasSimilar = computed(
   <section class="side-by-side" data-track-region="lime_panel">
     <header class="side-by-side__header">
       <Sparkles :size="14" />
-      <span class="side-by-side__title">Why this prediction</span>
+      <span class="side-by-side__title">Why this suggestion</span>
       <span v-if="hasLime" class="side-by-side__legend">
         <span class="side-by-side__legend-item">
           <span class="side-by-side__legend-swatch side-by-side__legend-swatch--pos"></span>
@@ -146,7 +146,7 @@ const hasSimilar = computed(
           <span class="side-by-side__col-label">Current ticket</span>
         </header>
         <div v-if="loadingLime" class="side-by-side__loading">
-          <Spinner label="Computing word importance..." />
+          <Spinner label="Finding key words..." />
         </div>
         <div v-else class="side-by-side__body">
           <h4 v-if="currentTicket.title" class="side-by-side__body-title">
@@ -179,7 +179,7 @@ const hasSimilar = computed(
       <article class="side-by-side__col" data-track-region="nearest_ticket">
         <header class="side-by-side__col-header">
           <Search :size="12" class="side-by-side__col-icon" />
-          <span class="side-by-side__col-label">Most similar labeled ticket</span>
+          <span class="side-by-side__col-label">Closest past ticket</span>
           <Badge v-if="similarTicket?.ref" variant="outline" class="side-by-side__col-badge">
             {{ similarTicket.ref }}
           </Badge>
@@ -191,7 +191,7 @@ const hasSimilar = computed(
             :variant="similarityVariant"
             class="side-by-side__col-badge"
           >
-            {{ similarityPercent }}% similar
+            {{ similarityPercent }}% match
           </Badge>
         </header>
         <div v-if="loadingSimilar" class="side-by-side__loading">

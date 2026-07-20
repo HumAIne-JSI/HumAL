@@ -453,7 +453,7 @@ const groupedShortcuts = computed(() => {
             Try adjusting your filters
           </p>
           <p v-else>
-            No tickets are available for this instance
+            No tickets are available for this project
           </p>
         </div>
 

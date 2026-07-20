@@ -44,7 +44,7 @@ const hasProbabilities = computed(() => topProbabilities.value.length > 0)
   <Card :variant="compact ? 'elevated' : 'default'" :padding="compact ? 'sm' : 'default'">
     <template #title>
       <div class="prediction-result__header">
-        <span class="prediction-result__label">Prediction</span>
+        <span class="prediction-result__label">AI Suggestion</span>
         <Badge variant="default" class="prediction-result__value">
           {{ prediction }}
         </Badge>
@@ -61,7 +61,7 @@ const hasProbabilities = computed(() => topProbabilities.value.length > 0)
     <div class="prediction-result__content">
       <template v-if="showDetails && hasProbabilities">
         <div class="prediction-result__probabilities">
-          <div class="prediction-result__prob-heading">Top {{ topProbabilities.length }} predictions</div>
+          <div class="prediction-result__prob-heading">Top {{ topProbabilities.length }} suggestions</div>
           <div
             v-for="item in topProbabilities"
             :key="item.label"

@@ -76,7 +76,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
       <div class="dashboard__header-content">
         <h1 class="dashboard__title">Dashboard</h1>
         <p class="dashboard__subtitle">
-          Welcome to HumAL - Human-in-the-Loop Active Learning Platform
+          Welcome to HumAL - AI-Assisted Ticket Labeling
         </p>
       </div>
       <Button variant="outline" size="sm" @click="refetchInstances">
@@ -132,7 +132,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
               <Brain :size="20" />
             </div>
             <div class="stat-card__content">
-              <span class="stat-card__label">Active Instances</span>
+              <span class="stat-card__label">Active Projects</span>
               <span class="stat-card__value">
                 {{ instancesLoading ? '...' : totalInstances }}
               </span>
@@ -183,7 +183,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
             <div class="action-card__text">
               <h3 class="action-card__title">Training</h3>
               <p class="action-card__description">
-                Create and manage active learning instances, label data, and train models
+                Create and manage labeling projects, label tickets, and train the AI
               </p>
             </div>
             <ChevronRight :size="20" class="action-card__arrow" />
@@ -201,9 +201,9 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
               <Zap :size="28" />
             </div>
             <div class="action-card__text">
-              <h3 class="action-card__title">Batch Inference</h3>
+              <h3 class="action-card__title">Bulk Predictions</h3>
               <p class="action-card__description">
-                Run predictions on multiple tickets with trained models
+                Run predictions on many tickets at once with a trained AI
               </p>
             </div>
             <ChevronRight :size="20" class="action-card__arrow" />
@@ -221,9 +221,9 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
               <Target :size="28" />
             </div>
             <div class="action-card__text">
-              <h3 class="action-card__title">Dispatching</h3>
+              <h3 class="action-card__title">Ticket Categorizing</h3>
               <p class="action-card__description">
-                Classify tickets with explainable AI insights and similar ticket lookup
+                Categorize tickets with clear reasons and similar past tickets
               </p>
             </div>
             <ChevronRight :size="20" class="action-card__arrow" />
@@ -243,7 +243,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
             <div class="action-card__text">
               <h3 class="action-card__title">Ticket Resolution</h3>
               <p class="action-card__description">
-                Get AI-powered resolution suggestions using RAG-based retrieval
+                A suggested first reply for Tier 2 Support, based on similar past tickets
               </p>
             </div>
             <ChevronRight :size="20" class="action-card__arrow" />
@@ -257,25 +257,25 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
       <div class="dashboard__section-header">
         <h2 class="dashboard__section-title">
           <Brain :size="18" />
-          Training Instances
+          Your Projects
         </h2>
         <Button variant="default" size="sm" @click="navigateTo('/training')">
           <Plus :size="14" />
-          New Instance
+          New Project
         </Button>
       </div>
 
       <div v-if="instancesLoading" class="dashboard__loading">
-        <Spinner label="Loading instances..." />
+        <Spinner label="Loading projects..." />
       </div>
 
       <div v-else-if="instancesList.length === 0" class="dashboard__empty">
         <Brain :size="48" class="dashboard__empty-icon" />
-        <h3>No instances yet</h3>
-        <p>Create your first active learning instance to get started</p>
+        <h3>No projects yet</h3>
+        <p>Create your first project to get started</p>
         <Button @click="navigateTo('/training')">
           <Plus :size="16" />
-          Create Instance
+          Create Project
         </Button>
       </div>
 
@@ -321,14 +321,14 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
             </div>
 
             <div v-if="instance.f1_scores && instance.f1_scores.length > 0" class="instance-card__metrics">
-              <span class="instance-card__metric-label">Latest F1</span>
+              <span class="instance-card__metric-label">Quality score</span>
               <Badge variant="info">
                 {{ ((instance.f1_scores[instance.f1_scores.length - 1] ?? 0) * 100).toFixed(1) }}%
               </Badge>
             </div>
 
             <div v-if="instance.test_accuracy !== undefined" class="instance-card__metrics">
-              <span class="instance-card__metric-label">Test Accuracy</span>
+              <span class="instance-card__metric-label">Accuracy</span>
               <Badge variant="success">
                 {{ (instance.test_accuracy * 100).toFixed(1) }}%
               </Badge>

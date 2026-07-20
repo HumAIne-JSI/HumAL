@@ -22,8 +22,8 @@ const emit = defineEmits<{
 const sortOptions = [
   { value: 'newest', label: 'Newest First' },
   { value: 'oldest', label: 'Oldest First' },
-  { value: 'confidence-high', label: 'Confidence (High → Low)' },
-  { value: 'confidence-low', label: 'Confidence (Low → High)' },
+  { value: 'confidence-high', label: 'Certainty (High → Low)' },
+  { value: 'confidence-low', label: 'Certainty (Low → High)' },
 ]
 
 const teamOptions = computed(() => {

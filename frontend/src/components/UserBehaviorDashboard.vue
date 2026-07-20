@@ -277,7 +277,7 @@ function clearMockEvents() {
       </div>
       <div class="user-behavior__controls">
         <div v-if="mockStore.mockEnabled" class="user-behavior__mock">
-          <span class="user-behavior__mock-tag">Mock mode</span>
+          <span class="user-behavior__mock-tag">Demo mode</span>
           <span class="user-behavior__mock-count">
             {{ telemetryStore.events.length.toLocaleString() }} local events
           </span>
@@ -309,7 +309,7 @@ function clearMockEvents() {
     <section class="overview-grid">
       <Card variant="elevated" padding="sm">
         <div class="stat">
-          <span class="stat__label">Total events</span>
+          <span class="stat__label">Total activity</span>
           <span class="stat__value">{{ fmtNumber(overview?.total_events) }}</span>
         </div>
       </Card>
@@ -327,7 +327,7 @@ function clearMockEvents() {
       </Card>
       <Card variant="elevated" padding="sm">
         <div class="stat">
-          <span class="stat__label">Mean decision</span>
+          <span class="stat__label">Average decision</span>
           <span class="stat__value">{{ fmtSeconds(overview?.mean_decision_seconds) }}</span>
         </div>
       </Card>
@@ -338,7 +338,7 @@ function clearMockEvents() {
       <Card padding="default">
         <template #title>Decisions</template>
         <template #description>
-          Acceptance rate: {{ fmtPercent(aiImpact?.acceptance_rate) }}
+          Agreement rate: {{ fmtPercent(aiImpact?.acceptance_rate) }}
         </template>
         <div class="chart-box chart-box--sm">
           <Doughnut :data="decisionDonutData" :options="donutOptions" />
@@ -346,7 +346,7 @@ function clearMockEvents() {
       </Card>
 
       <Card padding="default">
-        <template #title>Decision time: AI-aided vs manual</template>
+        <template #title>Decision time: with AI vs manual</template>
         <template #description>
           <span v-if="decisionTimeSaved != null">
             AI saves ~{{ fmtSeconds(decisionTimeSaved) }} per ticket on average.
@@ -362,11 +362,11 @@ function clearMockEvents() {
     <!-- Confidence vs acceptance -->
     <section>
       <Card padding="default">
-        <template #title>Confidence vs label decision</template>
+        <template #title>Certainty vs decision</template>
         <template #description>
-          Each bar shows how the team labelled the model's predictions in that
-          confidence range. High-confidence overrides may indicate
-          mis-calibration.
+          Each bar shows how the team handled the AI's suggestions in that
+          certainty range. Corrections on high-certainty suggestions may mean
+          the AI is overconfident.
         </template>
         <div class="chart-box chart-box--md">
           <Bar :data="confidenceBucketData" :options="stackedBarOptions" />
@@ -377,37 +377,37 @@ function clearMockEvents() {
     <!-- XAI engagement -->
     <section class="grid-2">
       <Card padding="default">
-        <template #title>XAI lift</template>
+        <template #title>Explanation impact</template>
         <template #description>
           <span v-if="xaiLift != null">
-            With XAI: {{ fmtPercent(xai?.acceptance_rate_with_xai) }} vs without:
+            With explanation: {{ fmtPercent(xai?.acceptance_rate_with_xai) }} vs without:
             {{ fmtPercent(xai?.acceptance_rate_without_xai) }}
-            <strong>({{ xaiLift >= 0 ? '+' : '' }}{{ (xaiLift * 100).toFixed(1) }} pp)</strong>
+            <strong>({{ xaiLift >= 0 ? '+' : '' }}{{ (xaiLift * 100).toFixed(1) }} points)</strong>
           </span>
-          <span v-else>Need more decisions to compute lift.</span>
+          <span v-else>Need more decisions to compare.</span>
         </template>
         <ul class="kv-list">
           <li>
-            <span>Decisions with XAI</span>
+            <span>Decisions with explanation</span>
             <strong>{{ fmtNumber(xai?.decisions_with_xai) }}</strong>
           </li>
           <li>
-            <span>Decisions without XAI</span>
+            <span>Decisions without explanation</span>
             <strong>{{ fmtNumber(xai?.decisions_without_xai) }}</strong>
           </li>
           <li>
-            <span>Mean time with XAI</span>
+            <span>Average time with explanation</span>
             <strong>{{ fmtSeconds(xai?.mean_decision_time_with_xai_s) }}</strong>
           </li>
           <li>
-            <span>Mean time without XAI</span>
+            <span>Average time without explanation</span>
             <strong>{{ fmtSeconds(xai?.mean_decision_time_without_xai_s) }}</strong>
           </li>
         </ul>
       </Card>
 
       <Card padding="default">
-        <template #title>Decision funnel</template>
+        <template #title>Workflow steps</template>
         <template #description>
           What fraction of opened tickets reach a label, with or without an
           explanation along the way.
@@ -439,7 +439,7 @@ function clearMockEvents() {
     <section>
       <Card padding="default">
         <template #title>Activity timeline</template>
-        <template #description>Events per minute across the period.</template>
+        <template #description>Activity per minute across the period.</template>
         <div class="chart-box chart-box--md">
           <Line :data="timelineChartData" :options="timelineOptions" />
         </div>

@@ -724,3 +724,18 @@ export interface ProgramKpiTargets {
   assistance: number;
   overall_satisfaction: number;
 }
+
+/**
+ * Operator effort on AI-suggested resolutions, derived from `validate_resolution`
+ * events emitted by the Resolution tab when a suggestion is accepted. `edit_ratio`
+ * is the normalised character edit distance between the generated reply and the
+ * operator's final text; `effort_saved` = 1 − mean edit ratio.
+ */
+export interface ResolutionEffortMetrics {
+  resolutions_used: number;
+  verbatim_count: number;
+  verbatim_rate: number | null;
+  mean_edit_ratio: number | null;
+  effort_saved: number | null;
+  mean_review_seconds: number | null;
+}

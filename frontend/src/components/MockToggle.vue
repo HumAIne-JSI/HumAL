@@ -2,13 +2,13 @@
   <button
     class="mock-toggle"
     :class="{ 'mock-toggle--active': mockStore.mockEnabled }"
-    :title="mockStore.mockEnabled ? 'Using mock data — click to use real API' : 'Using real API — click to use mock data'"
+    :title="mockStore.mockEnabled ? 'Using demo data — click to use the live API' : 'Using the live API — click to use demo data'"
     @click="mockStore.toggle()"
   >
     <Database v-if="!mockStore.mockEnabled" class="mock-toggle__icon" />
     <FlaskConical v-else class="mock-toggle__icon" />
     <span class="mock-toggle__label">
-      {{ mockStore.mockEnabled ? 'Mock' : 'Live' }}
+      {{ mockStore.mockEnabled ? 'Demo' : 'Live' }}
     </span>
     <span
       class="mock-toggle__dot"

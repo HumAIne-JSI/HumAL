@@ -356,7 +356,7 @@ const groupedShortcuts = computed(() => {
           <Pencil :size="48" class="ticket-queue__empty-icon" />
           <h3>No tickets found</h3>
           <p v-if="filters.search">Try adjusting your filters</p>
-          <p v-else>No tickets are available for this instance</p>
+          <p v-else>No tickets are available for this project</p>
         </div>
 
         <div v-else class="ticket-queue__list">

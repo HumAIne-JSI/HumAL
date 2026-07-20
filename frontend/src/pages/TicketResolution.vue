@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -110,6 +110,19 @@ const stats = ref<Record<string, ResolutionFeedbackStatsResponse>>({})
 const votingId = ref<string | null>(null)
 // A stable id grouping all feedback from one generated resolution.
 const queryId = ref('')
+
+// Manual-effort telemetry: how much / how long the operator edits the suggested
+// reply before using it, so Analytics can estimate operator effort saved.
+const generatedAtMs = ref<number | null>(null)
+const firstEditMs = ref<number | null>(null)
+const effortRecorded = ref(false)
+
+// Detect the first manual edit of the generated reply.
+watch(editedResponse, (value) => {
+  if (result.value && firstEditMs.value == null && value !== result.value.response) {
+    firstEditMs.value = Date.now()
+  }
+})
 
 // Reference data for the optional service-category fields.
 const { data: instancesData } = useInstances()
@@ -227,6 +240,9 @@ async function generate(): Promise<void> {
     votes.value = {}
     stats.value = {}
     queryId.value = crypto.randomUUID()
+    generatedAtMs.value = Date.now()
+    firstEditMs.value = null
+    effortRecorded.value = false
     toast.success('Resolution generated', {
       description: `${data.classification} · ${data.predicted_team}`,
     })
@@ -289,6 +305,9 @@ function useLabeledTicket(ticket: LabeledTicket): void {
   savedToKb.value = false
   votes.value = {}
   stats.value = {}
+  generatedAtMs.value = null
+  firstEditMs.value = null
+  effortRecorded.value = false
   toast.info('Ticket loaded', { description: `${ticket.ref} · ${ticket.label}` })
 }
 
@@ -301,6 +320,60 @@ function clearLoadedTicket(): void {
 function formatTime(iso: string): string {
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+// Character-level edit distance (bounded) between the generated reply and the
+// operator's final text — the basis of the "effort saved" estimate.
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (a.length > 4000 || b.length > 4000) return Math.abs(a.length - b.length)
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const prev = Array.from({ length: n + 1 }, (_, i) => i)
+  const curr = new Array<number>(n + 1)
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1
+      curr[j] = Math.min(prev[j]! + 1, curr[j - 1]! + 1, prev[j - 1]! + cost)
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j]!
+  }
+  return prev[n]!
+}
+
+// Emit a one-time manual-effort telemetry event when the operator accepts a
+// suggested resolution (copies or saves it): how much they changed it and how
+// long they reviewed it before using it.
+function recordEffort(outcome: 'saved' | 'copied'): void {
+  if (!result.value || effortRecorded.value) return
+  effortRecorded.value = true
+  const generated = result.value.response ?? ''
+  const final = editedResponse.value ?? ''
+  const changed = editDistance(generated, final)
+  const editRatio = Math.min(1, changed / Math.max(generated.length, final.length, 1))
+  const now = Date.now()
+  const reviewMs = generatedAtMs.value != null ? now - generatedAtMs.value : 0
+  const editMs = firstEditMs.value != null ? now - firstEditMs.value : 0
+  telemetry.recordLab(
+    'validate_resolution',
+    'Ticket',
+    {
+      page: 'resolution',
+      outcome,
+      edited: final !== generated,
+      edit_ratio: Number(editRatio.toFixed(3)),
+      chars_generated: generated.length,
+      chars_final: final.length,
+      chars_changed: changed,
+      edit_duration_ms: editMs,
+      predicted_team: result.value.predicted_team,
+      classification: result.value.classification,
+    },
+    { latency_ms: reviewMs },
+  )
 }
 
 async function saveToKb(): Promise<void> {
@@ -317,7 +390,7 @@ async function saveToKb(): Promise<void> {
     })
     savedToKb.value = true
     toast.success('Saved to knowledge base')
-    telemetry.recordLab('validate_resolution', 'Ticket', { page: 'resolution' })
+    recordEffort('saved')
   } catch (error) {
     toast.error('Could not save to knowledge base', {
       description: error instanceof Error ? error.message : undefined,
@@ -331,6 +404,7 @@ async function copyResponse(): Promise<void> {
     copiedToClipboard.value = true
     setTimeout(() => (copiedToClipboard.value = false), 2000)
     toast.success('Copied to clipboard')
+    recordEffort('copied')
   } catch {
     toast.error('Failed to copy')
   }
@@ -349,6 +423,9 @@ function clearForm(): void {
   savedToKb.value = false
   votes.value = {}
   stats.value = {}
+  generatedAtMs.value = null
+  firstEditMs.value = null
+  effortRecorded.value = false
 }
 
 onMounted(() => {
@@ -360,9 +437,9 @@ onMounted(() => {
   <div class="resolution">
     <header class="resolution__header">
       <div class="resolution__header-content">
-        <h1 class="resolution__title">Ticket Resolution</h1>
+        <h1 class="resolution__title">Ticket Evolution</h1>
         <p class="resolution__subtitle">
-          Get a proposed solution for a ticket, backed by similar past replies and human feedback.
+          After a ticket is routed to a team, Tier 2 Support gets a suggested first reply based on similar past tickets.
         </p>
       </div>
     </header>
@@ -497,7 +574,7 @@ onMounted(() => {
           <div class="form-field">
             <label class="form-label">
               <Brain :size="13" />
-              Model instance (optional)
+              AI model (optional)
             </label>
             <InstanceSelector
               v-model="instanceModel"
@@ -505,7 +582,7 @@ onMounted(() => {
               :disabled="isResolving"
               size="sm"
             />
-            <span class="form-hint">Predicts the team with a trained model before resolving.</span>
+            <span class="form-hint">Suggests the team with a trained AI before resolving.</span>
           </div>
 
           <div class="form-field">
@@ -551,35 +628,35 @@ onMounted(() => {
         <Card class="resolution__classification">
           <template #title>
             <Target :size="18" />
-            Classification
+            Category
           </template>
 
           <div v-if="isResolving" class="loading-state">
-            <Spinner label="Analysing ticket and generating a solution..." />
+            <Spinner label="Reading the ticket and writing a suggested reply..." />
           </div>
 
           <template v-else-if="result">
             <div class="classification-grid">
               <div class="classification-item">
-                <span class="classification-label">Classification</span>
+                <span class="classification-label">Category</span>
                 <Badge variant="default" size="lg">{{ result.classification }}</Badge>
               </div>
               <div class="classification-item">
-                <span class="classification-label">Predicted Team</span>
+                <span class="classification-label">Suggested Team</span>
                 <Badge variant="secondary" size="lg">
                   <Users :size="14" />
                   {{ result.predicted_team }}
                 </Badge>
               </div>
               <div class="classification-item">
-                <span class="classification-label">Confidence</span>
+                <span class="classification-label">Certainty</span>
                 <div class="confidence-display">
                   <Progress :value="confidencePct" :max="100" />
                   <span>{{ confidencePct.toFixed(1) }}%</span>
                 </div>
               </div>
               <div class="classification-item">
-                <span class="classification-label">Quality gate</span>
+                <span class="classification-label">Quality check</span>
                 <Badge :variant="result.votes_applied > 0 ? 'default' : 'outline'">
                   <Gavel :size="14" />
                   {{ result.votes_applied > 0 ? `${result.votes_applied} feedback vote(s) applied` : 'No prior feedback' }}
@@ -619,9 +696,9 @@ onMounted(() => {
                 <Copy v-else :size="14" />
                 {{ copiedToClipboard ? 'Copied!' : 'Copy' }}
               </Button>
-              <Button variant="outline" size="sm" @click="editedResponse = result.response">
+              <Button variant="outline" size="sm" :loading="isResolving" :disabled="!hasInput" @click="generate">
                 <RefreshCw :size="14" />
-                Reset
+                Regen
               </Button>
               <div class="response-toolbar__spacer" />
               <Button
@@ -631,8 +708,7 @@ onMounted(() => {
                 :loading="isSaving"
                 :disabled="savedToKb || !editedResponse"
               >
-                <Save :size="14" />
-                {{ savedToKb ? 'Saved to KB' : 'Save to knowledge base' }}
+                {{ savedToKb ? 'Sent' : 'Send to  Team' }}
               </Button>
             </div>
           </template>

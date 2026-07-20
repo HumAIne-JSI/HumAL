@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<InstanceSelectorProps>(), {
   modelValue: '',
   filterTrained: false,
   syncRoute: false,
-  placeholder: 'Select instance...',
+  placeholder: 'Select project...',
   disabled: false,
   size: 'default',
 })
@@ -87,7 +87,7 @@ watch(
     <Select
       :model-value="currentValue"
       :options="instanceOptions"
-      :placeholder="isLoading ? 'Loading instances...' : placeholder"
+      :placeholder="isLoading ? 'Loading projects...' : placeholder"
       :disabled="disabled || isLoading"
       :size="size"
       @update:model-value="handleUpdate"

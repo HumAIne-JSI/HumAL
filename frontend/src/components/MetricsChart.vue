@@ -23,7 +23,7 @@ export interface MetricsChartProps {
 }
 
 const props = withDefaults(defineProps<MetricsChartProps>(), {
-  label: 'F1 Score',
+  label: 'Quality score',
   height: 200,
 })
 
@@ -61,7 +61,7 @@ watch(
 )
 
 const chartData = computed(() => ({
-  labels: props.scores.map((_, i) => `Iteration ${i + 1}`),
+  labels: props.scores.map((_, i) => `Round ${i + 1}`),
   datasets: [
     {
       label: props.label,

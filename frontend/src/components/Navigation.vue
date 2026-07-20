@@ -20,10 +20,10 @@
       </div>
 
       <div v-if="!isCollapsed" class="sidebar__instance">
-        <label class="sidebar__instance-label">Active Instance</label>
+        <label class="sidebar__instance-label">Active Project</label>
         <InstanceSelector
           :model-value="String(instanceStore.selectedInstanceId || '')"
-          placeholder="Select instance..."
+          placeholder="Select project..."
           size="sm"
           @update:model-value="handleInstanceChange"
         />

@@ -174,6 +174,23 @@ function seedEvents(): LocalEvent[] {
     }
   })
 
+  // A few Resolution-tab validations so the "effort saved on suggested
+  // resolutions" KPI is populated in the mock / demo dashboard.
+  const resolutionSamples = [
+    { ratio: 0, edited: false, reviewMs: 30000, outcome: 'copied' },
+    { ratio: 0.05, edited: false, reviewMs: 42000, outcome: 'saved' },
+    { ratio: 0.18, edited: true, reviewMs: 65000, outcome: 'copied' },
+    { ratio: 0.32, edited: true, reviewMs: 88000, outcome: 'saved' },
+  ]
+  resolutionSamples.forEach((s, i) => {
+    push(90 * 60 * 1000 + i * 90 * 1000, {
+      al_instance_id: null,
+      action: 'validate_resolution',
+      latency_ms: s.reviewMs,
+      payload: { page: 'resolution', outcome: s.outcome, edited: s.edited, edit_ratio: s.ratio },
+    })
+  })
+
   return out
 }
 
