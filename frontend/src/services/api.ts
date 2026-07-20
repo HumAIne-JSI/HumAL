@@ -23,11 +23,6 @@ import {
   type ExplainLimeResponse,
   type NearestTicketResponse,
   type SimilarTicketsPerClassResponse,
-  type ResolutionProcessRequest,
-  type ResolutionProcessResponse,
-  type ResolutionFeedbackRequest,
-  type ResolutionFeedbackResponse,
-  type EmbeddingsRebuildResponse,
   // Benchmark / analytics types
   type BenchmarkOverview,
   type BenchmarkSession,
@@ -135,11 +130,6 @@ export const API_ENDPOINTS = {
   GET_TEAMS: '/data/teams',
   GET_CATEGORIES: '/data/categories',
   GET_SUBCATEGORIES: '/data/subcategories',
-  
-  // Resolution
-  RESOLUTION_PROCESS: '/resolution/process',
-  RESOLUTION_FEEDBACK: '/resolution/feedback',
-  RESOLUTION_REBUILD_EMBEDDINGS: '/resolution/rebuild-embeddings',
 
   // Analytics / benchmark suite
   GET_ANALYTICS_OVERVIEW: '/analytics/overview',
@@ -479,24 +469,6 @@ export const apiService = {
 
   getSubcategories: (_instanceId?: number, _trainDataPath?: string, _category?: string) => 
     apiCall<SubcategoriesResponse>(API_ENDPOINTS.GET_SUBCATEGORIES),
-
-  // Resolution
-  processResolution: (data: ResolutionProcessRequest) =>
-    apiCall<ResolutionProcessResponse>(API_ENDPOINTS.RESOLUTION_PROCESS, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  sendResolutionFeedback: (data: ResolutionFeedbackRequest) =>
-    apiCall<ResolutionFeedbackResponse>(API_ENDPOINTS.RESOLUTION_FEEDBACK, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  rebuildEmbeddings: () =>
-    apiCall<EmbeddingsRebuildResponse>(API_ENDPOINTS.RESOLUTION_REBUILD_EMBEDDINGS, {
-      method: 'POST',
-    }),
 
   // Analytics / benchmark suite
   getAnalyticsOverview: () =>

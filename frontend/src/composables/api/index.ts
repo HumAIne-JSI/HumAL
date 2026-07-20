@@ -56,12 +56,15 @@ export {
   xaiKeys,
 } from './useXai';
 
-// Resolution domain - ticket resolution with RAG
+// Resolution domain - assisted ticket resolution via the external al-fr-api
 export {
-  useProcessResolution,
+  useAssistedResolution,
   useResolutionFeedback,
+  useFeedbackStats,
+  useSaveResolvedTicket,
   useResolution,
   resolutionKeys,
+  DEFAULT_RESOLUTION_TOP_K,
 } from './useResolution';
 
 // Analytics domain - benchmarking suite (model performance, resource efficiency,
@@ -86,5 +89,5 @@ export type { UseActiveLearningOptions } from './useActiveLearning';
 export type { UseDataOptions } from './useData';
 export type { UseInferenceOptions } from './useInference';
 export type { UseXaiOptions, ExplainLimePayload, NearestTicketPayload } from './useXai';
-export type { UseResolutionOptions } from './useResolution';
+export type { UseResolutionOptions, AssistedResolution, AssistedResolutionInput } from './useResolution';
 

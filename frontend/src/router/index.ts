@@ -15,6 +15,8 @@ export interface NavItem {
   path: string
   label: string
   icon: Component
+  /** When true, the sidebar opens this entry in a new browser tab. */
+  newTab?: boolean
 }
 
 const routes = [
@@ -54,12 +56,12 @@ const routes = [
   //   component: () => import('../pages/Dispatching.vue'),
   //   meta: { label: 'Dispatch Labeling', icon: Target, showInNav: true }
   // },
-  // {
-  //   path: '/ticket-resolution',
-  //   name: 'ticket-resolution',
-  //   component: () => import('../pages/TicketResolution.vue'),
-  //   meta: { label: 'Ticket Resolution', icon: MessageSquareText, showInNav: true }
-  // },
+  {
+    path: '/ticket-resolution',
+    name: 'ticket-resolution',
+    component: () => import('../pages/TicketResolution.vue'),
+    meta: { label: 'Ticket Resolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
+  },
   // {
   //   path: '/inference',
   //   name: 'inference',
@@ -85,7 +87,8 @@ export const navItems: NavItem[] = routes
   .map(route => ({
     path: route.path,
     label: route.meta.label as string,
-    icon: route.meta.icon as NavItem['icon']
+    icon: route.meta.icon as NavItem['icon'],
+    newTab: route.meta.newTab as boolean | undefined
   }))
 
 const router = createRouter({

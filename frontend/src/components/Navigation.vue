@@ -30,17 +30,30 @@
       </div>
 
       <nav class="sidebar__nav">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="sidebar__link"
-          :class="{ 'sidebar__link--active': isActive(item.path) }"
-          :title="isCollapsed ? item.label : undefined"
-        >
-          <component :is="item.icon" class="sidebar__icon" />
-          <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
-        </RouterLink>
+        <template v-for="item in navItems" :key="item.path">
+          <a
+            v-if="item.newTab"
+            :href="resolveHref(item.path)"
+            target="_blank"
+            rel="noopener"
+            class="sidebar__link"
+            :title="isCollapsed ? `${item.label} (opens in a new tab)` : undefined"
+          >
+            <component :is="item.icon" class="sidebar__icon" />
+            <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+            <ExternalLink v-if="!isCollapsed" class="sidebar__link-external" />
+          </a>
+          <RouterLink
+            v-else
+            :to="item.path"
+            class="sidebar__link"
+            :class="{ 'sidebar__link--active': isActive(item.path) }"
+            :title="isCollapsed ? item.label : undefined"
+          >
+            <component :is="item.icon" class="sidebar__icon" />
+            <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+          </RouterLink>
+        </template>
       </nav>
 
       <div v-if="!isCollapsed" class="sidebar__footer">
@@ -60,7 +73,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-vue-next'
+import { PanelLeftClose, PanelLeftOpen, LogOut, ExternalLink } from 'lucide-vue-next'
 import { navItems } from '../router'
 import InstanceSelector from './InstanceSelector.vue'
 import MockToggle from './MockToggle.vue'
@@ -98,6 +111,9 @@ const handleInstanceChange = (value: string) => {
 const isActive = (path: string): boolean => {
   return route.path === path
 }
+
+// Absolute href (respecting the router base) for entries that open in a new tab.
+const resolveHref = (path: string): string => router.resolve(path).href
 </script>
 
 <style lang="scss" scoped>
@@ -242,6 +258,14 @@ const isActive = (path: string): boolean => {
   &__label {
     font-size: 0.875rem;
     font-weight: var(--font-weight-medium);
+  }
+
+  &__link-external {
+    width: 0.875rem;
+    height: 0.875rem;
+    margin-left: auto;
+    color: var(--muted-foreground);
+    flex-shrink: 0;
   }
 
   &__footer {

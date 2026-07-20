@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -8,15 +8,25 @@ import Input from '@/components/ui/Input.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Progress from '@/components/ui/Progress.vue'
 import Spinner from '@/components/ui/Spinner.vue'
-import Accordion from '@/components/ui/Accordion.vue'
 import ExportButton from '@/components/ExportButton.vue'
+import InstanceSelector from '@/components/InstanceSelector.vue'
 import { useInstances } from '@/composables/api/useActiveLearning'
 import { useCategories, useSubcategories } from '@/composables/api/useData'
-import { useProcessResolution, useResolutionFeedback } from '@/composables/api/useResolution'
-import type { ResolutionProcessRequest, ResolutionProcessResponse, SimilarReply } from '@/types/api'
+import { useInfer } from '@/composables/api/useInference'
+import {
+  useAssistedResolution,
+  useResolutionFeedback,
+  useFeedbackStats,
+  useSaveResolvedTicket,
+  DEFAULT_RESOLUTION_TOP_K,
+  type AssistedResolution,
+} from '@/composables/api/useResolution'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useLabeledTicketsStore, type LabeledTicket } from '@/stores/useLabeledTicketsStore'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
+import type { ResolutionSimilarReply, ResolutionFeedbackStatsResponse } from '@/types/api'
 import {
   MessageSquare,
-  Send,
   ThumbsUp,
   ThumbsDown,
   Copy,
@@ -26,82 +36,112 @@ import {
   Sparkles,
   Users,
   Target,
+  Save,
+  Gavel,
+  Brain,
+  Inbox,
+  Trash2,
+  X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
+
+const authStore = useAuthStore()
+const telemetry = useBenchmarkTelemetry()
+const labeledStore = useLabeledTicketsStore()
+const labeledTickets = computed(() => labeledStore.tickets)
+
+// Labeled-list UI state: collapse + filtering.
+const labeledCollapsed = ref(false)
+const labeledSearch = ref('')
+const labeledTeamFilter = ref('')
+const labeledTeams = computed(() => {
+  const set = new Set<string>()
+  for (const ticket of labeledTickets.value) {
+    if (ticket.label) set.add(ticket.label)
+  }
+  return Array.from(set).sort()
+})
+const filteredLabeledTickets = computed(() => {
+  const query = labeledSearch.value.trim().toLowerCase()
+  const team = labeledTeamFilter.value
+  return labeledTickets.value.filter((ticket) => {
+    if (team && ticket.label !== team) return false
+    if (!query) return true
+    return (
+      ticket.ref.toLowerCase().includes(query) ||
+      ticket.title.toLowerCase().includes(query) ||
+      ticket.description.toLowerCase().includes(query) ||
+      ticket.label.toLowerCase().includes(query)
+    )
+  })
+})
 
 // Form state
 const ticketTitle = ref('')
 const ticketDescription = ref('')
+const topK = ref(DEFAULT_RESOLUTION_TOP_K)
 const selectedCategory = ref('')
 const selectedSubcategory = ref('')
 
+// A labeled ticket pulled from the queue: its human label is reused as the
+// predicted-team hint, taking priority over model inference.
+const presetTeam = ref('')
+const selectedLabeledRef = ref('')
+
+// Optional Active-Learning bridge: a trained instance used to predict the team
+// before resolving, sharpening retrieval + judging.
+const selectedInstanceId = ref(0)
+const instanceModel = computed<string>({
+  get: () => (selectedInstanceId.value > 0 ? String(selectedInstanceId.value) : ''),
+  set: (value) => {
+    selectedInstanceId.value = value ? Number(value) : 0
+  },
+})
+
 // Result state
-const result = ref<ResolutionProcessResponse | null>(null)
+const result = ref<AssistedResolution | null>(null)
 const editedResponse = ref('')
-const feedbackSent = ref(false)
+const savedToKb = ref(false)
 const copiedToClipboard = ref(false)
+// Per-reply feedback: retrieved_id -> submitted vote / aggregated stats.
+const votes = ref<Record<string, 0 | 1>>({})
+const stats = ref<Record<string, ResolutionFeedbackStatsResponse>>({})
+const votingId = ref<string | null>(null)
+// A stable id grouping all feedback from one generated resolution.
+const queryId = ref('')
 
-// Get instances to use for fetching categories
+// Reference data for the optional service-category fields.
 const { data: instancesData } = useInstances()
-
-// Use first available instance for categories, fallback to 0
-const dataInstanceId = computed(() => {
+const firstInstanceId = computed(() => {
   const instances = instancesData.value?.instances
-  if (instances) {
-    const keys = Object.keys(instances)
-    if (keys.length > 0) {
-      return Number(keys[0])
-    }
-  }
-  return 0
+  const keys = instances ? Object.keys(instances) : []
+  return keys.length ? Number(keys[0]) : 0
 })
-
-// Data composables - use first available instance for categories
-const { data: categoriesData } = useCategories(dataInstanceId, undefined, {
-  enabled: computed(() => dataInstanceId.value > 0),
+const catInstanceId = computed(() =>
+  selectedInstanceId.value > 0 ? selectedInstanceId.value : firstInstanceId.value,
+)
+const { data: categoriesData } = useCategories(catInstanceId, undefined, {
+  enabled: computed(() => catInstanceId.value > 0),
 })
-const { data: subcategoriesData } = useSubcategories(dataInstanceId, undefined, undefined, {
-  enabled: computed(() => dataInstanceId.value > 0),
+const { data: subcategoriesData } = useSubcategories(catInstanceId, undefined, undefined, {
+  enabled: computed(() => catInstanceId.value > 0),
 })
-
-// Extract arrays from response objects
 const categories = computed(() => categoriesData.value?.categories ?? [])
 const subcategories = computed(() => subcategoriesData.value?.subcategories ?? [])
 
-// Filter subcategories based on selected category (client-side filtering)
-const filteredSubcategories = computed(() => {
-  if (!selectedCategory.value) return []
-  // Return all subcategories - API may not provide category-specific filtering
-  return subcategories.value
-})
-
-// Reset subcategory when category changes
-watch(selectedCategory, () => {
-  selectedSubcategory.value = ''
-})
-
 // Mutations
-const processMutation = useProcessResolution({
-  onSuccess: (data) => {
-    result.value = data
-    editedResponse.value = data.response
-    feedbackSent.value = false
-    toast.success('Resolution generated')
-  },
-})
-
-const feedbackMutation = useResolutionFeedback({
-  onSuccess: (data) => {
-    feedbackSent.value = true
-    toast.success('Feedback saved', {
-      description: data.message,
-    })
-  },
-})
+const assisted = useAssistedResolution({ meta: { silent: true } })
+const inferMutation = useInfer(selectedInstanceId, { meta: { silent: true } })
+const feedbackMutation = useResolutionFeedback({ meta: { silent: true } })
+const statsMutation = useFeedbackStats()
+const saveMutation = useSaveResolvedTicket({ meta: { silent: true } })
 
 // Computed
-const hasInput = computed(() => !!(ticketTitle.value || ticketDescription.value))
-const isProcessing = computed(() => processMutation.isPending.value)
-const isSendingFeedback = computed(() => feedbackMutation.isPending.value)
+const hasInput = computed(() => !!(ticketTitle.value.trim() || ticketDescription.value.trim()))
+const isResolving = computed(() => assisted.isPending.value || inferMutation.isPending.value)
+const isSaving = computed(() => saveMutation.isPending.value)
+const confidencePct = computed(() => (result.value ? (result.value.team_confidence ?? 0) * 100 : 0))
 
 const exportData = computed(() => {
   if (!result.value) return []
@@ -120,43 +160,172 @@ const exportData = computed(() => {
   ]
 })
 
+// Helpers
+const matchPct = (reply: ResolutionSimilarReply): number =>
+  Math.round((reply.enhanced_score ?? 0) * 100)
+
+const isVoting = (id: string): boolean => votingId.value === id
+
+function statsFor(id: string): { up: number; down: number } | null {
+  const entry = stats.value[id]
+  if (!entry) return null
+  let up = 0
+  let down = 0
+  for (const [, upvotes, downvotes] of entry.agg) {
+    up += upvotes
+    down += downvotes
+  }
+  return { up, down }
+}
+
+async function loadStats(replies: ResolutionSimilarReply[]): Promise<void> {
+  await Promise.all(
+    replies.map(async (reply) => {
+      try {
+        stats.value[reply.retrieved_id] = await statsMutation.mutateAsync({
+          retrievedId: reply.retrieved_id,
+        })
+      } catch {
+        // Feedback stats are non-critical decoration.
+      }
+    }),
+  )
+}
+
 // Methods
-const processTicket = async () => {
+async function generate(): Promise<void> {
   if (!hasInput.value) {
-    toast.error('Empty ticket', { description: 'Please enter title or description' })
+    toast.error('Empty ticket', { description: 'Please enter a title or description' })
     return
   }
 
-  const request: ResolutionProcessRequest = {
-    ticket_title: ticketTitle.value,
-    ticket_description: ticketDescription.value,
+  // Prefer the human label from the queue; otherwise best-effort AL inference to
+  // predict the team/class and sharpen retrieval + judging.
+  let predictedTeam: string | undefined = presetTeam.value || undefined
+  if (!predictedTeam && selectedInstanceId.value > 0) {
+    try {
+      const inference = await inferMutation.mutateAsync({
+        title_anon: ticketTitle.value,
+        description_anon: ticketDescription.value,
+      })
+      predictedTeam = inference.prediction != null ? String(inference.prediction) : undefined
+    } catch {
+      // Inference is optional; the resolution API classifies on its own.
+    }
   }
 
-  if (selectedCategory.value) {
-    request.service_category = selectedCategory.value
+  try {
+    const data = await assisted.mutateAsync({
+      title: ticketTitle.value,
+      description: ticketDescription.value,
+      top_k: topK.value,
+      predicted_team: predictedTeam,
+    })
+    result.value = data
+    editedResponse.value = data.response
+    savedToKb.value = false
+    votes.value = {}
+    stats.value = {}
+    queryId.value = crypto.randomUUID()
+    toast.success('Resolution generated', {
+      description: `${data.classification} · ${data.predicted_team}`,
+    })
+    telemetry.recordLab('run_prediction', 'Ticket', {
+      page: 'resolution',
+      classification: data.classification,
+      predicted_team: data.predicted_team,
+    })
+    await loadStats(data.similar_replies)
+  } catch (error) {
+    toast.error('Resolution failed', {
+      description: error instanceof Error ? error.message : 'Unable to reach the resolution service',
+    })
   }
-  if (selectedSubcategory.value) {
-    request.service_subcategory = selectedSubcategory.value
-  }
-
-  processMutation.mutate(request)
 }
 
-const sendFeedback = async () => {
+async function vote(reply: ResolutionSimilarReply, label: 0 | 1): Promise<void> {
+  if (!result.value || votingId.value) return
+  votingId.value = reply.retrieved_id
+  try {
+    await feedbackMutation.mutateAsync({
+      query_id: queryId.value || crypto.randomUUID(),
+      retrieved_id: reply.retrieved_id,
+      label,
+      predicted_class: result.value.predicted_class,
+      predicted_team: result.value.predicted_team,
+      user_id: authStore.user?.user_id,
+    })
+    votes.value[reply.retrieved_id] = label
+    stats.value[reply.retrieved_id] = await statsMutation.mutateAsync({
+      retrievedId: reply.retrieved_id,
+    })
+    toast.success(label === 1 ? 'Marked as helpful' : 'Marked as not helpful')
+  } catch (error) {
+    toast.error('Could not save feedback', {
+      description: error instanceof Error ? error.message : undefined,
+    })
+  } finally {
+    votingId.value = null
+  }
+}
+
+function useReply(reply: ResolutionSimilarReply): void {
+  if (reply.first_reply) {
+    editedResponse.value = reply.first_reply
+    toast.info('Reply applied', { description: 'You can edit it before saving' })
+  }
+}
+
+// Load a labeled ticket from the queue into the form.
+function useLabeledTicket(ticket: LabeledTicket): void {
+  ticketTitle.value = ticket.title
+  ticketDescription.value = ticket.description
+  selectedCategory.value = ticket.category ?? ''
+  selectedSubcategory.value = ticket.subcategory ?? ''
+  presetTeam.value = ticket.label
+  selectedLabeledRef.value = ticket.ref
+  result.value = null
+  editedResponse.value = ''
+  savedToKb.value = false
+  votes.value = {}
+  stats.value = {}
+  toast.info('Ticket loaded', { description: `${ticket.ref} · ${ticket.label}` })
+}
+
+// Detach the queue association but keep the typed text for manual resolving.
+function clearLoadedTicket(): void {
+  presetTeam.value = ''
+  selectedLabeledRef.value = ''
+}
+
+function formatTime(iso: string): string {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+async function saveToKb(): Promise<void> {
   if (!result.value) return
-
-  feedbackMutation.mutate({
-    ticket_title: ticketTitle.value,
-    ticket_description: ticketDescription.value,
-    edited_response: editedResponse.value,
-    predicted_team: result.value.predicted_team,
-    predicted_classification: result.value.classification,
-    service_name: selectedCategory.value || undefined,
-    service_subcategory: selectedSubcategory.value || undefined,
-  })
+  try {
+    await saveMutation.mutateAsync({
+      title: ticketTitle.value,
+      description: ticketDescription.value,
+      response: editedResponse.value,
+      predicted_team: result.value.predicted_team,
+      predicted_classification: result.value.classification,
+      service_name: selectedCategory.value || undefined,
+      service_subcategory: selectedSubcategory.value || undefined,
+    })
+    savedToKb.value = true
+    toast.success('Saved to knowledge base')
+    telemetry.recordLab('validate_resolution', 'Ticket', { page: 'resolution' })
+  } catch (error) {
+    toast.error('Could not save to knowledge base', {
+      description: error instanceof Error ? error.message : undefined,
+    })
+  }
 }
 
-const copyResponse = async () => {
+async function copyResponse(): Promise<void> {
   try {
     await navigator.clipboard.writeText(editedResponse.value)
     copiedToClipboard.value = true
@@ -167,22 +336,24 @@ const copyResponse = async () => {
   }
 }
 
-const useReply = (reply: SimilarReply) => {
-  if (reply.first_reply) {
-    editedResponse.value = reply.first_reply
-    toast.info('Reply applied', { description: 'You can edit it before saving' })
-  }
-}
-
-const clearForm = () => {
+function clearForm(): void {
   ticketTitle.value = ''
   ticketDescription.value = ''
   selectedCategory.value = ''
   selectedSubcategory.value = ''
+  topK.value = DEFAULT_RESOLUTION_TOP_K
+  presetTeam.value = ''
+  selectedLabeledRef.value = ''
   result.value = null
   editedResponse.value = ''
-  feedbackSent.value = false
+  savedToKb.value = false
+  votes.value = {}
+  stats.value = {}
 }
+
+onMounted(() => {
+  telemetry.recordLab('open_page', 'Ticket', { page: 'resolution' })
+})
 </script>
 
 <template>
@@ -190,27 +361,127 @@ const clearForm = () => {
     <header class="resolution__header">
       <div class="resolution__header-content">
         <h1 class="resolution__title">Ticket Resolution</h1>
-        <p class="resolution__subtitle">Get AI-powered resolution suggestions with similar past replies</p>
+        <p class="resolution__subtitle">
+          Get a proposed solution for a ticket, backed by similar past replies and human feedback.
+        </p>
       </div>
     </header>
 
     <div class="resolution__content">
+      <!-- Labeled tickets from the queue -->
+      <Card class="resolution__labeled">
+        <template #title>
+          <Inbox :size="18" />
+          Labeled tickets from the queue
+          <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
+        </template>
+        <template #description>Pick a ticket you labeled in the queue to resolve it</template>
+        <template #action>
+          <div class="labeled-actions">
+            <Button
+              variant="ghost"
+              size="sm"
+              :title="labeledCollapsed ? 'Expand' : 'Collapse'"
+              @click="labeledCollapsed = !labeledCollapsed"
+            >
+              <ChevronDown v-if="labeledCollapsed" :size="16" />
+              <ChevronUp v-else :size="16" />
+            </Button>
+            <Button variant="ghost" size="sm" title="Refresh list" @click="labeledStore.reload()">
+              <RefreshCw :size="14" />
+            </Button>
+            <Button
+              v-if="labeledTickets.length"
+              variant="ghost"
+              size="sm"
+              title="Clear list"
+              @click="labeledStore.clear()"
+            >
+              <Trash2 :size="14" />
+            </Button>
+          </div>
+        </template>
+
+        <div v-show="!labeledCollapsed" class="labeled-body">
+          <p v-if="!labeledTickets.length" class="labeled-empty">
+            No labeled tickets yet. Label tickets in the Ticket Queue and they will appear here.
+          </p>
+
+          <template v-else>
+            <div class="labeled-filters">
+              <Input
+                v-model="labeledSearch"
+                placeholder="Search ref, title, description..."
+                class="labeled-filters__search"
+              />
+              <select v-model="labeledTeamFilter" class="form-select labeled-filters__team">
+                <option value="">All teams</option>
+                <option v-for="team in labeledTeams" :key="team" :value="team">{{ team }}</option>
+              </select>
+            </div>
+
+            <p v-if="!filteredLabeledTickets.length" class="labeled-empty">
+              No tickets match your filter.
+            </p>
+
+            <div v-else class="labeled-list">
+              <div
+                v-for="ticket in filteredLabeledTickets"
+                :key="ticket.ref"
+                class="labeled-item"
+                :class="{ 'labeled-item--active': selectedLabeledRef === ticket.ref }"
+              >
+                <div class="labeled-item__main" @click="useLabeledTicket(ticket)">
+                  <div class="labeled-item__header">
+                    <Badge variant="outline">{{ ticket.ref }}</Badge>
+                    <Badge variant="secondary">
+                      <Users :size="12" />
+                      {{ ticket.label }}
+                    </Badge>
+                    <Badge v-if="ticket.mock" variant="outline">demo</Badge>
+                    <span class="labeled-item__time">{{ formatTime(ticket.timestamp) }}</span>
+                  </div>
+                  <h4 class="labeled-item__title">{{ ticket.title }}</h4>
+                  <p v-if="ticket.description" class="labeled-item__desc">{{ ticket.description }}</p>
+                </div>
+                <div class="labeled-item__actions">
+                  <Button variant="outline" size="sm" @click="useLabeledTicket(ticket)">
+                    <Sparkles :size="14" />
+                    Use
+                  </Button>
+                  <Button variant="ghost" size="sm" title="Remove" @click="labeledStore.remove(ticket.ref)">
+                    <X :size="14" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </Card>
+
       <!-- Input Form -->
       <Card class="resolution__form">
         <template #title>
           <FileText :size="18" />
           Ticket Details
         </template>
-        <template #description>Enter the ticket information to get resolution suggestions</template>
+        <template #description>Enter the ticket and generate an assisted resolution</template>
+
+        <div v-if="selectedLabeledRef" class="labeled-banner">
+          <span>
+            Using queue ticket <strong>{{ selectedLabeledRef }}</strong> · team
+            <strong>{{ presetTeam }}</strong>
+          </span>
+          <Button variant="ghost" size="sm" @click="clearLoadedTicket">
+            <X :size="14" />
+            Detach
+          </Button>
+        </div>
 
         <div class="form-grid">
           <div class="form-field form-field--full">
             <label class="form-label">Title</label>
-            <Input
-              v-model="ticketTitle"
-              placeholder="Enter ticket title..."
-              :disabled="isProcessing"
-            />
+            <Input v-model="ticketTitle" placeholder="Enter ticket title..." :disabled="isResolving" />
           </div>
 
           <div class="form-field form-field--full">
@@ -219,62 +490,63 @@ const clearForm = () => {
               v-model="ticketDescription"
               placeholder="Enter ticket description..."
               :rows="4"
-              :disabled="isProcessing"
+              :disabled="isResolving"
             />
           </div>
 
           <div class="form-field">
-            <label class="form-label">Category (optional)</label>
-            <select
-              v-model="selectedCategory"
-              class="form-select"
-              :disabled="isProcessing"
-            >
+            <label class="form-label">
+              <Brain :size="13" />
+              Model instance (optional)
+            </label>
+            <InstanceSelector
+              v-model="instanceModel"
+              placeholder="No team prediction"
+              :disabled="isResolving"
+              size="sm"
+            />
+            <span class="form-hint">Predicts the team with a trained model before resolving.</span>
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">Suggestions to retrieve</label>
+            <Input v-model.number="topK" type="number" min="1" max="20" :disabled="isResolving" />
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">Service category (optional)</label>
+            <select v-model="selectedCategory" class="form-select" :disabled="isResolving">
               <option value="">Select category...</option>
-              <option
-                v-for="(cat, index) in categories"
-                :key="index"
-                :value="cat"
-              >
-                {{ cat }}
-              </option>
+              <option v-for="(cat, index) in categories" :key="index" :value="cat">{{ cat }}</option>
             </select>
           </div>
 
           <div class="form-field">
-            <label class="form-label">Subcategory (optional)</label>
+            <label class="form-label">Service subcategory (optional)</label>
             <select
               v-model="selectedSubcategory"
               class="form-select"
-              :disabled="isProcessing || !selectedCategory"
+              :disabled="isResolving || !selectedCategory"
             >
               <option value="">Select subcategory...</option>
-              <option
-                v-for="(sub, index) in filteredSubcategories"
-                :key="index"
-                :value="sub"
-              >
-                {{ sub }}
-              </option>
+              <option v-for="(sub, index) in subcategories" :key="index" :value="sub">{{ sub }}</option>
             </select>
           </div>
         </div>
 
         <template #footer>
           <div class="form-actions">
-            <Button variant="ghost" size="sm" @click="clearForm" :disabled="isProcessing">
-              Clear
-            </Button>
-            <Button @click="processTicket" :loading="isProcessing" :disabled="!hasInput">
+            <Button variant="ghost" size="sm" @click="clearForm" :disabled="isResolving">Clear</Button>
+            <Button @click="generate" :loading="isResolving" :disabled="!hasInput">
               <Sparkles :size="16" />
-              Get Resolution
+              Generate solution
             </Button>
           </div>
         </template>
       </Card>
 
       <!-- Results Section -->
-      <template v-if="result || isProcessing">
+      <template v-if="result || isResolving">
         <!-- Classification & Team -->
         <Card class="resolution__classification">
           <template #title>
@@ -282,8 +554,8 @@ const clearForm = () => {
             Classification
           </template>
 
-          <div v-if="isProcessing" class="loading-state">
-            <Spinner label="Analyzing ticket..." />
+          <div v-if="isResolving" class="loading-state">
+            <Spinner label="Analysing ticket and generating a solution..." />
           </div>
 
           <template v-else-if="result">
@@ -302,9 +574,16 @@ const clearForm = () => {
               <div class="classification-item">
                 <span class="classification-label">Confidence</span>
                 <div class="confidence-display">
-                  <Progress :value="result.team_confidence * 100" :max="100" />
-                  <span>{{ (result.team_confidence * 100).toFixed(1) }}%</span>
+                  <Progress :value="confidencePct" :max="100" />
+                  <span>{{ confidencePct.toFixed(1) }}%</span>
                 </div>
+              </div>
+              <div class="classification-item">
+                <span class="classification-label">Quality gate</span>
+                <Badge :variant="result.votes_applied > 0 ? 'default' : 'outline'">
+                  <Gavel :size="14" />
+                  {{ result.votes_applied > 0 ? `${result.votes_applied} feedback vote(s) applied` : 'No prior feedback' }}
+                </Badge>
               </div>
             </div>
           </template>
@@ -322,7 +601,7 @@ const clearForm = () => {
             </div>
           </template>
 
-          <div v-if="isProcessing" class="loading-state">
+          <div v-if="isResolving" class="loading-state">
             <Spinner label="Generating response..." />
           </div>
 
@@ -348,12 +627,12 @@ const clearForm = () => {
               <Button
                 variant="default"
                 size="sm"
-                @click="sendFeedback"
-                :loading="isSendingFeedback"
-                :disabled="feedbackSent"
+                @click="saveToKb"
+                :loading="isSaving"
+                :disabled="savedToKb || !editedResponse"
               >
-                <ThumbsUp :size="14" />
-                {{ feedbackSent ? 'Saved!' : 'Save to KB' }}
+                <Save :size="14" />
+                {{ savedToKb ? 'Saved to KB' : 'Save to knowledge base' }}
               </Button>
             </div>
           </template>
@@ -365,30 +644,24 @@ const clearForm = () => {
             <FileText :size="18" />
             Similar Past Replies ({{ result.similar_replies.length }})
           </template>
-          <template #description>Click on a reply to use it as your response</template>
+          <template #description>Rate a reply (👍 / 👎) or reuse it as your response</template>
 
           <div class="similar-replies">
             <div
-              v-for="(reply, index) in result.similar_replies"
-              :key="index"
+              v-for="reply in result.similar_replies"
+              :key="reply.retrieved_id"
               class="similar-reply"
-              @click="useReply(reply)"
             >
               <div class="similar-reply__header">
-                <Badge variant="outline">
-                  {{ reply['Service->Name'] || 'Unknown Service' }}
-                </Badge>
-                <Badge v-if="reply.enhanced_score" variant="secondary">
-                  {{ (reply.enhanced_score * 100).toFixed(0) }}% match
-                </Badge>
-                <Badge v-else-if="reply.similarity" variant="secondary">
-                  {{ (reply.similarity * 100).toFixed(0) }}% similar
-                </Badge>
+                <Badge variant="outline">{{ reply.retrieved_id }}</Badge>
+                <Badge variant="secondary">{{ matchPct(reply) }}% match</Badge>
+                <span v-if="statsFor(reply.retrieved_id)" class="similar-reply__stats">
+                  <ThumbsUp :size="12" /> {{ statsFor(reply.retrieved_id)!.up }}
+                  <ThumbsDown :size="12" /> {{ statsFor(reply.retrieved_id)!.down }}
+                </span>
               </div>
 
-              <h4 class="similar-reply__title">
-                {{ reply.Title_anon || 'No title' }}
-              </h4>
+              <h4 class="similar-reply__title">{{ reply.Title_anon || 'No title' }}</h4>
 
               <p v-if="reply.Description_anon" class="similar-reply__description">
                 {{ reply.Description_anon }}
@@ -399,10 +672,32 @@ const clearForm = () => {
                 <p>{{ reply.first_reply }}</p>
               </div>
 
-              <Button variant="ghost" size="sm" class="similar-reply__use-btn">
-                <Copy :size="14" />
-                Use this reply
-              </Button>
+              <div class="similar-reply__actions">
+                <Button variant="ghost" size="sm" @click="useReply(reply)">
+                  <Copy :size="14" />
+                  Use this reply
+                </Button>
+                <div class="similar-reply__vote">
+                  <Button
+                    :variant="votes[reply.retrieved_id] === 1 ? 'default' : 'outline'"
+                    size="sm"
+                    :loading="isVoting(reply.retrieved_id)"
+                    aria-label="Mark as helpful"
+                    @click="vote(reply, 1)"
+                  >
+                    <ThumbsUp :size="14" />
+                  </Button>
+                  <Button
+                    :variant="votes[reply.retrieved_id] === 0 ? 'default' : 'outline'"
+                    size="sm"
+                    :loading="isVoting(reply.retrieved_id)"
+                    aria-label="Mark as not helpful"
+                    @click="vote(reply, 0)"
+                  >
+                    <ThumbsDown :size="14" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </Card>
@@ -445,6 +740,7 @@ const clearForm = () => {
   }
 
   &__form,
+  &__labeled,
   &__classification,
   &__response,
   &__similar {
@@ -474,8 +770,16 @@ const clearForm = () => {
 }
 
 .form-label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
 }
 
 .form-select {
@@ -577,25 +881,17 @@ const clearForm = () => {
   padding: 1rem;
   background: var(--muted);
   border-radius: var(--radius);
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease;
 
   &:hover {
     background: var(--accent);
-
-    .similar-reply__use-btn {
-      opacity: 1;
-    }
-  }
-
-  &:active {
-    transform: scale(0.99);
   }
 
   &__header {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    align-items: center;
     margin-bottom: 0.5rem;
   }
 
@@ -644,6 +940,137 @@ const clearForm = () => {
     opacity: 0;
     transition: opacity 0.15s ease;
   }
+
+  &__stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  &__vote {
+    display: flex;
+    gap: 0.375rem;
+  }
+}
+
+.labeled-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.labeled-empty {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.labeled-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.labeled-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: var(--accent);
+  }
+
+  &--active {
+    border-color: var(--ring);
+  }
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.375rem;
+  }
+
+  &__time {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 500;
+  }
+
+  &__desc {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+}
+
+.labeled-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  background: var(--muted);
+  border-radius: var(--radius);
+}
+
+.labeled-filters {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+
+  &__search {
+    flex: 1;
+  }
+
+  &__team {
+    width: auto;
+    min-width: 11rem;
+  }
 }
 
 @media (max-width: 640px) {
@@ -653,6 +1080,10 @@ const clearForm = () => {
 
   .classification-grid {
     grid-template-columns: 1fr;
+  }
+
+  .labeled-filters {
+    flex-direction: column;
   }
 }
 </style>

@@ -339,59 +339,130 @@ export interface XaiJobResponse {
   result_location?: string | null;
 }
 
-// Resolution Types
-export interface ResolutionProcessRequest {
-  ticket_title?: string;
-  ticket_description?: string;
-  service_category?: string;
-  service_subcategory?: string;
-}
+// ======
+// Resolution Task API types (external al-fr-api; see services/resolutionApi.ts).
+// Shapes verified against the live server via scripts/probe-resolution.ts.
+// ======
 
-export interface SimilarReply {
-  Title_anon?: string;
-  Description_anon?: string;
-  first_reply?: string;
-  enhanced_score?: number;
-  similarity?: number;
-  'Service->Name'?: string;
-  'Service subcategory->Name'?: string;
+/** A retrieved similar historical reply from the resolution knowledge base. */
+export interface ResolutionSimilarReply {
+  retrieved_id: string;
+  first_reply: string;
+  Title_anon: string;
+  Description_anon: string;
+  enhanced_score: number;
+  feedback_lift: number;
+  confidence_gated: boolean;
+  al_weight: number;
   [key: string]: unknown;
 }
 
-export interface ResolutionProcessResponse {
-  classification: string;
+/** Common ticket input shared by /retrieve, /generate, /judge, /judge_and_retrieve. */
+export interface ResolutionTicketInput {
+  title: string;
+  description: string;
+  top_k?: number;
+  knowledge_base_path?: string;
+}
+
+/** POST /retrieve request (accepts optional AL-predicted class/team hints). */
+export interface ResolutionRetrieveRequest extends ResolutionTicketInput {
+  predicted_class?: string;
+  predicted_team?: string;
+}
+
+/** POST /retrieve response, and the `retrieved` block of /judge_and_retrieve. */
+export interface ResolutionRetrieveResponse {
+  predicted_class: string;
   predicted_team: string;
-  team_confidence: number;
-  response: string;
-  similar_replies: SimilarReply[];
+  team_confidence: number | null;
+  similar_replies: ResolutionSimilarReply[];
   retrieval_k: number;
 }
 
+/** POST /generate request. NOTE: the API does NOT accept predicted_class/team here. */
+export type ResolutionGenerateRequest = ResolutionTicketInput;
+
+/** POST /generate response — a complete proposed-solution view. */
+export interface ResolutionGenerateResponse {
+  classification: string;
+  predicted_class: string;
+  predicted_team: string;
+  team_confidence: number;
+  response: string;
+  similar_replies: ResolutionSimilarReply[];
+  retrieval_k: number;
+}
+
+/** POST /judge and /judge_and_retrieve request. */
+export interface ResolutionJudgeRequest extends ResolutionRetrieveRequest {
+  similar_replies: ResolutionSimilarReply[];
+}
+
+/** A per-reply judge score. The API does not formally specify the shape. */
+export type ResolutionJudgeScore = Record<string, unknown>;
+
+/** POST /judge response. */
+export interface ResolutionJudgeResponse {
+  scores: ResolutionJudgeScore[];
+  used: string;
+}
+
+/** POST /judge_and_retrieve response. */
+export interface ResolutionJudgeAndRetrieveResponse {
+  scores: ResolutionJudgeScore[];
+  votes_applied: number;
+  retrieved: ResolutionRetrieveResponse;
+}
+
+/** POST /feedback request. `label`: 1 = helpful (👍), 0 = not helpful (👎). */
 export interface ResolutionFeedbackRequest {
-  ticket_title: string;
-  ticket_description: string;
-  edited_response: string;
+  query_id: string;
+  retrieved_id: string;
+  label: number;
+  predicted_class?: string;
+  predicted_team?: string;
+  user_id?: string;
+}
+
+/** POST /feedback response. */
+export interface ResolutionFeedbackResponse {
+  ok: boolean;
+}
+
+/** One aggregated feedback row: [scope_key, upvotes, downvotes]. */
+export type ResolutionFeedbackAgg = [string, number, number];
+
+/** GET /feedback_stats response. */
+export interface ResolutionFeedbackStatsResponse {
+  db: string;
+  retrieved_id: string;
+  raw_count: number;
+  agg: ResolutionFeedbackAgg[];
+}
+
+/** POST /save_ticket request — persist an approved resolution into the KB. */
+export interface ResolutionSaveTicketRequest {
+  title: string;
+  description: string;
+  response: string;
   predicted_team?: string;
   predicted_classification?: string;
   service_name?: string;
   service_subcategory?: string;
+  knowledge_base_path?: string;
 }
 
-export interface ResolutionFeedbackResponse {
-  success: boolean;
-  message: string;
-  ticket_ref?: string;
-  new_kb_size?: number;
-  embedding_added_incrementally: boolean;
-  embedding_invalidated: boolean;
+/** POST /save_ticket response. The API does not formally specify the shape. */
+export interface ResolutionSaveTicketResponse {
+  ok?: boolean;
+  [key: string]: unknown;
 }
 
-export interface EmbeddingsRebuildResponse {
-  rebuilt: boolean;
-  records: number;
-  embedding_dim: number | null;
-  cache_file: string | null;
-  cache_saved: boolean;
+/** GET /config response. */
+export interface ResolutionConfigResponse {
+  FEEDBACK_DB_PATH: string;
+  KNOWLEDGE_BASE_PATH: string;
 }
 
 // ======

@@ -2,6 +2,7 @@ import { computed, ref, watch, type MaybeRef, toValue } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { apiService } from '@/services/api'
 import { useTicketQueueStore, type QueueTicket, type TicketStatus } from '@/stores/useTicketQueueStore'
+import { useLabeledTicketsStore } from '@/stores/useLabeledTicketsStore'
 import { useMockData, generateMockTickets, getMockTeams } from '@/composables/useMockTickets'
 import type { Ticket, LabelRequest, LabelInfo, MostHelpfulFeature } from '@/types/api'
 
@@ -48,6 +49,7 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
   const { initialCount = 50, autoFetch = true } = options
   const instanceId = options.instanceId ?? ref(0)
   const store = useTicketQueueStore()
+  const labeledStore = useLabeledTicketsStore()
   const queryClient = useQueryClient()
 
   // Use mock data flag
@@ -114,6 +116,24 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     { immediate: true }
   )
 
+  // Record a labeled ticket into the persistent (cross-tab) store so the
+  // Resolution feature can pull it in as the basis for a proposed solution.
+  function recordLabeledTicket(ticketId: string, label: string, prediction: string | null) {
+    const src = store.tickets.find((t) => t.id === ticketId)
+    if (!src) return
+    labeledStore.record({
+      ref: src.ref,
+      title: src.title,
+      description: src.description,
+      label,
+      category: src.category,
+      subcategory: src.subcategory,
+      instanceId: toValue(instanceId) || null,
+      prediction,
+      mock: isMockMode.value,
+    })
+  }
+
   // Label mutation
   const labelMutation = useMutation({
     mutationFn: async ({
@@ -167,6 +187,8 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       return apiService.labelWithInfo(id, [info])
     },
     onSuccess: (_, variables) => {
+      // Capture the labeled ticket so the Resolution tab can reuse it.
+      recordLabeledTicket(variables.ticketId, variables.label, variables.prediction ?? null)
       // Update ticket status in store
       store.updateTicketStatus(variables.ticketId, 'resolved')
       // Invalidate queries to refetch
@@ -200,6 +222,7 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     onSuccess: (_, variables) => {
       // Update all ticket statuses in store
       for (const ticketId of variables.ticketIds) {
+        recordLabeledTicket(ticketId, variables.label, null)
         store.updateTicketStatus(ticketId, 'resolved')
       }
       store.clearBulkSelection()
