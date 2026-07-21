@@ -871,13 +871,15 @@ class XaiService:
                     logger.error(f"Failed to parse job_id '{job_id}' as UUID: {e}")
                     raise
 
-            if data["status"] == "completed" and ("result_location" not in data or "result_file_names" not in data):
-                logger.error(f"Status is 'completed' but missing result_location or result_file_names. Data: {data}")
+            if data["status"] == "success" and ("result_location" not in data or "result_file_names" not in data):
+                logger.error(f"Status is 'success' but missing result_location or result_file_names. Data: {data}")
                 raise ValueError("Missing result_location or result_file_names for completed XAI job")
 
-            logger.info(f"Updating XAI job {job_id} with status={data['status']}")
+            raw_status = data["status"]
+            db_status = "completed" if raw_status == "success" else "failed"
+            logger.info(f"Updating XAI job {job_id} with raw_status={raw_status} -> db_status={db_status}")
             self.duckdb_service.update_xai_job_status(job_id=job_id,
-                                                      status=data["status"],
+                                                      status=db_status,
                                                       result_location=data.get("result_location"),
                                                       result_file_names=data.get("result_file_names"))
             logger.info(f"Successfully updated XAI job {job_id}")

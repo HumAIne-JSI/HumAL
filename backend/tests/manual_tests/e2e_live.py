@@ -21,11 +21,15 @@ Prerequisites:
     ``pandas``, ``numpy``.
   - ``backend/sentence_transformers_cache/`` populated (offline).
 
-Flow (12 iterations; 7 confirm / 3 override / 2 i_dont_know):
+Flow (22 total; first pass: 7 confirm / 3 override / 2 i_dont_know):
   /config/capabilities (poll) → register → login → /activelearning/new
   → 12×[ /next → /data/tickets → /infer_proba → /xai/{id}/nearest
   → /xai/{id}/requests → poll /xai/jobs/{job_id} →
   simulated human delay → /label-with-info ]
+  → second pass: batched (2+3 override / 4+1 confirm):
+    4×[ /next?batch_size=N → /data/tickets → /infer_proba
+    → per-ticket XAI flow → per-ticket delays
+    → batched /label-with-info ]
   → /activelearning/{id}/export → assertions
 
 Artifacts saved to ``./artifacts/``:
@@ -72,11 +76,27 @@ WORKER_SCRIPT = Path(__file__).resolve().parent / "xai_rabbitmq_worker.py"
 ARTIFACTS_DIR = Path("artifacts").resolve()
 TEST_DUCKDB_REL = "storage/db/humal_e2e_live.duckdb"
 
-N_CONFIRM = 7
-N_OVERRIDE = 3
+# First part: single-ticket iterations (7 confirm / 3 override / 2 idk)
+N_CONFIRM_P1 = 7
+N_OVERRIDE_P1 = 3
 N_IDK = 2
-N_ITERATIONS = N_CONFIRM + N_OVERRIDE + N_IDK
-N_REAL = N_CONFIRM + N_OVERRIDE
+N_ITERATIONS_P1 = N_CONFIRM_P1 + N_OVERRIDE_P1 + N_IDK   # 12
+N_REAL_P1 = N_CONFIRM_P1 + N_OVERRIDE_P1                 # 10
+
+# Second part: batched iterations (5 override + 5 confirm = 10 tickets)
+BATCH_SIZES_OVERRIDE = [2, 3]   # wrongly predicted -> override mode
+BATCH_SIZES_CONFIRM  = [4, 1]   # correctly predicted -> confirm mode
+N_OVERRIDE_P2 = sum(BATCH_SIZES_OVERRIDE)   # 5
+N_CONFIRM_P2  = sum(BATCH_SIZES_CONFIRM)    # 5
+N_REAL_P2 = N_OVERRIDE_P2 + N_CONFIRM_P2    # 10
+
+# Combined totals (used by post-loop assertions)
+N_CONFIRM = N_CONFIRM_P1 + N_CONFIRM_P2         # 12
+N_OVERRIDE = N_OVERRIDE_P1 + N_OVERRIDE_P2      # 8
+N_ITERATIONS = N_ITERATIONS_P1 + N_REAL_P2      # 22
+N_REAL = N_REAL_P1 + N_REAL_P2                  # 20
+N_BENCHMARK_EXPORTS = N_REAL // 10              # 2
+N_TRAIN_EVENTS = N_REAL_P1 + len(BATCH_SIZES_OVERRIDE) + len(BATCH_SIZES_CONFIRM)  # 14
 JOB_POLL_TIMEOUT = 60
 HUMAN_DELAY_MIN = 5
 HUMAN_DELAY_MAX = 15
@@ -318,6 +338,169 @@ def assert_zip_tables(zip_bytes: bytes) -> dict[str, list[dict]]:
     return tables
 
 
+def process_batch(
+    headers: dict[str, str],
+    instance_id: int,
+    batch_size: int,
+    mode: str,
+    job_ids: list[str],
+    labeled_refs: list[str],
+    label_modes: list[str],
+    valid_classes: list[str],
+) -> None:
+    """Run one batched iteration: ``/next?batch_size=N``, per-ticket XAI,
+    per-ticket random delay, then a single ``/label-with-info`` call.
+
+    *mode* is ``"confirm"`` or ``"override"``.
+    """
+    # 1) next (batch_size=N)
+    nxt = _logged_request(
+        "GET", f"{BASE_URL}/activelearning/{instance_id}/next",
+        params={"batch_size": batch_size},
+        headers=headers,
+        timeout=15,
+    )
+    assert nxt.status_code == 200, (
+        f"GET /next (batch_size={batch_size}): {nxt.status_code} {nxt.text}"
+    )
+    refs: list[str] = nxt.json()["query_idx"]
+    assert len(refs) == batch_size, (
+        f"Expected {batch_size} refs, got {len(refs)}"
+    )
+    print(f"[e2e]   batch_size={batch_size} -> {refs}", flush=True)
+
+    # 2) Fetch ticket fields for all refs (one call)
+    r = _logged_request(
+        "POST", f"{BASE_URL}/data/tickets", json=refs, headers=headers,
+        timeout=15,
+    )
+    assert r.status_code == 200, (
+        f"POST /data/tickets: {r.status_code} {r.text}"
+    )
+    tickets_data = r.json().get("tickets", [])
+    assert len(tickets_data) == batch_size, (
+        f"Expected {batch_size} tickets, got {len(tickets_data)}"
+    )
+    ticket_fields: list[dict[str, str | None]] = []
+    for t in tickets_data:
+        ticket_fields.append({
+            "title_anon": t.get("Title_anon"),
+            "description_anon": t.get("Description_anon"),
+            "service_name": t.get("Service->Name"),
+            "service_subcategory_name": t.get("Service subcategory->Name"),
+        })
+    print(f"[e2e]   fetched ticket data for {batch_size} refs", flush=True)
+
+    # 3) infer_proba (one call with all refs)
+    ip = _logged_request(
+        "POST", f"{BASE_URL}/activelearning/{instance_id}/infer_proba",
+        params={"query_idx": refs},
+        headers=headers,
+        timeout=30,
+    )
+    assert ip.status_code == 200, (
+        f"POST /infer_proba: {ip.status_code} {ip.text}"
+    )
+    ip_body = ip.json()
+    classes: list[str | None] = ip_body["classes"]
+    probabilities: list[list[float]] = ip_body["probabilities"]
+    assert len(probabilities) == batch_size, (
+        f"Expected {batch_size} probability rows, got {len(probabilities)}"
+    )
+
+    # 4) Per-ref XAI flow (sequential)
+    for i, ref in enumerate(refs):
+        print(f"[e2e]   XAI flow for ref {ref} ({i + 1}/{batch_size})",
+              flush=True)
+
+        # nearest
+        near = _logged_request(
+            "POST", f"{BASE_URL}/xai/{instance_id}/nearest",
+            params={"query_idx": [ref], "top_k": 1},
+            headers=headers,
+            timeout=15,
+        )
+        assert near.status_code == 200, (
+            f"POST /xai/{instance_id}/nearest: {near.status_code}"
+        )
+
+        # XAI async request
+        xr = _logged_request(
+            "POST", f"{BASE_URL}/xai/{instance_id}/requests",
+            params={"model_id": 0, "ticket_ref": ref},
+            json=ticket_fields[i],
+            headers=headers,
+            timeout=15,
+        )
+        assert xr.status_code == 200, (
+            f"POST /xai/{instance_id}/requests:"
+            f" {xr.status_code} {xr.text}"
+        )
+        job_id = xr.json()["job_id"]
+        job_ids.append(job_id)
+
+        # poll until completed
+        completed = poll_xai_job(headers, job_id)
+        assert completed["status"] == "completed", (
+            f"XAI job {job_id} not completed: {completed}"
+        )
+        print(f"[e2e]   XAI job {job_id} completed for {ref}", flush=True)
+
+    # 5) Per-ref random delay + build label bodies
+    label_bodies: list[dict[str, Any]] = []
+    for i, ref in enumerate(refs):
+        probs = probabilities[i]
+        pred_idx = int(max(range(len(probs)), key=lambda ix: probs[ix]))
+        raw_pred = classes[pred_idx]
+        model_prediction = (
+            raw_pred if raw_pred is not None else valid_classes[0]
+        )
+
+        if mode == "confirm":
+            label = model_prediction
+        else:
+            candidates = [
+                c for c in valid_classes if c != model_prediction
+            ]
+            if not candidates:
+                raise RuntimeError(
+                    f"Cannot override: only one valid class"
+                    f" for ref={ref}"
+                )
+            label = random.choice(candidates)
+
+        start_dt = datetime.now(timezone.utc)
+        delay = random.uniform(HUMAN_DELAY_MIN, HUMAN_DELAY_MAX)
+        time.sleep(delay)
+        end_dt = datetime.now(timezone.utc)
+
+        label_bodies.append({
+            "ticket_id": ref,
+            "label": label,
+            "model_prediction": model_prediction,
+            "start_time": start_dt.isoformat(),
+            "end_time": end_dt.isoformat(),
+            "most_helpful_feature": "lime",
+        })
+        labeled_refs.append(ref)
+        label_modes.append(mode)
+        print(f"[e2e]   ref {ref}: mode={mode},"
+              f" label={label}, pred={model_prediction},"
+              f" delay~{delay:.1f}s", flush=True)
+
+    # 6) Single /label-with-info for the whole batch
+    lbl = _logged_request(
+        "POST",
+        f"{BASE_URL}/activelearning/{instance_id}/label-with-info",
+        json=label_bodies,
+        headers=headers,
+        timeout=120,
+    )
+    assert lbl.status_code == 200, (
+        f"POST /label-with-info: {lbl.status_code} {lbl.text}"
+    )
+    assert lbl.json() == {"message": "Labels updated"}
+    print(f"[e2e]   label-with-info OK for {batch_size} refs", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +605,7 @@ def main() -> None:
         labeled_refs: list[str] = []
         label_modes: list[str] = []
 
-        for i in range(N_ITERATIONS):
+        for i in range(N_ITERATIONS_P1):
             print(f"\n[e2e] === Iteration {i + 1}/{N_ITERATIONS} ===",
                   flush=True)
 
@@ -515,10 +698,10 @@ def main() -> None:
                 raw_pred if raw_pred is not None else valid_classes[0]
             )
 
-            if i < N_CONFIRM:
+            if i < N_CONFIRM_P1:
                 mode = "confirm"
                 label = model_prediction
-            elif i < N_CONFIRM + N_IDK:
+            elif i < N_CONFIRM_P1 + N_IDK:
                 mode = "i_dont_know"
                 label = None
             else:
@@ -559,7 +742,26 @@ def main() -> None:
             labeled_refs.append(ref)
             label_modes.append(mode)
             print(f"[e2e]   label-with-info OK (mode={mode},"
-                  f" label={label}, pred={model_prediction})", flush=True)
+                   f" label={label}, pred={model_prediction})", flush=True)
+
+        # ---- Second part: batched iterations (5 override + 5 confirm) ----
+        print("\n[e2e] === Second part: batched iterations ===", flush=True)
+
+        valid_classes_list = [
+            c for c in valid_classes if c is not None
+        ]
+        for batch_size in BATCH_SIZES_OVERRIDE:
+            process_batch(
+                headers, instance_id, batch_size, "override",
+                job_ids, labeled_refs, label_modes,
+                valid_classes_list,
+            )
+        for batch_size in BATCH_SIZES_CONFIRM:
+            process_batch(
+                headers, instance_id, batch_size, "confirm",
+                job_ids, labeled_refs, label_modes,
+                valid_classes_list,
+            )
 
         # ---- Post-loop assertions ----------------------------------------
 
@@ -572,11 +774,11 @@ def main() -> None:
             timeout=15,
         ).json()
         f1_after = len(info_after.get("f1_scores", []))
-        assert f1_after == f1_before + N_REAL, (
-            f"Expected {f1_before + N_REAL} iterations,"
+        assert f1_after == f1_before + N_TRAIN_EVENTS, (
+            f"Expected {f1_before + N_TRAIN_EVENTS} iterations,"
             f" got {f1_after}"
         )
-        print(f"[e2e]   iteration_ids grew by {N_REAL}", flush=True)
+        print(f"[e2e]   iteration_ids grew by {N_TRAIN_EVENTS}", flush=True)
 
         # --- All XAI jobs completed ---
         for jid in job_ids:
@@ -601,8 +803,8 @@ def main() -> None:
 
         # --- Metrics row count ---
         metrics = tables["metrics"]
-        assert len(metrics) >= f1_before + N_REAL, (
-            f"Expected >= {f1_before + N_REAL} metrics rows,"
+        assert len(metrics) >= f1_before + N_TRAIN_EVENTS, (
+            f"Expected >= {f1_before + N_TRAIN_EVENTS} metrics rows,"
             f" got {len(metrics)}"
         )
         print(f"[e2e]   metrics rows = {len(metrics)}", flush=True)
@@ -638,9 +840,10 @@ def main() -> None:
             f"Expected {N_IDK} i_dont_know events,"
             f" got {len(idk_events)}"
         )
-        assert len(benchmark_events) == 1, (
-            f"Expected 1 benchmark_export event (10 real labels"
-            f" hit threshold), got {len(benchmark_events)}"
+        assert len(benchmark_events) == N_BENCHMARK_EXPORTS, (
+            f"Expected {N_BENCHMARK_EXPORTS} benchmark_export events"
+            f" ({N_REAL} real labels, threshold=10),"
+            f" got {len(benchmark_events)}"
         )
 
         similar_events = [
