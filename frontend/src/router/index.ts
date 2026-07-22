@@ -60,7 +60,7 @@ const routes = [
     path: '/ticket-resolution',
     name: 'ticket-resolution',
     component: () => import('../pages/TicketResolution.vue'),
-    meta: { label: 'Ticket Resolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
+    meta: { label: 'Ticket Evolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
   },
   // {
   //   path: '/inference',

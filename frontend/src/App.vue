@@ -25,7 +25,7 @@ import { useMockModeStore } from '@/stores/useMockModeStore'
 useMockModeStore()
 
 // Routes flagged `standalone` render detached from the app shell (no sidebar) —
-// used for features that open in their own browser tab, like Ticket Resolution.
+// used for features that open in their own browser tab, like Ticket Evolution.
 const route = useRoute()
 const isStandalone = computed(() => Boolean(route.meta?.standalone))
 const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspace')

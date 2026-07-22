@@ -42,8 +42,7 @@ import {
   Inbox,
   Trash2,
   X,
-  ChevronDown,
-  ChevronUp,
+  ChevronLeft,
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -51,8 +50,8 @@ const telemetry = useBenchmarkTelemetry()
 const labeledStore = useLabeledTicketsStore()
 const labeledTickets = computed(() => labeledStore.tickets)
 
-// Labeled-list UI state: collapse + filtering.
-const labeledCollapsed = ref(false)
+// Pick-a-ticket side drawer: collapsed by default so the input stays the focus.
+const labeledCollapsed = ref(true)
 const labeledSearch = ref('')
 const labeledTeamFilter = ref('')
 const labeledTeams = computed(() => {
@@ -308,6 +307,7 @@ function useLabeledTicket(ticket: LabeledTicket): void {
   generatedAtMs.value = null
   firstEditMs.value = null
   effortRecorded.value = false
+  labeledCollapsed.value = true
   toast.info('Ticket loaded', { description: `${ticket.ref} · ${ticket.label}` })
 }
 
@@ -389,7 +389,7 @@ async function saveToKb(): Promise<void> {
       service_subcategory: selectedSubcategory.value || undefined,
     })
     savedToKb.value = true
-    toast.success('Saved to knowledge base')
+    toast.success('Sent to Team')
     recordEffort('saved')
   } catch (error) {
     toast.error('Could not save to knowledge base', {
@@ -445,98 +445,106 @@ onMounted(() => {
     </header>
 
     <div class="resolution__content">
-      <!-- Labeled tickets from the queue -->
-      <Card class="resolution__labeled">
-        <template #title>
-          <Inbox :size="18" />
-          Labeled tickets from the queue
-          <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
-        </template>
-        <template #description>Pick a ticket you labeled in the queue to resolve it</template>
-        <template #action>
-          <div class="labeled-actions">
-            <Button
-              variant="ghost"
-              size="sm"
-              :title="labeledCollapsed ? 'Expand' : 'Collapse'"
-              @click="labeledCollapsed = !labeledCollapsed"
-            >
-              <ChevronDown v-if="labeledCollapsed" :size="16" />
-              <ChevronUp v-else :size="16" />
-            </Button>
-            <Button variant="ghost" size="sm" title="Refresh list" @click="labeledStore.reload()">
-              <RefreshCw :size="14" />
-            </Button>
-            <Button
-              v-if="labeledTickets.length"
-              variant="ghost"
-              size="sm"
-              title="Clear list"
-              @click="labeledStore.clear()"
-            >
-              <Trash2 :size="14" />
-            </Button>
-          </div>
-        </template>
-
-        <div v-show="!labeledCollapsed" class="labeled-body">
-          <p v-if="!labeledTickets.length" class="labeled-empty">
-            No labeled tickets yet. Label tickets in the Ticket Queue and they will appear here.
-          </p>
-
-          <template v-else>
-            <div class="labeled-filters">
-              <Input
-                v-model="labeledSearch"
-                placeholder="Search ref, title, description..."
-                class="labeled-filters__search"
-              />
-              <select v-model="labeledTeamFilter" class="form-select labeled-filters__team">
-                <option value="">All teams</option>
-                <option v-for="team in labeledTeams" :key="team" :value="team">{{ team }}</option>
-              </select>
-            </div>
-
-            <p v-if="!filteredLabeledTickets.length" class="labeled-empty">
-              No tickets match your filter.
-            </p>
-
-            <div v-else class="labeled-list">
-              <div
-                v-for="ticket in filteredLabeledTickets"
-                :key="ticket.ref"
-                class="labeled-item"
-                :class="{ 'labeled-item--active': selectedLabeledRef === ticket.ref }"
-              >
-                <div class="labeled-item__main" @click="useLabeledTicket(ticket)">
-                  <div class="labeled-item__header">
-                    <Badge variant="outline">{{ ticket.ref }}</Badge>
-                    <Badge variant="secondary">
-                      <Users :size="12" />
-                      {{ ticket.label }}
-                    </Badge>
-                    <Badge v-if="ticket.mock" variant="outline">demo</Badge>
-                    <span class="labeled-item__time">{{ formatTime(ticket.timestamp) }}</span>
-                  </div>
-                  <h4 class="labeled-item__title">{{ ticket.title }}</h4>
-                  <p v-if="ticket.description" class="labeled-item__desc">{{ ticket.description }}</p>
-                </div>
-                <div class="labeled-item__actions">
-                  <Button variant="outline" size="sm" @click="useLabeledTicket(ticket)">
-                    <Sparkles :size="14" />
-                    Use
-                  </Button>
-                  <Button variant="ghost" size="sm" title="Remove" @click="labeledStore.remove(ticket.ref)">
-                    <X :size="14" />
-                  </Button>
-                </div>
+      <div class="resolution__body" :class="{ 'resolution__body--open': !labeledCollapsed }">
+        <!-- Pick-a-ticket side drawer -->
+        <aside
+          class="res-drawer"
+          :class="{ 'res-drawer--open': !labeledCollapsed }"
+          aria-label="Labeled tickets from the queue"
+        >
+          <div class="res-drawer__inner">
+            <div class="res-drawer__head">
+              <span class="res-drawer__title">
+                <Inbox :size="16" />
+                Pick a ticket
+                <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
+              </span>
+              <div class="labeled-actions">
+                <Button variant="ghost" size="sm" title="Refresh list" @click="labeledStore.reload()">
+                  <RefreshCw :size="14" />
+                </Button>
+                <Button
+                  v-if="labeledTickets.length"
+                  variant="ghost"
+                  size="sm"
+                  title="Clear list"
+                  @click="labeledStore.clear()"
+                >
+                  <Trash2 :size="14" />
+                </Button>
+                <Button variant="ghost" size="sm" title="Collapse" @click="labeledCollapsed = true">
+                  <ChevronLeft :size="16" />
+                </Button>
               </div>
             </div>
-          </template>
-        </div>
-      </Card>
 
-      <!-- Input Form -->
+            <p v-if="!labeledTickets.length" class="labeled-empty">
+              No labeled tickets yet. Label tickets in the Ticket Queue and they will appear here.
+            </p>
+
+            <template v-else>
+              <div class="labeled-filters">
+                <Input
+                  v-model="labeledSearch"
+                  placeholder="Search ref, title, description..."
+                  class="labeled-filters__search"
+                />
+                <select v-model="labeledTeamFilter" class="form-select labeled-filters__team">
+                  <option value="">All teams</option>
+                  <option v-for="team in labeledTeams" :key="team" :value="team">{{ team }}</option>
+                </select>
+              </div>
+
+              <p v-if="!filteredLabeledTickets.length" class="labeled-empty">
+                No tickets match your filter.
+              </p>
+
+              <div v-else class="labeled-list">
+                <div
+                  v-for="ticket in filteredLabeledTickets"
+                  :key="ticket.ref"
+                  class="labeled-item"
+                  :class="{ 'labeled-item--active': selectedLabeledRef === ticket.ref }"
+                >
+                  <div class="labeled-item__main" @click="useLabeledTicket(ticket)">
+                    <div class="labeled-item__header">
+                      <Badge variant="outline">{{ ticket.ref }}</Badge>
+                      <Badge variant="secondary">
+                        <Users :size="12" />
+                        {{ ticket.label }}
+                      </Badge>
+                      <Badge v-if="ticket.mock" variant="outline">demo</Badge>
+                      <span class="labeled-item__time">{{ formatTime(ticket.timestamp) }}</span>
+                    </div>
+                    <h4 class="labeled-item__title">{{ ticket.title }}</h4>
+                    <p v-if="ticket.description" class="labeled-item__desc">{{ ticket.description }}</p>
+                  </div>
+                  <div class="labeled-item__actions">
+                    <Button variant="outline" size="sm" @click="useLabeledTicket(ticket)">
+                      <Sparkles :size="14" />
+                      Use
+                    </Button>
+                    <Button variant="ghost" size="sm" title="Remove" @click="labeledStore.remove(ticket.ref)">
+                      <X :size="14" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </aside>
+
+        <!-- Main column: input + results -->
+        <div class="resolution__main">
+          <div v-if="labeledCollapsed" class="resolution__maintools">
+            <Button variant="outline" size="sm" @click="labeledCollapsed = false">
+              <Inbox :size="16" />
+              Pick a ticket
+              <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
+            </Button>
+          </div>
+
+          <!-- Input Form -->
       <Card class="resolution__form">
         <template #title>
           <FileText :size="18" />
@@ -778,13 +786,15 @@ onMounted(() => {
           </div>
         </Card>
       </template>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
 .resolution {
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
 
@@ -1040,6 +1050,85 @@ onMounted(() => {
   }
 }
 
+.resolution__body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.resolution__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.resolution__maintools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.res-drawer {
+  flex: 0 0 auto;
+  width: 0;
+  margin-right: 0;
+  overflow: hidden;
+  align-self: stretch;
+  transition:
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-right 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &--open {
+    width: 320px;
+    margin-right: 1.5rem;
+  }
+}
+
+.res-drawer__inner {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--card, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.res-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.res-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+@media (max-width: 880px) {
+  .resolution__body {
+    flex-direction: column;
+  }
+
+  .res-drawer--open {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 1.5rem;
+  }
+
+  .res-drawer__inner {
+    width: 100%;
+  }
+}
+
 .labeled-actions {
   display: flex;
   gap: 0.25rem;
@@ -1136,16 +1225,16 @@ onMounted(() => {
 
 .labeled-filters {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  margin-top: 1rem;
 
   &__search {
-    flex: 1;
+    width: 100%;
   }
 
   &__team {
-    width: auto;
-    min-width: 11rem;
+    width: 100%;
+    min-width: 0;
   }
 }
 

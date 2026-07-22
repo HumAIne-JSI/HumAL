@@ -56,7 +56,7 @@ export {
   xaiKeys,
 } from './useXai';
 
-// Resolution domain - assisted ticket resolution via the external al-fr-api
+// Resolution domain - assisted Ticket Evolution via the external al-fr-api
 export {
   useAssistedResolution,
   useResolutionFeedback,

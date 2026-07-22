@@ -99,7 +99,7 @@
 - Get instant team prediction with confidence
 - See LIME explanation and similar tickets
 
-### Page 4: Ticket Resolution
+### Page 4: Ticket Evolution
 - Enter ticket information
 - Generate AI-powered resolution using RAG
 - Review similar past tickets and their solutions
@@ -215,5 +215,4 @@ In one sentence: in live mode the backend only receives telemetry when you label
 
 TODO:
 
-
-- rejected tickets, come gestirli a FE
+- todo ticket per titilo evolution
