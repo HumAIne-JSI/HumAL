@@ -143,6 +143,8 @@ export function useLabelInstance(
       // Use specific keys to avoid duplicate refetches from prefix matching
       queryClient.invalidateQueries({ queryKey: activeLearningKeys.info(id) });
       queryClient.invalidateQueries({ queryKey: activeLearningKeys.next(id, toValue(options?.batchSize ?? 1)) });
+      // Refresh the instances list so dashboard counters (labeled count) update.
+      queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() });
       options?.onSuccess?.(data);
     },
     meta: options?.meta,
@@ -175,6 +177,8 @@ export function useLabelWithInfo(
       const id = toValue(instanceId);
       queryClient.invalidateQueries({ queryKey: activeLearningKeys.info(id) });
       queryClient.invalidateQueries({ queryKey: activeLearningKeys.next(id, toValue(options?.batchSize ?? 1)) });
+      // Refresh the instances list so dashboard counters (labeled count) update.
+      queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() });
       options?.onSuccess?.();
     },
     meta: options?.meta,

@@ -4,6 +4,7 @@ import { apiService } from '@/services/api'
 import { useTicketQueueStore, type QueueTicket, type TicketStatus } from '@/stores/useTicketQueueStore'
 import { useLabeledTicketsStore } from '@/stores/useLabeledTicketsStore'
 import { useMockData, generateMockTickets, getMockTeams } from '@/composables/useMockTickets'
+import { activeLearningKeys } from '@/composables/api/useActiveLearning'
 import type { Ticket, LabelRequest, LabelInfo, MostHelpfulFeature } from '@/types/api'
 
 // Query keys for ticket queue
@@ -46,7 +47,7 @@ function apiTicketToQueueTicket(ticket: Ticket, index: number): QueueTicket {
  * Supports both real API and mock data fallback
  */
 export function useTicketQueue(options: UseTicketQueueOptions = {}) {
-  const { initialCount = 50, autoFetch = true } = options
+  const { initialCount = 20, autoFetch = true } = options
   const instanceId = options.instanceId ?? ref(0)
   const store = useTicketQueueStore()
   const labeledStore = useLabeledTicketsStore()
@@ -194,6 +195,8 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       // Invalidate queries to refetch
       if (!isMockMode.value) {
         queryClient.invalidateQueries({ queryKey: ticketQueueKeys.list(toValue(instanceId)) })
+        // Refresh dashboard instance counters (labeled count).
+        queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() })
       }
     },
   })
@@ -229,6 +232,8 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       // Invalidate queries to refetch
       if (!isMockMode.value) {
         queryClient.invalidateQueries({ queryKey: ticketQueueKeys.list(toValue(instanceId)) })
+        // Refresh dashboard instance counters (labeled count).
+        queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() })
       }
     },
   })

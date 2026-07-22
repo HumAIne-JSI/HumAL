@@ -346,7 +346,7 @@ function exportSnapshot() {
           </Card>
         </div>
 
-        <div class="bs-grid-2">
+        <!-- <div class="bs-grid-2">
           <Card v-if="latestPerClassF1.length" padding="default">
             <template #title>Quality score by category</template>
             <ul class="bs-bars">
@@ -380,7 +380,7 @@ function exportSnapshot() {
               </table>
             </div>
           </Card>
-        </div>
+        </div> -->
       </template>
     </section>
 

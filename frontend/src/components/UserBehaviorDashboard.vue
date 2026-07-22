@@ -360,7 +360,7 @@ function clearMockEvents() {
     </section>
 
     <!-- Confidence vs acceptance -->
-    <section>
+    <!-- <section>
       <Card padding="default">
         <template #title>Certainty vs decision</template>
         <template #description>
@@ -372,7 +372,7 @@ function clearMockEvents() {
           <Bar :data="confidenceBucketData" :options="stackedBarOptions" />
         </div>
       </Card>
-    </section>
+    </section> -->
 
     <!-- XAI engagement -->
     <section class="grid-2">

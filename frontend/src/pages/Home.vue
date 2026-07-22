@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
-import Progress from '@/components/ui/Progress.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import Button from '@/components/ui/Button.vue'
 import { useInstances } from '@/composables/api/useActiveLearning'
@@ -79,10 +78,6 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
           Welcome to HumAL - AI-Assisted Ticket Labeling
         </p>
       </div>
-      <Button variant="outline" size="sm" @click="refetchInstances">
-        <RefreshCw :size="14" />
-        Refresh
-      </Button>
     </header>
 
     <!-- System Status -->
@@ -286,7 +281,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
           variant="outline"
           padding="default"
           class="instance-card"
-          @click="navigateTo('/training', { instance: String(instance.id) })"
+          @click="navigateTo('/queue', { instance: String(instance.id) })"
         >
           <template #title>
             <div class="instance-card__header">
@@ -306,20 +301,6 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
           </template>
 
           <div class="instance-card__content">
-            <div class="instance-card__progress">
-              <div class="instance-card__progress-header">
-                <span>Labeled</span>
-                <span>
-                  {{ instance.labeled_count ?? 0 }} / {{ instance.total_count ?? 0 }}
-                </span>
-              </div>
-              <Progress
-                :value="instance.labeled_count ?? 0"
-                :max="instance.total_count ?? 1"
-                color="default"
-              />
-            </div>
-
             <div v-if="instance.f1_scores && instance.f1_scores.length > 0" class="instance-card__metrics">
               <span class="instance-card__metric-label">Quality score</span>
               <Badge variant="info">
@@ -407,8 +388,12 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
 
   &__actions-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+
+    @media (max-width: 640px) {
+      grid-template-columns: 1fr;
+    }
   }
 
   &__instances-grid {
@@ -525,6 +510,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
     display: flex;
     align-items: center;
     gap: 1rem;
+    height: 100%;
   }
 
   &__icon {
@@ -578,6 +564,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
   &__arrow {
     color: var(--muted-foreground);
     flex-shrink: 0;
+    align-self: center;
   }
 }
 
@@ -614,19 +601,6 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
     flex-direction: column;
     gap: 0.75rem;
     margin-top: 1rem;
-  }
-
-  &__progress {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  &__progress-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
   }
 
   &__metrics {
