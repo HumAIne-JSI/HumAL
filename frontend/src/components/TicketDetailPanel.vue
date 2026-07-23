@@ -618,6 +618,14 @@ const currentTicketForView = computed(() => ({
   title: props.ticket?.title,
   description: props.ticket?.description,
 }))
+
+// Expose imperative actions so parent-level keyboard shortcuts (e.g. the "c"
+// confirm shortcut) can drive the panel. No-op when there's no prediction yet.
+defineExpose({
+  confirmPrediction: () => {
+    if (prediction.value) handleConfirm()
+  },
+})
 </script>
 
 <template>
@@ -674,16 +682,9 @@ const currentTicketForView = computed(() => ({
             :probabilities="prediction.probabilities"
             show-details
             compact
-          >
-            <template #actions>
-              <Button variant="outline" size="sm" data-track-region="confirm_button" @click="handleConfirm">
-                <Check :size="14" />
-                Confirm
-              </Button>
-            </template>
-          </PredictionResult>
+          />
 
-          <!-- Actions row: Reassign + Re-analyze -->
+          <!-- Actions row: Reassign + Confirm + Re-analyze -->
           <div class="detail-panel__actions">
             <div class="detail-panel__reassign" data-track-region="reassign_select">
               <Select
@@ -701,6 +702,11 @@ const currentTicketForView = computed(() => ({
                 Reassign
               </Button>
             </div>
+
+            <Button variant="default" size="sm" class="detail-panel__confirm" data-track-region="confirm_button" @click="handleConfirm">
+              <Check :size="14" />
+              Confirm
+            </Button>
 
             <Button
               variant="ghost"
@@ -950,6 +956,9 @@ const currentTicketForView = computed(() => ({
     display: flex;
     align-items: center;
     gap: 0.25rem;
+  }
+
+  &__confirm {
     margin-left: auto;
   }
 

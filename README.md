@@ -9,7 +9,7 @@ HumAIne Active Learning Platform - An integrated system for human-in-the-loop ma
 ## Features
 
 - **Ticket Classification**: Automated team routing
-- **Resolution Generation**: LLM-powered ticket resolution suggestions using RAG
+- **Resolution Generation**: LLM-powered Ticket Evolution suggestions using RAG
 - **Active Learning**: Interactive model training with human feedback
 - **Explainable AI**: LIME-based model explanations
 - **Modern UI**: React + TypeScript frontend with real-time updates
@@ -136,7 +136,7 @@ The services will be available at:
 - **Home** (`/`) - Landing page
 - **Training** (`/training`) - Model training interface
 - **Dispatch Labeling** (`/dispatch-labeling`) - Label dispatch data
-- **Ticket Resolution** (`/ticket-resolution`) - Generate automated responses
+- **Ticket Evolution** (`/ticket-resolution`) - Generate automated responses
 - **Inference** (`/inference`) - Run model inference
 
 ## Documentation
@@ -163,3 +163,7 @@ HumAL/
 ├── install.py            # Automated dependency installer
 └── SETUP.md              # Detailed setup guide
 ```
+
+todo:
+
+aggiungi reassign ticket

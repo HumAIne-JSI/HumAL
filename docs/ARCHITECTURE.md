@@ -79,7 +79,7 @@ frontend/
   - Batch prediction support
   
 - **resolution_router.py**: Automated resolution generation
-  - RAG-based ticket resolution
+  - RAG-based Ticket Evolution
   - Feedback collection
   - Embeddings management
   
@@ -143,7 +143,7 @@ class Storage:
 - Data and embeddings caching
 
 #### RAG System (`core/rag_system.py`)
-**Purpose**: Retrieval-Augmented Generation for ticket resolution.
+**Purpose**: Retrieval-Augmented Generation for Ticket Evolution.
 
 **Components:**
 1. **Embedding Generation**: Sentence Transformers (all-MiniLM-L6-v2)

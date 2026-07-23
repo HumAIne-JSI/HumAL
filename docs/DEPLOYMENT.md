@@ -5,7 +5,7 @@ This guide covers building and deploying HumAL using Docker.
 ## Prerequisites
 
 - **Docker**: [Install Docker Desktop](https://www.docker.com/products/docker-desktop)
-- **OpenAI API Key**: Required for ticket resolution and feedback features
+- **OpenAI API Key**: Required for Ticket Evolution and feedback features
 - **Local dev setup**: Required for building the images (but not for only deploying them)
 
 ## Building Docker Images

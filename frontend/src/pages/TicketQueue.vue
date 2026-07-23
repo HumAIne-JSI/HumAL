@@ -36,6 +36,10 @@ const router = useRouter()
 const instanceStore = useInstanceStore()
 const telemetry = useBenchmarkTelemetry()
 
+// Ref to the detail panel so parent-level shortcuts (e.g. "c") can trigger
+// its confirm action imperatively.
+const detailPanelRef = ref<InstanceType<typeof TicketDetailPanel> | null>(null)
+
 // Track when the user selected the current ticket so we can compute the
 // confirm/override duration when they submit a label.
 const selectionStartMs = ref<number | null>(null)
@@ -137,7 +141,7 @@ registerNavigationShortcuts({
     }
   },
   onConfirm: () => {
-    // Will be handled by detail panel
+    detailPanelRef.value?.confirmPrediction()
   },
   onToggleBulk: () => {
     if (selectedTicket.value) {
@@ -479,6 +483,7 @@ const groupedShortcuts = computed(() => {
       <!-- Right Panel: Detail View -->
       <div class="ticket-queue__detail-panel">
         <TicketDetailPanel
+          ref="detailPanelRef"
           :ticket="selectedTicket"
           :instance-id="selectedInstanceId"
           :teams="teams"

@@ -24,7 +24,7 @@ HumAL consists of five main pages:
 1. **Home** - Landing page and navigation hub
 2. **Training** - Create and configure active learning instances
 3. **Dispatch Labeling** - Label tickets for team routing
-4. **Ticket Resolution** - Generate automated ticket responses
+4. **Ticket Evolution** - Generate automated ticket responses
 5. **Inference** - Run predictions on new tickets
 
 ---
@@ -116,7 +116,7 @@ Repeat steps 2-6 until:
 
 ---
 
-### 4. Ticket Resolution Page (`/ticket-resolution`)
+### 4. Ticket Evolution Page (`/ticket-resolution`)
 
 **Purpose**: Generate automated first-reply responses for IT support tickets using an LLM.
 

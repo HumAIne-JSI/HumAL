@@ -44,6 +44,12 @@ const routes = [
     component: () => import('../pages/ManualQueue.vue'),
     meta: { label: 'Manual Queue', icon: Pencil, showInNav: true }
   },
+   {
+    path: '/ticket-resolution',
+    name: 'ticket-resolution',
+    component: () => import('../pages/TicketResolution.vue'),
+    meta: { label: 'Ticket Evolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
+  },
   {
     path: '/analytics',
     name: 'analytics',
@@ -56,12 +62,6 @@ const routes = [
   //   component: () => import('../pages/Dispatching.vue'),
   //   meta: { label: 'Dispatch Labeling', icon: Target, showInNav: true }
   // },
-  {
-    path: '/ticket-resolution',
-    name: 'ticket-resolution',
-    component: () => import('../pages/TicketResolution.vue'),
-    meta: { label: 'Ticket Evolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
-  },
   // {
   //   path: '/inference',
   //   name: 'inference',

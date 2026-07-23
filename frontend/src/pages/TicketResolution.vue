@@ -102,6 +102,20 @@ const instanceModel = computed<string>({
 const result = ref<AssistedResolution | null>(null)
 const editedResponse = ref('')
 const savedToKb = ref(false)
+
+// Demo-only: reassign the ticket to a different team.
+const AVAILABLE_TEAMS = [
+  'Network Operations',
+  'Hardware Support',
+  'Software Support',
+  'Security',
+  'Database Administration',
+  'Cloud Infrastructure',
+  'Identity & Access',
+  'Service Desk',
+]
+const reassignOpen = ref(false)
+const reassignTeam = ref('')
 const copiedToClipboard = ref(false)
 // Per-reply feedback: retrieved_id -> submitted vote / aggregated stats.
 const votes = ref<Record<string, 0 | 1>>({})
@@ -398,6 +412,14 @@ async function saveToKb(): Promise<void> {
   }
 }
 
+// Demo-only: reassign the ticket to a different team.
+function reassignTicket(): void {
+  if (!reassignTeam.value || !result.value) return
+  result.value.predicted_team = reassignTeam.value
+  reassignOpen.value = false
+  toast.success(`Ticket reassigned to ${reassignTeam.value}`)
+}
+
 async function copyResponse(): Promise<void> {
   try {
     await navigator.clipboard.writeText(editedResponse.value)
@@ -655,6 +677,32 @@ onMounted(() => {
                   <Users :size="14" />
                   {{ result.predicted_team }}
                 </Badge>
+                <div class="reassign">
+                  <Button
+                    v-if="!reassignOpen"
+                    variant="outline"
+                    size="sm"
+                    @click="reassignOpen = true"
+                  >
+                    <Users :size="14" />
+                    Reassign
+                  </Button>
+                  <div v-else class="reassign__controls">
+                    <select v-model="reassignTeam" class="form-select reassign__select">
+                      <option value="" disabled>Select a team…</option>
+                      <option v-for="team in AVAILABLE_TEAMS" :key="team" :value="team">
+                        {{ team }}
+                      </option>
+                    </select>
+                    <Button variant="default" size="sm" :disabled="!reassignTeam" @click="reassignTicket">
+                      <Check :size="14" />
+                      Confirm
+                    </Button>
+                    <Button variant="ghost" size="sm" @click="reassignOpen = false">
+                      <X :size="14" />
+                    </Button>
+                  </div>
+                </div>
               </div>
               <div class="classification-item">
                 <span class="classification-label">Certainty</span>
@@ -922,6 +970,21 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted-foreground);
+}
+
+.reassign {
+  margin-top: 0.25rem;
+}
+
+.reassign__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.reassign__select {
+  min-width: 12rem;
 }
 
 .confidence-display {
