@@ -157,7 +157,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
       </div>
     </section>
 
-    <!-- Quick Actions -->
+    <!-- Quick Actions
     <section class="dashboard__section">
       <h2 class="dashboard__section-title">
         <Zap :size="18" />
@@ -245,7 +245,7 @@ const navigateTo = (path: string, query?: Record<string, string>) => {
           </div>
         </Card>
       </div>
-    </section>
+    </section> -->
 
     <!-- Instances Overview -->
     <section class="dashboard__section">
