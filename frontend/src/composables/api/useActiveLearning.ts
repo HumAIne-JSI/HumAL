@@ -8,8 +8,6 @@ import type {
   LabelInfo,
   CreateInstanceResponse,
   LabelInstanceResponse,
-  LabelerFeedbackRequest,
-  LabelerFeedbackResponse,
   InstanceInfo,
   InstancesListResponse,
 } from '@/types/api';
@@ -152,11 +150,11 @@ export function useLabelInstance(
 }
 
 /**
- * Label instances with full decision context (timing, model prediction,
- * explanation) via POST /activelearning/{id}/label-with-info. This is the
- * benchmark telemetry channel: it persists the label AND records the event.
- * It retrains + recomputes metrics, so do NOT also call useLabelInstance for
- * the same ticket. No-ops in mock mode (no backend round-trip).
+ * Submit a labeled decision or an i-don't-know retirement with full context
+ * via POST /activelearning/{id}/label-with-info. This is the benchmark
+ * telemetry channel: it persists the decision AND records the event. It
+ * retrains + recomputes metrics for labeled decisions, so do NOT also call
+ * useLabelInstance for the same ticket. No-ops in mock mode.
  */
 export function useLabelWithInfo(
   instanceId: MaybeRef<number>,
@@ -199,33 +197,6 @@ export function useSaveModel(
 ) {
   return useMutation({
     mutationFn: () => apiService.saveModel(toValue(instanceId)),
-    onSuccess: options?.onSuccess,
-    meta: options?.meta,
-  });
-}
-
-/**
- * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
- * Does NOT submit a class label — the ticket remains in the unlabeled pool;
- * the backend records the reason for telemetry / future scheduling.
- *
- * @example
- * ```ts
- * const { mutate: sendFeedback } = useLabelerFeedbackMutation(instanceId);
- * sendFeedback({ query_idx: ticketIdx, feedback_type: 'I_DONT_KNOW' });
- * ```
- */
-export function useLabelerFeedbackMutation(
-  _instanceId: MaybeRef<number>,
-  options?: { meta?: QueryMeta; onSuccess?: (data: LabelerFeedbackResponse) => void }
-) {
-  return useMutation({
-    // The humaine-al-api backend has no labeler-feedback endpoint. Keep the
-    // mutation so the UI (skip-with-reason) works and mock telemetry still
-    // fires at the call site, but resolve locally instead of hitting a 404.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    mutationFn: (_data: LabelerFeedbackRequest) =>
-      Promise.resolve({ status: 'ok' } as unknown as LabelerFeedbackResponse),
     onSuccess: options?.onSuccess,
     meta: options?.meta,
   });

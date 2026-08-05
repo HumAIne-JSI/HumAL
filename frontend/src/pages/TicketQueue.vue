@@ -8,7 +8,6 @@ import Spinner from '@/components/ui/Spinner.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
-import BreakModal from '@/components/BreakModal.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
@@ -16,8 +15,7 @@ import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { AUTO_CLOSE_CONFIDENCE } from '@/composables/useUserBehaviorAggregator'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
-import { useLabelerFeedbackMutation } from '@/composables/api/useActiveLearning'
-import { useCapabilities } from '@/composables/api/useConfig'
+import { usePendingLabelerFeedback } from '@/composables/usePendingLabelerFeedback'
 import type { TicketStatus, SortOrder } from '@/stores/useTicketQueueStore'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
@@ -101,6 +99,7 @@ const {
   setFilter,
   resetFilters,
   labelTicket,
+  retireTicketAsync,
   isLabeling,
   bulkLabel,
   isBulkLabeling,
@@ -111,6 +110,9 @@ const {
   instanceId: selectedInstanceId,
   autoFetch: true,
 })
+
+const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
+  usePendingLabelerFeedback()
 
 // Keyboard navigation
 const {
@@ -161,6 +163,17 @@ registerNavigationShortcuts({
   },
 })
 
+async function advanceToNextTicket() {
+  try {
+    await refresh()
+    if (selectNext()) {
+      selectionStartMs.value = Date.now()
+    }
+  } catch (e) {
+    toast.error('Failed to load the next ticket', { description: (e as Error).message })
+  }
+}
+
 // Handle confirm prediction
 function handleConfirm(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
   if (!selectedTicket.value) return
@@ -187,10 +200,18 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
   }
 
   labelTicket(
-    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? team, durationMs },
+    {
+      ticketId: ticket.id,
+      label: team,
+      prediction: meta.prediction ?? team,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    },
     {
       onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
+        resetPendingFeedback()
+        setTimeout(() => { void advanceToNextTicket() }, 600)
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -216,10 +237,18 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? null, durationMs },
+    {
+      ticketId: ticket.id,
+      label: team,
+      prediction: meta.prediction ?? null,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    },
     {
       onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
+        resetPendingFeedback()
+        setTimeout(() => { void advanceToNextTicket() }, 600)
       },
       onError: () => {
         toast.error('Failed to reassign ticket')
@@ -228,56 +257,58 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
   )
 }
 
-// Labeler feedback (skip-with-reason). Telemetry fires unconditionally so
-// click tracking works even when the backend feedback endpoint is unavailable;
-// the API call itself is capability-gated.
-const feedbackMutation = useLabelerFeedbackMutation(selectedInstanceId)
-const { data: capabilities } = useCapabilities()
-const labelerFeedbackEnabled = computed(() =>
-  (capabilities.value?.capabilities ?? []).includes('labeler_feedback'),
-)
-const breakModalOpen = ref(false)
-
 const FEEDBACK_TOAST: Record<LabelerFeedbackType, { title: string; description: string }> = {
-  I_AM_TIRED: { title: 'Time for a break', description: 'We saved your spot — resume when ready.' },
-  DIFFICULT_TICKET: { title: 'Marked as difficult', description: 'Loading another ticket…' },
+  I_AM_TIRED: { title: 'Tired feedback selected', description: 'Choose a label to submit this feedback.' },
+  DIFFICULT_TICKET: { title: 'Difficult feedback selected', description: 'Choose a label to submit this feedback.' },
   I_DONT_KNOW: { title: "Skipped: don't know", description: 'Loading another ticket…' },
 }
 
 async function handleLabelerFeedback(type: LabelerFeedbackType) {
   const ticket = selectedTicket.value
   const ticketRef = ticket?.ref ?? ticket?.id ?? null
+  if (!ticket) {
+    toast.error('No ticket selected', { description: 'Select a ticket first' })
+    return
+  }
 
-  // Always-on telemetry, even when the backend doesn't support feedback yet.
+  const copy = FEEDBACK_TOAST[type]
+  if (type !== 'I_DONT_KNOW') {
+    togglePendingFeedback(type)
+    const selected = type === 'I_AM_TIRED' ? isTired.value : isDifficult.value
+    void telemetry.recordLab('labeler_feedback', 'Ticket', {
+      feedback_type: type,
+      selected,
+      ticket_ref: ticketRef,
+      page: 'queue_aided',
+    })
+    toast.info(selected ? copy.title : `${copy.title} cleared`, {
+      description: selected ? copy.description : 'The next label will not include this flag.',
+    })
+    return
+  }
+
   void telemetry.recordLab('labeler_feedback', 'Ticket', {
     feedback_type: type,
+    selected: true,
     ticket_ref: ticketRef,
     page: 'queue_aided',
   })
 
-  if (labelerFeedbackEnabled.value && ticket) {
-    try {
-      await feedbackMutation.mutateAsync({
-        query_idx: ticket.id,
-        feedback_type: type,
-      })
-    } catch (e) {
-      toast.error('Failed to submit feedback', { description: (e as Error).message })
-    }
+  const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
+  try {
+    await retireTicketAsync({
+      ticketId: ticket.id,
+      prediction: ticket.prediction ?? null,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    })
+    resetPendingFeedback()
+    toast.info(copy.title, { description: copy.description })
+    await advanceToNextTicket()
+  } catch (e) {
+    toast.error('Failed to skip ticket', { description: (e as Error).message })
   }
-
-  const copy = FEEDBACK_TOAST[type]
-  toast.info(copy.title, { description: copy.description })
-
-  if (type === 'I_AM_TIRED') {
-    breakModalOpen.value = true
-  } else {
-    selectNext()
-  }
-}
-
-function handleResumeFromBreak() {
-  selectNext()
 }
 
 // Bulk action inline feedback
@@ -318,6 +349,7 @@ const userOverrodeCollapse = ref(false)
 watch(
   () => selectedTicket.value?.id ?? null,
   (newId, oldId) => {
+    if (newId !== oldId) resetPendingFeedback()
     if (newId && !oldId) {
       if (!userOverrodeCollapse.value && !hasBulkSelection.value) {
         isListCollapsed.value = true
@@ -488,7 +520,9 @@ const groupedShortcuts = computed(() => {
           :instance-id="selectedInstanceId"
           :teams="teams"
           :show-xai="true"
-          :feedback-pending="feedbackMutation.isPending.value"
+          :feedback-pending="isLabeling"
+          :is-tired="isTired"
+          :is-difficult="isDifficult"
           @close="selectTicket(null)"
           @confirm="handleConfirm"
           @reassign="handleReassign"
@@ -497,9 +531,6 @@ const groupedShortcuts = computed(() => {
         />
       </div>
     </div>
-
-    <!-- "Time for a break" modal -->
-    <BreakModal v-model:open="breakModalOpen" @resume="handleResumeFromBreak" />
 
     <!-- Keyboard Shortcuts Modal -->
     <Teleport to="body">

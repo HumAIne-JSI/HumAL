@@ -152,17 +152,9 @@ export interface InferProbaResponse {
   probabilities: number[][];
 }
 
-// Labeler feedback (skip-with-reason events)
+// Labeler feedback controls; only I_DONT_KNOW retires the ticket.
 export type LabelerFeedbackType = 'I_AM_TIRED' | 'DIFFICULT_TICKET' | 'I_DONT_KNOW';
 
-export interface LabelerFeedbackRequest {
-  query_idx: number | string;
-  feedback_type: LabelerFeedbackType;
-}
-
-export interface LabelerFeedbackResponse {
-  status: string;
-}
 
 // Error Types
 export interface ApiErrorData {

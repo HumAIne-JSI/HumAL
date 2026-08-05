@@ -16,12 +16,54 @@ export const ticketQueueKeys = {
 }
 
 export interface UseTicketQueueOptions {
-  /** Initial number of tickets to load */
+  /** Number of tickets to request per queue batch */
   initialCount?: number
   /** Instance ID for API calls */
   instanceId?: MaybeRef<number>
   /** Whether to auto-fetch on mount */
   autoFetch?: boolean
+}
+
+export interface QueueDecisionInput {
+  ticketId: string
+  /** Omit this only when iDontKnow is true. */
+  label?: string | null
+  /** Model's suggested class, for benchmark confirm/override telemetry. */
+  prediction?: string | null
+  /** Time the user spent on the decision, in milliseconds. */
+  durationMs?: number | null
+  explanation?: string | null
+  mostHelpfulFeature?: MostHelpfulFeature | null
+  /** Human-satisfaction signals persisted with the decision. */
+  isTired?: boolean | null
+  isDifficult?: boolean | null
+  iDontKnow?: boolean | null
+}
+
+export type QueueRetireInput = Omit<QueueDecisionInput, 'label' | 'iDontKnow'>
+
+export function buildQueueLabelInfo(
+  input: QueueDecisionInput,
+  endMs = Date.now(),
+): LabelInfo {
+  const isRetirement = input.iDontKnow === true
+  if (!isRetirement && !input.label?.trim()) {
+    throw new Error('A label is required unless I don\'t know is selected')
+  }
+
+  const startMs = input.durationMs != null ? endMs - input.durationMs : endMs
+  return {
+    ticket_id: input.ticketId,
+    ...(input.label?.trim() ? { label: input.label } : {}),
+    model_prediction: input.prediction ?? undefined,
+    start_time: new Date(startMs).toISOString(),
+    end_time: new Date(endMs).toISOString(),
+    explanation: input.explanation ?? undefined,
+    most_helpful_feature: input.mostHelpfulFeature ?? undefined,
+    is_tired: input.isTired ?? undefined,
+    is_difficult: input.isDifficult ?? undefined,
+    i_dont_know: isRetirement ? true : undefined,
+  }
 }
 
 /**
@@ -47,7 +89,7 @@ function apiTicketToQueueTicket(ticket: Ticket, index: number): QueueTicket {
  * Supports both real API and mock data fallback
  */
 export function useTicketQueue(options: UseTicketQueueOptions = {}) {
-  const { initialCount = 20, autoFetch = true } = options
+  const { initialCount = 1, autoFetch = true } = options
   const instanceId = options.instanceId ?? ref(0)
   const store = useTicketQueueStore()
   const labeledStore = useLabeledTicketsStore()
@@ -135,61 +177,29 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     })
   }
 
-  // Label mutation
+  // Label-with-info mutation. It also handles label-less i-don't-know
+  // retirements so both paths share timing, persistence, and invalidation.
   const labelMutation = useMutation({
-    mutationFn: async ({
-      ticketId,
-      label,
-      prediction,
-      durationMs,
-      explanation,
-      mostHelpfulFeature,
-      isTired,
-      isDifficult,
-      iDontKnow,
-    }: {
-      ticketId: string
-      label: string
-      /** Model's suggested class, for benchmark confirm/override telemetry. */
-      prediction?: string | null
-      /** Time the user spent on the decision, in milliseconds. */
-      durationMs?: number | null
-      explanation?: string | null
-      mostHelpfulFeature?: MostHelpfulFeature | null
-      /** Human-satisfaction signals persisted with the decision (label-with-info). */
-      isTired?: boolean | null
-      isDifficult?: boolean | null
-      iDontKnow?: boolean | null
-    }) => {
+    mutationFn: async (input: QueueDecisionInput) => {
+      const info = buildQueueLabelInfo(input)
       const id = toValue(instanceId)
       if (id <= 0 || isMockMode.value) {
-        // Mock mode - just update local state
-        return { message: 'Mock label applied' }
+        // Mock mode - just update local state through onSuccess below.
+        return { message: input.iDontKnow === true ? 'Mock ticket retired' : 'Mock label applied' }
       }
 
       // Live mode: submit via label-with-info so the human decision is captured
       // as a benchmark telemetry event (timing + model prediction + satisfaction
       // signals) in addition to persisting the label. This retrains + recomputes
       // metrics, so we must NOT also call labelInstance for the same ticket.
-      const endMs = Date.now()
-      const startMs = durationMs != null ? endMs - durationMs : endMs
-      const info: LabelInfo = {
-        ticket_id: ticketId,
-        label,
-        model_prediction: prediction ?? undefined,
-        start_time: new Date(startMs).toISOString(),
-        end_time: new Date(endMs).toISOString(),
-        explanation: explanation ?? undefined,
-        most_helpful_feature: mostHelpfulFeature ?? undefined,
-        is_tired: isTired ?? undefined,
-        is_difficult: isDifficult ?? undefined,
-        i_dont_know: iDontKnow ?? undefined,
-      }
       return apiService.labelWithInfo(id, [info])
     },
     onSuccess: (_, variables) => {
-      // Capture the labeled ticket so the Resolution tab can reuse it.
-      recordLabeledTicket(variables.ticketId, variables.label, variables.prediction ?? null)
+      // A retired ticket has no user label and must not become a Resolution
+      // source ticket. Normal labels retain the existing behavior.
+      if (!variables.iDontKnow && variables.label) {
+        recordLabeledTicket(variables.ticketId, variables.label, variables.prediction ?? null)
+      }
       // Update ticket status in store
       store.updateTicketStatus(variables.ticketId, 'resolved')
       // Invalidate queries to refetch
@@ -200,6 +210,14 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       }
     },
   })
+
+  function retireTicket(input: QueueRetireInput): void {
+    labelMutation.mutate({ ...input, iDontKnow: true })
+  }
+
+  function retireTicketAsync(input: QueueRetireInput) {
+    return labelMutation.mutateAsync({ ...input, iDontKnow: true })
+  }
 
   // Bulk label mutation
   const bulkLabelMutation = useMutation({
@@ -293,6 +311,8 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
     // Mutations
     labelTicket: labelMutation.mutate,
     labelTicketAsync: labelMutation.mutateAsync,
+    retireTicket,
+    retireTicketAsync,
     isLabeling: computed(() => labelMutation.isPending.value),
 
     bulkLabel: bulkLabelMutation.mutate,

@@ -12,8 +12,6 @@ import {
   type InferenceResponse,
   type InferenceTopKResponse,
   type InferProbaResponse,
-  type LabelerFeedbackRequest,
-  type LabelerFeedbackResponse,
   type ConfigModelsResponse,
   type ConfigStrategiesResponse,
   type TicketsResponse,
@@ -96,7 +94,6 @@ export const API_ENDPOINTS = {
   GET_NEXT_INSTANCES: (id: number) => `/activelearning/${id}/next`,
   LABEL_INSTANCE: (id: number) => `/activelearning/${id}/label`,
   LABEL_WITH_INFO: (id: number) => `/activelearning/${id}/label-with-info`,
-  LABELER_FEEDBACK: (id: number) => `/activelearning/${id}/feedback`,
   GET_INFO: (id: number) => `/activelearning/${id}/info`,
   SAVE_MODEL: (id: number) => `/activelearning/${id}/save`,
   GET_INSTANCES: '/activelearning/instances',
@@ -234,11 +231,11 @@ export const apiService = {
     }),
 
   /**
-   * Submit human label decisions with full context (timing, model prediction,
-   * explanation). This is the primary telemetry channel on the humaine-al-api
-   * backend: it persists the decision AND records the benchmark event, while
-   * also retraining the model and recomputing metrics (same side effects as
-   * labelInstance — never call both for the same ticket).
+   * Submit human label decisions or i-don't-know retirements with full context
+   * (timing, model prediction, explanation). This is the primary telemetry
+   * channel on the humaine-al-api backend: it persists the decision AND records
+   * the benchmark event. Labeled decisions also retrain and recompute metrics;
+   * never call labelInstance for the same ticket.
    */
   labelWithInfo: (id: number, data: LabelInfo[]) =>
     apiCall<{ message?: string } & Record<string, unknown>>(
@@ -248,16 +245,6 @@ export const apiService = {
         body: JSON.stringify(data),
       },
     ),
-
-  /**
-   * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
-   * Does NOT submit a class label — the ticket stays in the unlabeled pool.
-   */
-  submitLabelerFeedback: (id: number, data: LabelerFeedbackRequest) =>
-    apiCall<LabelerFeedbackResponse>(API_ENDPOINTS.LABELER_FEEDBACK(id), {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
 
   getInstanceInfo: (id: number) => apiCall<InstanceInfo>(API_ENDPOINTS.GET_INFO(id)),
 
