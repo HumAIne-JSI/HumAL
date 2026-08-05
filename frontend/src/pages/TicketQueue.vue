@@ -78,7 +78,7 @@ watch(
     if (newId > 0) {
       router.replace({ query: { ...route.query, instance: String(newId) } })
     }
-  }
+  },
 )
 
 // Ticket queue composable
@@ -111,17 +111,16 @@ const {
   autoFetch: true,
 })
 
-const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
-  usePendingLabelerFeedback()
+const {
+  isTired,
+  isDifficult,
+  toggle: togglePendingFeedback,
+  reset: resetPendingFeedback,
+} = usePendingLabelerFeedback()
 
 // Keyboard navigation
-const {
-  shortcuts,
-  isHelpOpen,
-  registerNavigationShortcuts,
-  openHelp,
-  closeHelp,
-} = useKeyboardNavigation()
+const { shortcuts, isHelpOpen, registerNavigationShortcuts, openHelp, closeHelp } =
+  useKeyboardNavigation()
 
 // Register keyboard shortcuts
 registerNavigationShortcuts({
@@ -175,24 +174,34 @@ async function advanceToNextTicket() {
 }
 
 // Handle confirm prediction
-function handleConfirm(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
+function handleConfirm(
+  team: string,
+  meta: {
+    prediction?: string | null
+    confidence?: number | null
+    predictionRank?: number
+  } = {},
+) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
+  const isAlternativePrediction = (meta.predictionRank ?? 1) > 1
+  const decisionAction = isAlternativePrediction ? 'override_label' : 'confirm_label'
 
   void telemetry.recordLabelDecision({
-    action: 'confirm_label',
+    action: decisionAction,
     ticketRef: ticket.ref ?? ticket.id,
     page: 'queue_aided',
     label: team,
     prediction: meta.prediction ?? team,
     confidence: meta.confidence ?? null,
+    predictionRank: meta.predictionRank ?? 1,
     durationMs,
   })
 
   // A high-confidence prediction that the operator confirms is effectively
   // managed & closed by the AI (programme KPI: % auto-managed & closed).
-  if ((meta.confidence ?? 0) >= AUTO_CLOSE_CONFIDENCE) {
+  if (!isAlternativePrediction && (meta.confidence ?? 0) >= AUTO_CLOSE_CONFIDENCE) {
     void telemetry.recordAutoClose(ticket.ref ?? ticket.id, 'queue_aided', {
       confidence: meta.confidence ?? null,
       prediction: meta.prediction ?? team,
@@ -211,7 +220,9 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
     {
       onSuccess: () => {
         resetPendingFeedback()
-        setTimeout(() => { void advanceToNextTicket() }, 600)
+        setTimeout(() => {
+          void advanceToNextTicket()
+        }, 600)
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -221,7 +232,10 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
 }
 
 // Handle reassign
-function handleReassign(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
+function handleReassign(
+  team: string,
+  meta: { prediction?: string | null; confidence?: number | null } = {},
+) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
@@ -248,7 +262,9 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
     {
       onSuccess: () => {
         resetPendingFeedback()
-        setTimeout(() => { void advanceToNextTicket() }, 600)
+        setTimeout(() => {
+          void advanceToNextTicket()
+        }, 600)
       },
       onError: () => {
         toast.error('Failed to reassign ticket')
@@ -258,8 +274,14 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
 }
 
 const FEEDBACK_TOAST: Record<LabelerFeedbackType, { title: string; description: string }> = {
-  I_AM_TIRED: { title: 'Tired feedback selected', description: 'Choose a label to submit this feedback.' },
-  DIFFICULT_TICKET: { title: 'Difficult feedback selected', description: 'Choose a label to submit this feedback.' },
+  I_AM_TIRED: {
+    title: 'Tired feedback selected',
+    description: 'Choose a label to submit this feedback.',
+  },
+  DIFFICULT_TICKET: {
+    title: 'Difficult feedback selected',
+    description: 'Choose a label to submit this feedback.',
+  },
   I_DONT_KNOW: { title: "Skipped: don't know", description: 'Loading another ticket…' },
 }
 
@@ -335,7 +357,7 @@ function handleBulkApprove() {
       onError: () => {
         toast.error('Bulk action failed')
       },
-    }
+    },
   )
 }
 
@@ -358,7 +380,7 @@ watch(
       isListCollapsed.value = false
       userOverrodeCollapse.value = false
     }
-  }
+  },
 )
 
 watch(hasBulkSelection, (hasSelection, hadSelection) => {
@@ -376,7 +398,9 @@ function toggleListCollapse() {
 useClickTracking('queue_aided', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
 
 // Emit view_ticket_start / view_ticket_end for time-on-ticket analytics.
-const viewedTicketRef = computed(() => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
+const viewedTicketRef = computed(
+  () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null,
+)
 useTicketViewLifecycle({ selectedTicketRef: viewedTicketRef, page: 'queue_aided' })
 
 // Grouped shortcuts by category for help modal
@@ -451,21 +475,26 @@ const groupedShortcuts = computed(() => {
 
         <!-- Bulk Actions Bar -->
         <Transition name="bulk-bar">
-        <div v-if="hasBulkSelection && !isListCollapsed" class="ticket-queue__bulk-bar">
-          <span class="ticket-queue__bulk-count">
-            <CheckSquare :size="14" />
-            {{ bulkSelectedTickets.length }} selected
-          </span>
-          <div class="ticket-queue__bulk-actions">
-            <Button variant="default" size="sm" @click="handleBulkApprove" :disabled="isBulkLabeling">
-              Approve All
-            </Button>
-            <Button variant="ghost" size="sm" @click="clearBulkSelection">
-              <X :size="14" />
-              Clear
-            </Button>
+          <div v-if="hasBulkSelection && !isListCollapsed" class="ticket-queue__bulk-bar">
+            <span class="ticket-queue__bulk-count">
+              <CheckSquare :size="14" />
+              {{ bulkSelectedTickets.length }} selected
+            </span>
+            <div class="ticket-queue__bulk-actions">
+              <Button
+                variant="default"
+                size="sm"
+                @click="handleBulkApprove"
+                :disabled="isBulkLabeling"
+              >
+                Approve All
+              </Button>
+              <Button variant="ghost" size="sm" @click="clearBulkSelection">
+                <X :size="14" />
+                Clear
+              </Button>
+            </div>
           </div>
-        </div>
         </Transition>
 
         <!-- Bulk Feedback Banner -->
@@ -485,12 +514,8 @@ const groupedShortcuts = computed(() => {
         <div v-else-if="tickets.length === 0" class="ticket-queue__empty">
           <Inbox :size="48" class="ticket-queue__empty-icon" />
           <h3>No tickets found</h3>
-          <p v-if="filters.search">
-            Try adjusting your filters
-          </p>
-          <p v-else>
-            No tickets are available for this project
-          </p>
+          <p v-if="filters.search">Try adjusting your filters</p>
+          <p v-else>No tickets are available for this project</p>
         </div>
 
         <!-- Ticket List -->
@@ -625,7 +650,10 @@ const groupedShortcuts = computed(() => {
     max-width: 500px;
     border-right: 1px solid var(--border);
     background: var(--card);
-    transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+    transition:
+      width 0.2s ease,
+      min-width 0.2s ease,
+      max-width 0.2s ease;
 
     &--collapsed {
       width: 64px;
@@ -652,7 +680,10 @@ const groupedShortcuts = computed(() => {
     border-radius: 999px;
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s ease;
 
     &:hover {
       color: var(--foreground);

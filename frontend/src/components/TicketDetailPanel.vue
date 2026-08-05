@@ -63,7 +63,11 @@ const emit = defineEmits<{
   (
     e: 'confirm',
     team: string,
-    meta: { prediction?: string | null; confidence?: number | null },
+    meta: {
+      prediction?: string | null
+      confidence?: number | null
+      predictionRank?: number
+    },
   ): void
   (
     e: 'reassign',
@@ -614,14 +618,16 @@ function handlePredict() {
 const isManualReassignMode = computed(() => Boolean(selectedReassignTeam.value))
 
 // Confirm one of the ranked model predictions as the label.
-function handleConfirm(selectedPrediction = rankedPredictions.value[0]) {
+function handleConfirm(selectedPrediction = rankedPredictions.value[0], predictionRank = 1) {
   if (!selectedPrediction || isManualReassignMode.value || props.feedbackPending) return
   const team = String(selectedPrediction.label)
+  const modelPrediction = String(rankedPredictions.value[0]?.label ?? team)
   labeledTeamName.value = team
   showLabeledFlash.value = true
   emit('confirm', team, {
-    prediction: team,
+    prediction: modelPrediction,
     confidence: selectedPrediction.probability,
+    predictionRank,
   })
 }
 
@@ -876,7 +882,7 @@ defineExpose({
                           ? 'Clear the manual reassignment before confirming a model prediction'
                           : `Confirm ${suggestion.label}`
                       "
-                      @click="handleConfirm(suggestion)"
+                      @click="handleConfirm(suggestion, index + 1)"
                     >
                       <Check :size="14" />
                       Confirm
