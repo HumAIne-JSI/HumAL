@@ -3,11 +3,13 @@ import { computed } from 'vue'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Progress from '@/components/ui/Progress.vue'
+import type { TopKPrediction } from '@/types/api'
 
 export interface PredictionResultProps {
   prediction: string | number
   confidence?: number
   probabilities?: Record<string, number>
+  predictions?: TopKPrediction[]
   showDetails?: boolean
   compact?: boolean
 }
@@ -37,18 +39,30 @@ const topProbabilities = computed(() => {
     .slice(0, 3)
 })
 
-const hasProbabilities = computed(() => topProbabilities.value.length > 0)
+const displayedPredictions = computed(() =>
+  props.predictions?.length ? props.predictions.slice(0, 2) : topProbabilities.value,
+)
+
+const hasProbabilities = computed(() => displayedPredictions.value.length > 0)
 </script>
 
 <template>
   <Card :variant="compact ? 'elevated' : 'default'" :padding="compact ? 'sm' : 'default'">
     <template #title>
       <div class="prediction-result__header">
-        <span class="prediction-result__label">AI Suggestion</span>
+        <span class="prediction-result__label">
+          {{ predictions?.length ? 'AI Suggestions' : 'AI Suggestion' }}
+        </span>
         <Badge variant="default" class="prediction-result__value">
           {{ prediction }}
         </Badge>
-        <span v-if="confidencePercent !== null" :class="['prediction-result__confidence-inline', `prediction-result__confidence-inline--${confidenceColor}`]">
+        <span
+          v-if="confidencePercent !== null"
+          :class="[
+            'prediction-result__confidence-inline',
+            `prediction-result__confidence-inline--${confidenceColor}`,
+          ]"
+        >
           {{ confidencePercent }}%
         </span>
       </div>
@@ -61,12 +75,18 @@ const hasProbabilities = computed(() => topProbabilities.value.length > 0)
     <div class="prediction-result__content">
       <template v-if="showDetails && hasProbabilities">
         <div class="prediction-result__probabilities">
-          <div class="prediction-result__prob-heading">Top {{ topProbabilities.length }} suggestions</div>
+          <div class="prediction-result__prob-heading">
+            Top {{ displayedPredictions.length }} suggestions
+          </div>
           <div
-            v-for="item in topProbabilities"
+            v-for="(item, index) in displayedPredictions"
             :key="item.label"
-            class="prediction-result__prob-item"
+            :class="[
+              'prediction-result__prob-item',
+              { 'prediction-result__prob-item--actionable': $slots['prediction-action'] },
+            ]"
           >
+            <span class="prediction-result__rank">{{ index + 1 }}</span>
             <span class="prediction-result__prob-label">{{ item.label }}</span>
             <div class="prediction-result__prob-bar-container">
               <Progress
@@ -78,6 +98,7 @@ const hasProbabilities = computed(() => topProbabilities.value.length > 0)
             <span class="prediction-result__prob-value">
               {{ (item.probability * 100).toFixed(1) }}%
             </span>
+            <slot name="prediction-action" :prediction="item" :rank="index + 1" />
           </div>
         </div>
       </template>
@@ -154,10 +175,27 @@ const hasProbabilities = computed(() => topProbabilities.value.length > 0)
 
   &__prob-item {
     display: grid;
-    grid-template-columns: 120px 1fr 60px;
+    grid-template-columns: 1.25rem 120px 1fr 60px;
     gap: 0.75rem;
     align-items: center;
     font-size: 0.875rem;
+
+    &--actionable {
+      grid-template-columns: 1.25rem minmax(90px, 120px) minmax(80px, 1fr) 60px auto;
+    }
+  }
+
+  &__rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--background);
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
   }
 
   &__prob-label {

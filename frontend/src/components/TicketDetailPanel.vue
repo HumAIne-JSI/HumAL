@@ -5,7 +5,6 @@ import Button from '@/components/ui/Button.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import Select from '@/components/ui/Select.vue'
 import LimeHighlightedText from '@/components/LimeHighlightedText.vue'
-import PredictionResult from '@/components/PredictionResult.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
 import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
 import { useInferWithModelCheck, useInferTopK } from '@/composables/api/useInference'
@@ -97,14 +96,10 @@ const topKPredictions = ref<TopKPrediction[]>([])
 const similarPerClass = ref<PerClassSimilarTicket[]>([])
 const isLoadingSimilarPerClass = ref(false)
 
-// Backend capabilities — feature-gate optional UI. Mock mode bypasses the
-// gate so the UX is exercised end-to-end without backend support for the
-// new top-K / per-class endpoints.
+// Backend capabilities gate only the optional per-class similar-ticket UI.
+// Ranked predictions are a required queue input and come from infer_proba.
 const { data: capabilities } = useCapabilities()
 const capabilitySet = computed(() => new Set(capabilities.value?.capabilities ?? []))
-const topKEnabled = computed(
-  () => mockStore.mockEnabled || capabilitySet.value.has('top_k_inference'),
-)
 const perClassSimilarEnabled = computed(
   () => mockStore.mockEnabled || capabilitySet.value.has('similar_tickets_per_class'),
 )
@@ -377,8 +372,9 @@ const {
       if (props.showXai && props.ticket) {
         runXaiAnalysis()
       }
-      // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
-      if (props.ticket && topKEnabled.value && perClassSimilarEnabled.value) {
+      // Top-K predictions drive the queue's confirmation choices. Similar
+      // tickets remain an optional follow-up using the same ranked classes.
+      if (props.ticket) {
         void fetchTopKAndPerClass(buildInferenceData(props.ticket))
       }
     },
@@ -401,7 +397,7 @@ async function fetchTopKAndPerClass(data: InferenceData) {
     const topKRes = await inferTopKMutation.mutateAsync(data)
     const preds = topKRes?.predictions ?? []
     topKPredictions.value = preds
-    if (preds.length === 0) return
+    if (preds.length === 0 || !perClassSimilarEnabled.value) return
 
     isLoadingSimilarPerClass.value = true
     const classLabels = preds.map((p) => String(p.label))
@@ -425,6 +421,29 @@ const probabilityByClass = computed((): Record<string, number> => {
     out[String(p.label)] = p.probability
   }
   return out
+})
+
+// Ranked choices used by the queue confirmation actions. Keep a primary
+// prediction as a graceful fallback while the probability request completes.
+const rankedPredictions = computed<TopKPrediction[]>(() => {
+  if (topKPredictions.value.length > 0) return topKPredictions.value.slice(0, 2)
+
+  const probabilities = prediction.value?.probabilities
+  if (probabilities) {
+    const ranked = Object.entries(probabilities)
+      .map(([label, probability]) => ({ label, probability }))
+      .sort((a, b) => b.probability - a.probability)
+      .slice(0, 2)
+    if (ranked.length > 0) return ranked
+  }
+
+  if (!prediction.value) return []
+  return [
+    {
+      label: String(prediction.value.prediction),
+      probability: prediction.value.confidence ?? 0,
+    },
+  ]
 })
 
 // XAI mutations
@@ -474,28 +493,10 @@ const teamOptions = computed(() => {
   return props.teams.map((t) => ({ value: t, label: t }))
 })
 
-// Confidence level for styling
-const confidenceLevel = computed((): 'high' | 'medium' | 'low' => {
-  const conf = prediction.value?.confidence
-  if (conf === undefined) return 'low'
-  if (conf >= 0.8) return 'high'
-  if (conf >= 0.5) return 'medium'
-  return 'low'
-})
-
-const confidenceVariant = computed((): 'success' | 'warning' | 'destructive' => {
-  switch (confidenceLevel.value) {
-    case 'high':
-      return 'success'
-    case 'medium':
-      return 'warning'
-    case 'low':
-      return 'destructive'
-  }
-})
-
 // Combined loading flags (real mutations + mock simulation)
-const isInferringAny = computed(() => isInferring.value || mockInferring.value)
+const isInferringAny = computed(
+  () => isInferring.value || mockInferring.value || inferTopKMutation.isPending.value,
+)
 const isExplainingAny = computed(() => isExplainingLime.value || mockExplaining.value)
 const isFindingNearestAny = computed(() => isFindingNearest.value || mockFindingNearest.value)
 const hasLimeHighlights = computed(() => (explanation.value?.[0]?.word_weights?.length ?? 0) > 0)
@@ -610,21 +611,23 @@ function handlePredict() {
   runInference(buildInferenceData(props.ticket))
 }
 
-// Confirm prediction as label
-function handleConfirm() {
-  if (!prediction.value) return
-  const team = String(prediction.value.prediction)
+const isManualReassignMode = computed(() => Boolean(selectedReassignTeam.value))
+
+// Confirm one of the ranked model predictions as the label.
+function handleConfirm(selectedPrediction = rankedPredictions.value[0]) {
+  if (!selectedPrediction || isManualReassignMode.value || props.feedbackPending) return
+  const team = String(selectedPrediction.label)
   labeledTeamName.value = team
   showLabeledFlash.value = true
   emit('confirm', team, {
-    prediction: String(prediction.value.prediction),
-    confidence: prediction.value.confidence ?? null,
+    prediction: team,
+    confidence: selectedPrediction.probability,
   })
 }
 
 // Reassign to different team
 function handleReassign() {
-  if (!selectedReassignTeam.value) return
+  if (!selectedReassignTeam.value || props.feedbackPending) return
   const team = selectedReassignTeam.value
   labeledTeamName.value = team
   showLabeledFlash.value = true
@@ -632,6 +635,10 @@ function handleReassign() {
     prediction: prediction.value ? String(prediction.value.prediction) : null,
     confidence: prediction.value?.confidence ?? null,
   })
+  selectedReassignTeam.value = ''
+}
+
+function clearReassignSelection() {
   selectedReassignTeam.value = ''
 }
 
@@ -770,7 +777,7 @@ const predictedClassTicketsForView = computed(() =>
 // confirm shortcut) can drive the panel. No-op when there's no prediction yet.
 defineExpose({
   confirmPrediction: () => {
-    if (prediction.value) handleConfirm()
+    if (rankedPredictions.value.length > 0) handleConfirm(rankedPredictions.value[0])
   },
 })
 </script>
@@ -846,53 +853,120 @@ defineExpose({
               class="detail-panel__prediction-inner"
               data-track-region="prediction_card"
             >
-              <PredictionResult
-                :prediction="prediction.prediction"
-                :confidence="prediction.confidence"
-                :probabilities="prediction.probabilities"
-                show-details
-                compact
-              />
+              <div class="detail-panel__decision-grid">
+                <section class="detail-panel__model-predictions" aria-label="Model predictions">
+                  <div class="detail-panel__decision-heading">Model top predictions</div>
+                  <div
+                    v-for="(suggestion, index) in rankedPredictions"
+                    :key="suggestion.label"
+                    class="detail-panel__prediction-choice"
+                  >
+                    <span class="detail-panel__prediction-rank">{{ index + 1 }}</span>
+                    <div class="detail-panel__prediction-choice-info">
+                      <strong>{{ suggestion.label }}</strong>
+                      <span>{{ (suggestion.probability * 100).toFixed(1) }}%</span>
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      data-track-region="confirm_button"
+                      :disabled="isManualReassignMode || feedbackPending"
+                      :title="
+                        isManualReassignMode
+                          ? 'Clear the manual reassignment before confirming a model prediction'
+                          : `Confirm ${suggestion.label}`
+                      "
+                      @click="handleConfirm(suggestion)"
+                    >
+                      <Check :size="14" />
+                      Confirm
+                    </Button>
+                  </div>
+                </section>
 
-              <!-- Actions row: Reassign + Confirm + Re-analyze -->
-              <div class="detail-panel__actions">
-                <div class="detail-panel__reassign" data-track-region="reassign_select">
-                  <Select
-                    v-model="selectedReassignTeam"
-                    placeholder="Reassign to..."
-                    :options="teamOptions"
-                    size="sm"
-                  />
+                <div class="detail-panel__decision-side">
+                  <!-- Manual reassignment is separate from model confirmation. -->
+                  <section class="detail-panel__reassign" data-track-region="reassign_select">
+                    <span class="detail-panel__decision-heading">Manual reassignment</span>
+                    <div class="detail-panel__reassign-controls">
+                      <Select
+                        v-model="selectedReassignTeam"
+                        placeholder="Select team..."
+                        :options="teamOptions"
+                        size="sm"
+                        :disabled="feedbackPending"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :disabled="!selectedReassignTeam || feedbackPending"
+                        @click="handleReassign"
+                      >
+                        Reassign
+                      </Button>
+                      <Button
+                        v-if="selectedReassignTeam"
+                        variant="ghost"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        @click="clearReassignSelection"
+                      >
+                        <X :size="14" />
+                        Clear
+                      </Button>
+                    </div>
+                    <p v-if="isManualReassignMode" class="detail-panel__reassign-warning">
+                      Manual reassignment selected. Model confirmations are disabled.
+                    </p>
+                  </section>
+
+                  <section class="detail-panel__feedback" data-track-region="labeler_feedback">
+                    <span class="detail-panel__decision-heading">Tired/Difficult feedback</span>
+                    <div class="detail-panel__feedback-row">
+                      <Button
+                        :variant="props.isTired ? 'secondary' : 'ghost'"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        :aria-pressed="props.isTired"
+                        @click="$emit('feedback', 'I_AM_TIRED')"
+                      >
+                        <Coffee :size="14" />
+                        Tired
+                      </Button>
+                      <Button
+                        :variant="props.isDifficult ? 'secondary' : 'ghost'"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        :aria-pressed="props.isDifficult"
+                        @click="$emit('feedback', 'DIFFICULT_TICKET')"
+                      >
+                        <AlertTriangle :size="14" />
+                        Difficult
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        @click="$emit('feedback', 'I_DONT_KNOW')"
+                      >
+                        <HelpCircle :size="14" />
+                        Skip
+                      </Button>
+                    </div>
+                  </section>
+
                   <Button
+                    class="detail-panel__reanalyze"
                     variant="ghost"
                     size="sm"
-                    :disabled="!selectedReassignTeam"
-                    @click="handleReassign"
+                    @click="handlePredict"
+                    :disabled="isInferringAny"
+                    title="Try again"
                   >
-                    Reassign
+                    <RefreshCw :size="14" :class="{ 'animate-spin': isInferringAny }" />
+                    Re-analyze
                   </Button>
                 </div>
-
-                <Button
-                  variant="default"
-                  size="sm"
-                  class="detail-panel__confirm"
-                  data-track-region="confirm_button"
-                  @click="handleConfirm"
-                >
-                  <Check :size="14" />
-                  Confirm
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  @click="handlePredict"
-                  :disabled="isInferringAny"
-                  title="Try again"
-                >
-                  <RefreshCw :size="14" :class="{ 'animate-spin': isInferringAny }" />
-                </Button>
               </div>
             </div>
 
@@ -905,44 +979,6 @@ defineExpose({
           </Transition>
         </section>
 
-        <!-- Tired/Difficult are attached to the next label; I Don't Know retires. -->
-        <section class="detail-panel__feedback" data-track-region="labeler_feedback">
-          <span class="detail-panel__feedback-label"
-            >Tired/Difficult feedback (label required):</span
-          >
-          <div class="detail-panel__feedback-row">
-            <Button
-              :variant="props.isTired ? 'secondary' : 'ghost'"
-              size="sm"
-              :disabled="feedbackPending"
-              :aria-pressed="props.isTired"
-              @click="$emit('feedback', 'I_AM_TIRED')"
-            >
-              <Coffee :size="14" />
-              I'm Tired
-            </Button>
-            <Button
-              :variant="props.isDifficult ? 'secondary' : 'ghost'"
-              size="sm"
-              :disabled="feedbackPending"
-              :aria-pressed="props.isDifficult"
-              @click="$emit('feedback', 'DIFFICULT_TICKET')"
-            >
-              <AlertTriangle :size="14" />
-              Difficult Ticket
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              :disabled="feedbackPending"
-              @click="$emit('feedback', 'I_DONT_KNOW')"
-            >
-              <HelpCircle :size="14" />
-              I Don't Know
-            </Button>
-          </div>
-        </section>
-
         <!-- Compare the two nearest-ticket roles returned by /nearest. -->
         <SideBySideExplanation
           v-if="showXai && prediction"
@@ -953,11 +989,7 @@ defineExpose({
 
         <!-- Similar Tickets by Predicted Class (top-K, capability-gated) -->
         <section
-          v-if="
-            perClassSimilarEnabled &&
-            topKEnabled &&
-            (similarPerClass.length > 0 || isLoadingSimilarPerClass)
-          "
+          v-if="perClassSimilarEnabled && (similarPerClass.length > 0 || isLoadingSimilarPerClass)"
           class="detail-panel__per-class"
           data-track-region="per_class_similar"
         >
@@ -1153,22 +1185,101 @@ defineExpose({
     font-size: 0.875rem;
   }
 
-  &__actions {
+  &__decision-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  &__model-predictions,
+  &__decision-side {
     display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  &__decision-heading {
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  &__prediction-choice {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
     align-items: center;
     gap: 0.5rem;
-    flex-wrap: wrap;
-    padding-top: 0.5rem;
+    min-height: 2.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+
+  &__prediction-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  &__prediction-choice-info {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.1rem;
+
+    strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.8125rem;
+    }
+
+    span {
+      color: var(--muted-foreground);
+      font-size: 0.6875rem;
+      font-variant-numeric: tabular-nums;
+    }
   }
 
   &__reassign {
     display: flex;
-    align-items: center;
-    gap: 0.25rem;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 
-  &__confirm {
-    margin-left: auto;
+  &__reassign-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    flex-wrap: wrap;
+
+    .select {
+      flex: 1 1 12rem;
+      min-width: 10rem;
+    }
+  }
+
+  &__reassign-warning {
+    margin: 0;
+    color: var(--warning);
+    font-size: 0.75rem;
+  }
+
+  &__reanalyze {
+    align-self: flex-start;
   }
 
   &__empty {
@@ -1263,17 +1374,9 @@ defineExpose({
 .detail-panel__feedback {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 0.4rem;
-  padding: 0.75rem 1rem;
-  margin: 0 1rem;
+  padding-top: 0.5rem;
   border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
-}
-
-.detail-panel__feedback-label {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
 }
 
 .detail-panel__feedback-row {
@@ -1281,7 +1384,12 @@ defineExpose({
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
-  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .detail-panel__decision-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 // Similar Tickets by Predicted Class
