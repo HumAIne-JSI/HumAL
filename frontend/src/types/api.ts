@@ -78,6 +78,11 @@ export interface InferenceData {
   public_log_anon?: string;
 }
 
+export interface TicketAnalysisSource {
+  ticketData?: InferenceData;
+  ticketRefs?: string[];
+}
+
 // API Response Types
 export interface CreateInstanceResponse {
   instance_id: number;
@@ -246,8 +251,9 @@ export interface XaiWordWeight {
 
 export interface XaiHighlightedToken {
   token: string;
-  direction: 'positive' | 'negative';
+  direction: 'support' | 'oppose' | 'neutral' | 'positive' | 'negative';
   intensity: number;
+  weight?: number;
 }
 
 export interface XaiPrediction {
@@ -269,7 +275,8 @@ export interface XaiResultFile {
    */
   word_weights: (XaiWordWeight | [string, number])[];
   highlighted_tokens?: XaiHighlightedToken[];
-  index?: number;
+  /** Ticket reference string (e.g. "R-523890"), or empty for ad-hoc requests. */
+  index?: string | null;
   error?: string | null;
   /** Per-class breakdowns. */
   class_explanations?: unknown[];

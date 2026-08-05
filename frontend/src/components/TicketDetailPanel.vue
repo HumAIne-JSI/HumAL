@@ -27,6 +27,7 @@ import type {
   TopKPrediction,
   PerClassSimilarTicket,
   LabelerFeedbackType,
+  TicketAnalysisSource,
 } from '@/types/api'
 import {
   X,
@@ -263,7 +264,7 @@ function generateMockLime(): ExplainLimeResponse {
       prediction: { label: '', probabilities: {} },
       word_weights: top.map(([word, weight]) => ({ word, weight })),
       highlighted_tokens: [],
-      index: 0,
+      index: props.ticket?.ref ?? '',
       error: null,
       class_explanations: [],
     },
@@ -376,10 +377,10 @@ const {
       if (props.showXai && props.ticket) {
         runXaiAnalysis()
       }
-      // Top-K predictions drive the queue's confirmation choices. Similar
+       // Top-K predictions drive the queue's confirmation choices. Similar
       // tickets remain an optional follow-up using the same ranked classes.
       if (props.ticket) {
-        void fetchTopKAndPerClass(buildInferenceData(props.ticket))
+        void fetchTopKAndPerClass(buildAnalysisSource(props.ticket))
       }
     },
   },
@@ -396,9 +397,9 @@ const perClassMutation = useNearestTicketsPerClassMutation(computed(() => props.
  * Fire-and-forget: fetch top-K predictions, then their per-class nearest
  * historical tickets. Silent on failure — supplementary signal only.
  */
-async function fetchTopKAndPerClass(data: InferenceData) {
+async function fetchTopKAndPerClass(source: TicketAnalysisSource) {
   try {
-    const topKRes = await inferTopKMutation.mutateAsync(data)
+    const topKRes = await inferTopKMutation.mutateAsync(source)
     const preds = topKRes?.predictions ?? []
     topKPredictions.value = preds
     if (preds.length === 0 || !perClassSimilarEnabled.value) return
@@ -406,7 +407,8 @@ async function fetchTopKAndPerClass(data: InferenceData) {
     isLoadingSimilarPerClass.value = true
     const classLabels = preds.map((p) => String(p.label))
     const perClassRes = await perClassMutation.mutateAsync({
-      ticket_data: data,
+      ticket_data: source.ticketData,
+      ticket_refs: source.ticketRefs,
       class_labels: classLabels,
     })
     similarPerClass.value = perClassRes?.items ?? []
@@ -519,6 +521,14 @@ function buildInferenceData(ticket: QueueTicket): InferenceData {
   }
 }
 
+// Build an analysis source that prefers the ticket ref (so backend can look
+// it up directly) but carries the text data as a fallback.
+function buildAnalysisSource(ticket: QueueTicket): TicketAnalysisSource {
+  const ref = ticket.ref ?? ticket.id ?? null
+  const ticketData = buildInferenceData(ticket)
+  return ref ? { ticketRefs: [ref], ticketData } : { ticketData }
+}
+
 // Run XAI analysis (real or mocked depending on global mock-mode)
 function runXaiAnalysis() {
   if (!props.ticket) return
@@ -573,8 +583,12 @@ function runXaiAnalysis() {
     return
   }
   const ticketData = buildInferenceData(props.ticket)
-  explainLime({ ticket_data: ticketData })
-  findNearest({ ticket_data: ticketData, top_k: NEAREST_TICKET_TOP_K })
+  const ticketRef = props.ticket?.ref ?? props.ticket?.id ?? null
+  const source: TicketAnalysisSource = ticketRef
+    ? { ticketRefs: [ticketRef], ticketData }
+    : { ticketData }
+  explainLime({ query_idx: source.ticketRefs, ticket_data: source.ticketData })
+  findNearest({ query_idx: source.ticketRefs, ticket_data: source.ticketData, top_k: NEAREST_TICKET_TOP_K })
 }
 
 // Handle prediction request (real or mocked depending on global mock-mode)
@@ -612,7 +626,7 @@ function handlePredict() {
     }, 300)
     return
   }
-  runInference(buildInferenceData(props.ticket))
+  runInference(buildAnalysisSource(props.ticket))
 }
 
 const isManualReassignMode = computed(() => Boolean(selectedReassignTeam.value))

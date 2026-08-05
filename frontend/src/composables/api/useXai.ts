@@ -4,6 +4,7 @@ import { apiService } from '@/services/api'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type {
   InferenceData,
+  TicketAnalysisSource,
   ExplainLimeResponse,
   NearestTicketResponse,
   SimilarTicketsPerClassResponse,
@@ -29,6 +30,7 @@ export interface ExplainLimePayload {
   ticket_data?: InferenceData
   query_idx?: string[]
   model_id?: number
+  top_k?: number
 }
 
 export interface NearestTicketPayload {
@@ -38,8 +40,16 @@ export interface NearestTicketPayload {
   top_k?: number
 }
 
+export interface NearestTicketsPerClassPayload {
+  ticket_data?: InferenceData
+  class_labels: string[]
+  ticket_refs?: string[]
+  model_id?: number
+}
+
 /**
  * Get LIME explanation for a prediction.
+ * Accepts either ad-hoc ticket data or ticket refs.
  * By default, errors are silent since LIME is a secondary/optional feature.
  *
  * @example
@@ -47,9 +57,10 @@ export interface NearestTicketPayload {
  * // Using mutation (recommended for on-demand explanations)
  * const { mutate: explainLime, data: explanation } = useExplainLimeMutation(instanceId);
  * explainLime({ ticket_data: { title_anon: '...' } });
+ * explainLime({ query_idx: ['R-1234'] });
  *
  * // Access explanation
- * // explanation.value?.[0]?.top_words is [string, number][]
+ * // explanation.value?.[0]?.word_weights is array of {word, weight}
  * ```
  */
 export function useExplainLimeMutation(
@@ -78,6 +89,7 @@ export function useExplainLimeMutation(
 
 /**
  * Fetch nearest historical tickets via POST /xai/{id}/nearest.
+ * Accepts either ad-hoc ticket data or ticket refs.
  * Returns one NearestTicketResponse per query (predicted-class + historical
  * neighbour lists). Silent by default — supplementary explainability signal.
  *
@@ -85,6 +97,7 @@ export function useExplainLimeMutation(
  * ```ts
  * const { mutate: findNearest, data: nearest } = useNearestTicketMutation(instanceId);
  * findNearest({ ticket_data: { title_anon: '...' } });
+ * findNearest({ query_idx: ['R-1234'] });
  * // nearest.value?.[0]?.predicted_class_neighbors / historical_neighbors
  * ```
  */
@@ -112,14 +125,9 @@ export function useNearestTicketMutation(
   })
 }
 
-export interface NearestTicketsPerClassPayload {
-  ticket_data: InferenceData
-  class_labels: string[]
-  model_id?: number
-}
-
 /**
  * Get the closest historical ticket for each of the supplied predicted classes.
+ * Accepts either ad-hoc ticket data or ticket refs.
  * Silent by default — this is a supplementary feature; failure should not block
  * the labeling flow.
  */

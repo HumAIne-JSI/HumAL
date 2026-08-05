@@ -37,6 +37,7 @@ import type {
   TopKPrediction,
   PerClassSimilarTicket,
   LabelerFeedbackType,
+  TicketAnalysisSource,
 } from '@/types/api'
 import {
   Search,
@@ -202,17 +203,23 @@ const runDispatch = async () => {
   similarPerClass.value = []
 
   try {
+    // Build the analysis source: prefer ticket refs when a queue ticket was
+    // loaded, fall back to the free-form ticket text otherwise.
+    const source: TicketAnalysisSource = currentTicketRef.value
+      ? { ticketRefs: [currentTicketRef.value], ticketData: ticket.value }
+      : { ticketData: ticket.value }
+
     // Run inference (primary)
-    const inferRes = await inferMutation.mutateAsync(ticket.value)
+    const inferRes = await inferMutation.mutateAsync(source)
     prediction.value = inferRes
 
     // Run XAI in parallel - use correct payload structure
     const [limeRes, nearestRes] = await Promise.all([
-      limeMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+      limeMutation.mutateAsync({ query_idx: source.ticketRefs, ticket_data: source.ticketData }).catch((e) => {
         console.warn('LIME explanation failed:', e)
         return null
       }),
-      nearestMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+      nearestMutation.mutateAsync({ query_idx: source.ticketRefs, ticket_data: source.ticketData }).catch((e) => {
         console.warn('Nearest tickets failed:', e)
         return null
       }),
@@ -224,7 +231,7 @@ const runDispatch = async () => {
     // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
     // Both are capability-gated and silent — never block the labeling flow.
     if (topKEnabled.value && perClassSimilarEnabled.value) {
-      void fetchTopKAndPerClass(ticket.value)
+      void fetchTopKAndPerClass(source)
     }
 
     toast.success('Dispatch analysis complete')
@@ -239,9 +246,9 @@ const runDispatch = async () => {
  * Fire-and-forget: fetch top-K predictions, then their per-class nearest
  * historical tickets. Silent on failure — supplementary signal only.
  */
-const fetchTopKAndPerClass = async (data: InferenceData) => {
+const fetchTopKAndPerClass = async (source: TicketAnalysisSource) => {
   try {
-    const topKRes = await inferTopKMutation.mutateAsync(data)
+    const topKRes = await inferTopKMutation.mutateAsync(source)
     const preds = topKRes?.predictions ?? []
     topKPredictions.value = preds
 
@@ -250,7 +257,8 @@ const fetchTopKAndPerClass = async (data: InferenceData) => {
     isLoadingSimilarPerClass.value = true
     const classLabels = preds.map((p) => String(p.label))
     const perClassRes = await perClassMutation.mutateAsync({
-      ticket_data: data,
+      ticket_data: source.ticketData,
+      ticket_refs: source.ticketRefs,
       class_labels: classLabels,
     })
     similarPerClass.value = perClassRes?.items ?? []

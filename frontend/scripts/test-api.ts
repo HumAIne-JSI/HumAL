@@ -212,33 +212,55 @@ async function main() {
         await req('/data/tickets', { method: 'POST', token, body: [queryIdx] }))
     }
 
+     // Inference — by ticket ref (query_idx path).
+    if (queryIdx) {
+      record('infer (by query_idx)', 'POST', `/activelearning/${id}/infer`,
+        await req(`/activelearning/${id}/infer`, { method: 'POST', token, query: { query_idx: [queryIdx] } }))
+    }
+
     // Inference — ad-hoc body variant.
     record('infer (body)', 'POST', `/activelearning/${id}/infer`,
       await req(`/activelearning/${id}/infer`, {
         method: 'POST', token, body: { title_anon: 'VPN not connecting', description_anon: 'timeout' },
       }))
 
-    // Inference — logged query_idx variant.
+    // Class probabilities — by ticket ref (query_idx path).
     if (queryIdx) {
-      record('infer (query_idx)', 'POST', `/activelearning/${id}/infer`,
-        await req(`/activelearning/${id}/infer`, { method: 'POST', token, query: { query_idx: [queryIdx] } }))
+      record('infer_proba (by query_idx)', 'POST', `/activelearning/${id}/infer_proba`,
+        await req(`/activelearning/${id}/infer_proba`, { method: 'POST', token, query: { query_idx: [queryIdx] } }))
     }
 
-    // Class probabilities.
+    // Class probabilities — ad-hoc body variant.
     record('infer_proba (body)', 'POST', `/activelearning/${id}/infer_proba`,
       await req(`/activelearning/${id}/infer_proba`, {
         method: 'POST', token, body: { title_anon: 'VPN not connecting', description_anon: 'timeout' },
       }))
 
-    // XAI — synchronous LIME.
-    record('explain_lime', 'POST', `/xai/${id}/explain_lime`,
+    // XAI — synchronous LIME by ticket ref (query_idx query params).
+    if (queryIdx) {
+      record('explain_lime (by query_idx)', 'POST', `/xai/${id}/explain_lime`,
+        await req(`/xai/${id}/explain_lime`, {
+          method: 'POST', token, query: { query_idx: [queryIdx], top_k: 1 },
+        }))
+    }
+
+    // XAI — synchronous LIME by body.
+    record('explain_lime (body)', 'POST', `/xai/${id}/explain_lime`,
       await req(`/xai/${id}/explain_lime`, {
         method: 'POST', token, query: { top_k: 1 },
         body: { title_anon: 'VPN not connecting', description_anon: 'timeout' },
       }))
 
-    // XAI — nearest neighbours.
-    record('nearest', 'POST', `/xai/${id}/nearest`,
+    // XAI — nearest neighbours by ticket ref (repeated query_idx query params).
+    if (queryIdx) {
+      record('nearest (by query_idx)', 'POST', `/xai/${id}/nearest`,
+        await req(`/xai/${id}/nearest`, {
+          method: 'POST', token, query: { query_idx: [queryIdx], top_k: 1 },
+        }))
+    }
+
+    // XAI — nearest neighbours by body.
+    record('nearest (body)', 'POST', `/xai/${id}/nearest`,
       await req(`/xai/${id}/nearest`, {
         method: 'POST', token, query: { top_k: 1 },
         body: { title_anon: 'VPN not connecting', description_anon: 'timeout' },
