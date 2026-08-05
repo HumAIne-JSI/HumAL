@@ -83,8 +83,7 @@ const telemetry = useBenchmarkTelemetry()
 const prediction = ref<InferenceResponse | null>(null)
 const explanation = ref<ExplainLimeResponse | null>(null)
 const nearestTickets = ref<NearestTicketResponse | null>(null)
-const historicalTicketBody = ref<{ title?: string; description?: string } | null>(null)
-const predictedClassTicketBody = ref<{ title?: string; description?: string } | null>(null)
+const neighborTicketBodies = ref<Record<string, { title?: string; description?: string }>>({})
 const loadingSimilarBody = ref(false)
 const selectedReassignTeam = ref<string>('')
 const showLabeledFlash = ref(false)
@@ -189,6 +188,7 @@ const MOCK_STOP = new Set([
   'make',
   'made',
 ])
+const NEAREST_TICKET_TOP_K = 2
 function mockTokens(text: string): string[] {
   if (!text) return []
   const seen = new Set<string>()
@@ -273,23 +273,31 @@ function generateMockLime(): ExplainLimeResponse {
 function generateMockNearest(pred: InferenceResponse): NearestTicketResponse {
   const rng = mulberry32(mockSeed() ^ 0x13572468)
   const refBase = props.ticket?.ref ?? 'TKT-0000'
-  const title = props.ticket?.title ?? null
-  const historicalNeighbor = {
-    ref: `${refBase}-H1`,
-    label: 'Previously resolved',
-    similarity: Number((0.68 + rng() * 0.18).toFixed(3)),
-    title,
+  const makeNeighbor = (role: 'H' | 'P', index: number, label: string) => {
+    const body = generateMockSimilarBody()
+    const description =
+      `${body.description} ${index === 1 ? 'A second related case was reviewed for comparison.' : ''}`.trim()
+    return {
+      ref: `${refBase}-${role}${index + 1}`,
+      label,
+      similarity: Number((0.68 + rng() * 0.18 - index * 0.08).toFixed(3)),
+      title: `${body.title} ${index + 1}`,
+      description,
+      best_sentence: firstSentence(description),
+    }
   }
-  const predictedClassNeighbor = {
-    ref: `${refBase}-P1`,
-    label: String(pred.prediction),
-    similarity: Number((0.72 + rng() * 0.18).toFixed(3)),
-    title,
-  }
+  const historicalNeighbors = [
+    makeNeighbor('H', 0, 'Previously resolved'),
+    makeNeighbor('H', 1, 'Previously resolved'),
+  ]
+  const predictedClassNeighbors = [
+    makeNeighbor('P', 0, String(pred.prediction)),
+    makeNeighbor('P', 1, String(pred.prediction)),
+  ]
   return {
     query_idx: null,
-    predicted_class_neighbors: [predictedClassNeighbor],
-    historical_neighbors: [historicalNeighbor],
+    predicted_class_neighbors: predictedClassNeighbors,
+    historical_neighbors: historicalNeighbors,
   }
 }
 /** First available neighbour across predicted-class then historical lists. */
@@ -448,6 +456,12 @@ const { mutate: findNearest, isPending: isFindingNearest } = useNearestTicketMut
           nearest_ref: firstNeighbor(data[0] ?? null)?.ref,
           historical_ref: data[0]?.historical_neighbors?.[0]?.ref,
           predicted_class_ref: data[0]?.predicted_class_neighbors?.[0]?.ref,
+          historical_refs: data[0]?.historical_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
+          predicted_class_refs: data[0]?.predicted_class_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
         },
       )
     },
@@ -510,7 +524,6 @@ function runXaiAnalysis() {
     const nearest = prediction.value
       ? generateMockNearest(prediction.value)
       : generateMockNearest(generateMockPrediction())
-    const body = generateMockSimilarBody()
     setTimeout(() => {
       explanation.value = lime
       mockExplaining.value = false
@@ -523,8 +536,15 @@ function runXaiAnalysis() {
     }, 250)
     setTimeout(() => {
       nearestTickets.value = nearest
-      historicalTicketBody.value = body
-      predictedClassTicketBody.value = body
+      neighborTicketBodies.value = Object.fromEntries(
+        [...nearest.historical_neighbors, ...nearest.predicted_class_neighbors].map((neighbor) => [
+          String(neighbor.ref),
+          {
+            title: neighbor.title ?? undefined,
+            description: neighbor.description ?? undefined,
+          },
+        ]),
+      )
       mockFindingNearest.value = false
       const nearestRef = firstNeighbor(nearest)?.ref
       telemetry.recordView(
@@ -535,6 +555,12 @@ function runXaiAnalysis() {
           nearest_ref: nearestRef,
           historical_ref: nearest.historical_neighbors?.[0]?.ref,
           predicted_class_ref: nearest.predicted_class_neighbors?.[0]?.ref,
+          historical_refs: nearest.historical_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
+          predicted_class_refs: nearest.predicted_class_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
           mock: true,
         },
       )
@@ -543,7 +569,7 @@ function runXaiAnalysis() {
   }
   const ticketData = buildInferenceData(props.ticket)
   explainLime({ ticket_data: ticketData })
-  findNearest({ ticket_data: ticketData })
+  findNearest({ ticket_data: ticketData, top_k: NEAREST_TICKET_TOP_K })
 }
 
 // Handle prediction request (real or mocked depending on global mock-mode)
@@ -552,8 +578,7 @@ function handlePredict() {
   prediction.value = null
   explanation.value = null
   nearestTickets.value = null
-  historicalTicketBody.value = null
-  predictedClassTicketBody.value = null
+  neighborTicketBodies.value = {}
   topKPredictions.value = []
   similarPerClass.value = []
   isLoadingSimilarPerClass.value = false
@@ -630,8 +655,7 @@ watch(
       prediction.value = null
       explanation.value = null
       nearestTickets.value = null
-      historicalTicketBody.value = null
-      predictedClassTicketBody.value = null
+      neighborTicketBodies.value = {}
       loadingSimilarBody.value = false
       topKPredictions.value = []
       similarPerClass.value = []
@@ -655,15 +679,16 @@ watch(
   { immediate: true },
 )
 
-const historicalNeighbor = computed<Neighbor | null>(
-  () => nearestTickets.value?.historical_neighbors?.[0] ?? null,
+const historicalNeighbors = computed<Neighbor[]>(
+  () => nearestTickets.value?.historical_neighbors?.slice(0, NEAREST_TICKET_TOP_K) ?? [],
 )
-const predictedClassNeighbor = computed<Neighbor | null>(
-  () => nearestTickets.value?.predicted_class_neighbors?.[0] ?? null,
+const predictedClassNeighbors = computed<Neighbor[]>(
+  () => nearestTickets.value?.predicted_class_neighbors?.slice(0, NEAREST_TICKET_TOP_K) ?? [],
 )
 const neighborRefs = computed(() => [
   ...new Set(
-    [historicalNeighbor.value?.ref, predictedClassNeighbor.value?.ref]
+    [...historicalNeighbors.value, ...predictedClassNeighbors.value]
+      .map((neighbor) => neighbor.ref)
       .filter((ref): ref is string => Boolean(ref))
       .map(String),
   ),
@@ -676,11 +701,12 @@ let neighborBodyRequestId = 0
 // predicted-class result (or vice versa).
 watch(neighborRefs, async (refs) => {
   const requestId = ++neighborBodyRequestId
-  historicalTicketBody.value = null
-  predictedClassTicketBody.value = null
+  if (mockStore.mockEnabled) return
+
+  neighborTicketBodies.value = {}
   loadingSimilarBody.value = false
 
-  if (refs.length === 0 || mockStore.mockEnabled || props.instanceId <= 0) return
+  if (refs.length === 0 || props.instanceId <= 0) return
 
   loadingSimilarBody.value = true
   try {
@@ -696,41 +722,48 @@ watch(neighborRefs, async (refs) => {
         },
       ]),
     )
-    const historicalRef = historicalNeighbor.value?.ref
-    const predictedClassRef = predictedClassNeighbor.value?.ref
-    historicalTicketBody.value = historicalRef ? (bodies.get(String(historicalRef)) ?? null) : null
-    predictedClassTicketBody.value = predictedClassRef
-      ? (bodies.get(String(predictedClassRef)) ?? null)
-      : null
+    neighborTicketBodies.value = Object.fromEntries(bodies)
   } catch {
     if (requestId === neighborBodyRequestId) {
-      historicalTicketBody.value = null
-      predictedClassTicketBody.value = null
+      neighborTicketBodies.value = {}
     }
   } finally {
     if (requestId === neighborBodyRequestId) loadingSimilarBody.value = false
   }
 })
 
+function firstSentence(text?: string | null): string | undefined {
+  const normalized = text?.trim()
+  if (!normalized) return undefined
+  const match = normalized.match(/^.*?[.!?](?:\s|$)/)
+  return (match?.[0] ?? normalized).trim()
+}
+
 function neighborForView(
-  neighbor: Neighbor | null,
-  body: { title?: string; description?: string } | null,
+  neighbor: Neighbor,
+  bodies: Record<string, { title?: string; description?: string }>,
 ) {
-  if (!neighbor) return null
+  const body = bodies[String(neighbor.ref)]
+  const description = body?.description ?? neighbor.description ?? undefined
   return {
     ref: String(neighbor.ref),
     label: neighbor.label ? String(neighbor.label) : undefined,
     similarity: typeof neighbor.similarity === 'number' ? neighbor.similarity : undefined,
     title: body?.title ?? neighbor.title ?? undefined,
-    description: body?.description ?? neighbor.description ?? undefined,
+    description,
+    bestSentence: neighbor.best_sentence?.trim() || firstSentence(description),
   }
 }
 
-const historicalTicketForView = computed(() =>
-  neighborForView(historicalNeighbor.value, historicalTicketBody.value),
+const historicalTicketsForView = computed(() =>
+  historicalNeighbors.value.map((neighbor) =>
+    neighborForView(neighbor, neighborTicketBodies.value),
+  ),
 )
-const predictedClassTicketForView = computed(() =>
-  neighborForView(predictedClassNeighbor.value, predictedClassTicketBody.value),
+const predictedClassTicketsForView = computed(() =>
+  predictedClassNeighbors.value.map((neighbor) =>
+    neighborForView(neighbor, neighborTicketBodies.value),
+  ),
 )
 
 // Expose imperative actions so parent-level keyboard shortcuts (e.g. the "c"
@@ -913,8 +946,8 @@ defineExpose({
         <!-- Compare the two nearest-ticket roles returned by /nearest. -->
         <SideBySideExplanation
           v-if="showXai && prediction"
-          :historical-ticket="historicalTicketForView"
-          :predicted-class-ticket="predictedClassTicketForView"
+          :historical-tickets="historicalTicketsForView"
+          :predicted-class-tickets="predictedClassTicketsForView"
           :loading-similar="isFindingNearestAny || loadingSimilarBody"
         />
 

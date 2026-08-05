@@ -1,14 +1,14 @@
-import { useQuery, useMutation } from '@tanstack/vue-query';
-import { computed, type MaybeRef, toValue } from 'vue';
-import { apiService } from '@/services/api';
-import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry';
+import { useQuery, useMutation } from '@tanstack/vue-query'
+import { computed, type MaybeRef, toValue } from 'vue'
+import { apiService } from '@/services/api'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type {
   InferenceData,
   ExplainLimeResponse,
   NearestTicketResponse,
   SimilarTicketsPerClassResponse,
-} from '@/types/api';
-import type { QueryMeta } from '@/lib/queryClient';
+} from '@/types/api'
+import type { QueryMeta } from '@/lib/queryClient'
 
 // Query keys for XAI domain
 export const xaiKeys = {
@@ -17,36 +17,37 @@ export const xaiKeys = {
     [...xaiKeys.all, 'lime', instanceId, queryIdx, ticketData] as const,
   nearest: (instanceId: number, queryIdx?: string[], ticketData?: InferenceData) =>
     [...xaiKeys.all, 'nearest', instanceId, queryIdx, ticketData] as const,
-};
+}
 
 export interface UseXaiOptions {
-  meta?: QueryMeta;
+  meta?: QueryMeta
   /** Whether to enable the query. Default: true */
-  enabled?: MaybeRef<boolean>;
+  enabled?: MaybeRef<boolean>
 }
 
 export interface ExplainLimePayload {
-  ticket_data?: InferenceData;
-  query_idx?: string[];
-  model_id?: number;
+  ticket_data?: InferenceData
+  query_idx?: string[]
+  model_id?: number
 }
 
 export interface NearestTicketPayload {
-  ticket_data?: InferenceData;
-  query_idx?: string[];
-  model_id?: number;
+  ticket_data?: InferenceData
+  query_idx?: string[]
+  model_id?: number
+  top_k?: number
 }
 
 /**
  * Get LIME explanation for a prediction.
  * By default, errors are silent since LIME is a secondary/optional feature.
- * 
+ *
  * @example
  * ```ts
  * // Using mutation (recommended for on-demand explanations)
  * const { mutate: explainLime, data: explanation } = useExplainLimeMutation(instanceId);
  * explainLime({ ticket_data: { title_anon: '...' } });
- * 
+ *
  * // Access explanation
  * // explanation.value?.[0]?.top_words is [string, number][]
  * ```
@@ -54,17 +55,17 @@ export interface NearestTicketPayload {
 export function useExplainLimeMutation(
   instanceId: MaybeRef<number>,
   options?: {
-    meta?: QueryMeta;
-    onSuccess?: (data: ExplainLimeResponse) => void;
-  }
+    meta?: QueryMeta
+    onSuccess?: (data: ExplainLimeResponse) => void
+  },
 ) {
-  const telemetry = useBenchmarkTelemetry();
+  const telemetry = useBenchmarkTelemetry()
   return useMutation({
     mutationFn: async (payload: ExplainLimePayload) => {
-      const start = performance.now();
-      const res = await apiService.explainLime(toValue(instanceId), payload);
-      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'lime' });
-      return res;
+      const start = performance.now()
+      const res = await apiService.explainLime(toValue(instanceId), payload)
+      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'lime' })
+      return res
     },
     onSuccess: options?.onSuccess,
     // Silent by default - LIME is a non-critical feature
@@ -72,7 +73,7 @@ export function useExplainLimeMutation(
       silent: true,
       ...options?.meta,
     },
-  });
+  })
 }
 
 /**
@@ -90,17 +91,17 @@ export function useExplainLimeMutation(
 export function useNearestTicketMutation(
   instanceId: MaybeRef<number>,
   options?: {
-    meta?: QueryMeta;
-    onSuccess?: (data: NearestTicketResponse[]) => void;
-  }
+    meta?: QueryMeta
+    onSuccess?: (data: NearestTicketResponse[]) => void
+  },
 ) {
-  const telemetry = useBenchmarkTelemetry();
+  const telemetry = useBenchmarkTelemetry()
   return useMutation({
     mutationFn: async (payload: NearestTicketPayload) => {
-      const start = performance.now();
-      const res = await apiService.getNearest(toValue(instanceId), payload);
-      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'nearest' });
-      return res;
+      const start = performance.now()
+      const res = await apiService.getNearest(toValue(instanceId), payload)
+      telemetry.recordLatency('xai_latency', performance.now() - start, { kind: 'nearest' })
+      return res
     },
     onSuccess: options?.onSuccess,
     // Silent by default - nearest ticket is a non-critical feature
@@ -108,13 +109,13 @@ export function useNearestTicketMutation(
       silent: true,
       ...options?.meta,
     },
-  });
+  })
 }
 
 export interface NearestTicketsPerClassPayload {
-  ticket_data: InferenceData;
-  class_labels: string[];
-  model_id?: number;
+  ticket_data: InferenceData
+  class_labels: string[]
+  model_id?: number
 }
 
 /**
@@ -125,9 +126,9 @@ export interface NearestTicketsPerClassPayload {
 export function useNearestTicketsPerClassMutation(
   instanceId: MaybeRef<number>,
   options?: {
-    meta?: QueryMeta;
-    onSuccess?: (data: SimilarTicketsPerClassResponse) => void;
-  }
+    meta?: QueryMeta
+    onSuccess?: (data: SimilarTicketsPerClassResponse) => void
+  },
 ) {
   return useMutation({
     mutationFn: (payload: NearestTicketsPerClassPayload) =>
@@ -137,24 +138,24 @@ export function useNearestTicketsPerClassMutation(
       silent: true,
       ...options?.meta,
     },
-  });
+  })
 }
 
 /**
  * Convenience hook to get both LIME and nearest ticket explanations.
- * 
+ *
  * @example
  * ```ts
  * const { explainLime, findNearest, limeData, nearestData, isLoading } = useXai(instanceId);
- * 
+ *
  * // Trigger both
  * explainLime({ ticket_data: ticketData });
  * findNearest({ ticket_data: ticketData });
  * ```
  */
 export function useXai(instanceId: MaybeRef<number>, options?: UseXaiOptions) {
-  const limeMutation = useExplainLimeMutation(instanceId, { meta: options?.meta });
-  const nearestMutation = useNearestTicketMutation(instanceId, { meta: options?.meta });
+  const limeMutation = useExplainLimeMutation(instanceId, { meta: options?.meta })
+  const nearestMutation = useNearestTicketMutation(instanceId, { meta: options?.meta })
 
   return {
     explainLime: limeMutation.mutate,
@@ -165,5 +166,5 @@ export function useXai(instanceId: MaybeRef<number>, options?: UseXaiOptions) {
     nearestMutation,
     isLoading: computed(() => limeMutation.isPending.value || nearestMutation.isPending.value),
     isError: computed(() => limeMutation.isError.value || nearestMutation.isError.value),
-  };
+  }
 }

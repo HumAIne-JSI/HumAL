@@ -1,35 +1,63 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Spinner from '@/components/ui/Spinner.vue'
-import { History, Search } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, History, Search } from 'lucide-vue-next'
 
 export interface NeighborTicketView {
   title?: string
   description?: string
+  bestSentence?: string
   ref?: string
   label?: string
   similarity?: number
 }
 
 interface Props {
-  historicalTicket?: NeighborTicketView | null
-  predictedClassTicket?: NeighborTicketView | null
+  historicalTickets?: NeighborTicketView[]
+  predictedClassTickets?: NeighborTicketView[]
   loadingSimilar?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  historicalTicket: null,
-  predictedClassTicket: null,
+  historicalTickets: () => [],
+  predictedClassTickets: () => [],
   loadingSimilar: false,
 })
 
-const historicalSimilarityPercent = computed(() =>
-  formatSimilarity(props.historicalTicket?.similarity),
-)
-const predictedClassSimilarityPercent = computed(() =>
-  formatSimilarity(props.predictedClassTicket?.similarity),
-)
+const expandedKeys = ref<Set<string>>(new Set())
+
+const ticketKeys = computed(() => [
+  ...props.historicalTickets.map((ticket, index) => ticketKey('historical', ticket, index)),
+  ...props.predictedClassTickets.map((ticket, index) =>
+    ticketKey('predicted-class', ticket, index),
+  ),
+])
+
+watch(ticketKeys, (keys) => {
+  expandedKeys.value = new Set([...expandedKeys.value].filter((key) => keys.includes(key)))
+})
+
+function ticketKey(role: string, ticket: NeighborTicketView, index: number): string {
+  return `${role}:${ticket.ref ?? index}`
+}
+
+function isExpanded(key: string): boolean {
+  return expandedKeys.value.has(key)
+}
+
+function toggleExpanded(key: string): void {
+  const next = new Set(expandedKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedKeys.value = next
+}
+
+function handleCardKeydown(event: KeyboardEvent, key: string): void {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  toggleExpanded(key)
+}
 
 function formatSimilarity(similarity?: number): number | null {
   if (similarity === undefined || similarity === null) return null
@@ -43,20 +71,25 @@ function similarityVariant(percent: number | null): 'success' | 'info' | 'second
   return 'secondary'
 }
 
-const hasHistoricalTicket = computed(() =>
-  Boolean(
-    props.historicalTicket?.ref ||
-    props.historicalTicket?.title ||
-    props.historicalTicket?.description,
-  ),
-)
-const hasPredictedClassTicket = computed(() =>
-  Boolean(
-    props.predictedClassTicket?.ref ||
-    props.predictedClassTicket?.title ||
-    props.predictedClassTicket?.description,
-  ),
-)
+function firstSentence(text?: string): string | undefined {
+  const normalized = text?.trim()
+  if (!normalized) return undefined
+  const match = normalized.match(/^.*?[.!?](?:\s|$)/)
+  return (match?.[0] ?? normalized).trim()
+}
+
+function bestSentence(ticket: NeighborTicketView): string {
+  return (
+    ticket.bestSentence?.trim() || firstSentence(ticket.description) || 'Best sentence unavailable.'
+  )
+}
+
+function hasTicketBody(ticket: NeighborTicketView): boolean {
+  return Boolean(ticket.description?.trim())
+}
+
+const hasHistoricalTickets = computed(() => props.historicalTickets.length > 0)
+const hasPredictedClassTickets = computed(() => props.predictedClassTickets.length > 0)
 </script>
 
 <template>
@@ -74,69 +107,120 @@ const hasPredictedClassTicket = computed(() =>
       <article class="side-by-side__col" data-track-region="historical_neighbor">
         <header class="side-by-side__col-header">
           <History :size="12" class="side-by-side__col-icon" />
-          <span class="side-by-side__col-label">Closest past ticket</span>
-          <Badge v-if="historicalTicket?.ref" variant="outline" class="side-by-side__col-badge">
-            {{ historicalTicket.ref }}
-          </Badge>
-          <Badge v-if="historicalTicket?.label" variant="secondary" class="side-by-side__col-badge">
-            {{ historicalTicket.label }}
-          </Badge>
-          <Badge
-            v-if="historicalSimilarityPercent !== null"
-            :variant="similarityVariant(historicalSimilarityPercent)"
-            class="side-by-side__col-badge"
-          >
-            {{ historicalSimilarityPercent }}% match
-          </Badge>
+          <span class="side-by-side__col-label">Closest past tickets</span>
         </header>
-        <div v-if="hasHistoricalTicket" class="side-by-side__body">
-          <h4 v-if="historicalTicket?.title" class="side-by-side__body-title">
-            {{ historicalTicket.title }}
-          </h4>
-          <p v-if="historicalTicket?.description" class="side-by-side__body-text">
-            {{ historicalTicket.description }}
-          </p>
-          <p v-else-if="!historicalTicket?.title" class="side-by-side__empty-text">
-            Ticket body unavailable.
-          </p>
+
+        <div v-if="hasHistoricalTickets" class="side-by-side__cards">
+          <article
+            v-for="(ticket, index) in historicalTickets"
+            :key="ticketKey('historical', ticket, index)"
+            class="side-by-side__card"
+            :class="{
+              'side-by-side__card--expanded': isExpanded(ticketKey('historical', ticket, index)),
+            }"
+            role="button"
+            tabindex="0"
+            :aria-expanded="isExpanded(ticketKey('historical', ticket, index))"
+            :aria-label="`${isExpanded(ticketKey('historical', ticket, index)) ? 'Collapse' : 'Expand'} historical ticket ${ticket.ref ?? index + 1}`"
+            @click="toggleExpanded(ticketKey('historical', ticket, index))"
+            @keydown="handleCardKeydown($event, ticketKey('historical', ticket, index))"
+          >
+            <header class="side-by-side__card-header">
+              <span class="side-by-side__rank">#{{ index + 1 }}</span>
+              <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
+              <ChevronUp v-if="isExpanded(ticketKey('historical', ticket, index))" :size="15" />
+              <ChevronDown v-else :size="15" />
+            </header>
+            <div class="side-by-side__card-meta">
+              <Badge v-if="ticket.ref" variant="outline" class="side-by-side__col-badge">
+                {{ ticket.ref }}
+              </Badge>
+              <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
+                {{ ticket.label }}
+              </Badge>
+              <Badge
+                v-if="formatSimilarity(ticket.similarity) !== null"
+                :variant="similarityVariant(formatSimilarity(ticket.similarity))"
+                class="side-by-side__col-badge"
+              >
+                {{ formatSimilarity(ticket.similarity) }}% match
+              </Badge>
+            </div>
+            <p class="side-by-side__best-sentence">{{ bestSentence(ticket) }}</p>
+            <div
+              v-if="isExpanded(ticketKey('historical', ticket, index))"
+              class="side-by-side__full-body"
+            >
+              <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
+                {{ ticket.description }}
+              </p>
+              <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
+            </div>
+          </article>
         </div>
-        <div v-else class="side-by-side__empty">No historical ticket found.</div>
+        <div v-else class="side-by-side__empty">No historical tickets found.</div>
       </article>
 
       <article class="side-by-side__col" data-track-region="predicted_class_neighbor">
         <header class="side-by-side__col-header">
           <Search :size="12" class="side-by-side__col-icon" />
-          <span class="side-by-side__col-label">Closest predicted class ticket</span>
-          <Badge v-if="predictedClassTicket?.ref" variant="outline" class="side-by-side__col-badge">
-            {{ predictedClassTicket.ref }}
-          </Badge>
-          <Badge
-            v-if="predictedClassTicket?.label"
-            variant="secondary"
-            class="side-by-side__col-badge"
-          >
-            {{ predictedClassTicket.label }}
-          </Badge>
-          <Badge
-            v-if="predictedClassSimilarityPercent !== null"
-            :variant="similarityVariant(predictedClassSimilarityPercent)"
-            class="side-by-side__col-badge"
-          >
-            {{ predictedClassSimilarityPercent }}% match
-          </Badge>
+          <span class="side-by-side__col-label">Closest predicted class tickets</span>
         </header>
-        <div v-if="hasPredictedClassTicket" class="side-by-side__body">
-          <h4 v-if="predictedClassTicket?.title" class="side-by-side__body-title">
-            {{ predictedClassTicket.title }}
-          </h4>
-          <p v-if="predictedClassTicket?.description" class="side-by-side__body-text">
-            {{ predictedClassTicket.description }}
-          </p>
-          <p v-else-if="!predictedClassTicket?.title" class="side-by-side__empty-text">
-            Ticket body unavailable.
-          </p>
+
+        <div v-if="hasPredictedClassTickets" class="side-by-side__cards">
+          <article
+            v-for="(ticket, index) in predictedClassTickets"
+            :key="ticketKey('predicted-class', ticket, index)"
+            class="side-by-side__card"
+            :class="{
+              'side-by-side__card--expanded': isExpanded(
+                ticketKey('predicted-class', ticket, index),
+              ),
+            }"
+            role="button"
+            tabindex="0"
+            :aria-expanded="isExpanded(ticketKey('predicted-class', ticket, index))"
+            :aria-label="`${isExpanded(ticketKey('predicted-class', ticket, index)) ? 'Collapse' : 'Expand'} predicted class ticket ${ticket.ref ?? index + 1}`"
+            @click="toggleExpanded(ticketKey('predicted-class', ticket, index))"
+            @keydown="handleCardKeydown($event, ticketKey('predicted-class', ticket, index))"
+          >
+            <header class="side-by-side__card-header">
+              <span class="side-by-side__rank">#{{ index + 1 }}</span>
+              <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
+              <ChevronUp
+                v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
+                :size="15"
+              />
+              <ChevronDown v-else :size="15" />
+            </header>
+            <div class="side-by-side__card-meta">
+              <Badge v-if="ticket.ref" variant="outline" class="side-by-side__col-badge">
+                {{ ticket.ref }}
+              </Badge>
+              <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
+                {{ ticket.label }}
+              </Badge>
+              <Badge
+                v-if="formatSimilarity(ticket.similarity) !== null"
+                :variant="similarityVariant(formatSimilarity(ticket.similarity))"
+                class="side-by-side__col-badge"
+              >
+                {{ formatSimilarity(ticket.similarity) }}% match
+              </Badge>
+            </div>
+            <p class="side-by-side__best-sentence">{{ bestSentence(ticket) }}</p>
+            <div
+              v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
+              class="side-by-side__full-body"
+            >
+              <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
+                {{ ticket.description }}
+              </p>
+              <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
+            </div>
+          </article>
         </div>
-        <div v-else class="side-by-side__empty">No predicted class ticket found.</div>
+        <div v-else class="side-by-side__empty">No predicted class tickets found.</div>
       </article>
     </div>
   </section>
@@ -205,29 +289,101 @@ const hasPredictedClassTicket = computed(() =>
     color: var(--muted-foreground);
   }
 
+  &__cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.625rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+
+    &:hover,
+    &:focus-visible,
+    &--expanded {
+      border-color: var(--ring);
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ring, var(--primary));
+      outline-offset: 2px;
+    }
+  }
+
+  &__card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    color: var(--muted-foreground);
+
+    svg {
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+  }
+
+  &__rank {
+    flex-shrink: 0;
+    min-width: 1.375rem;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.375rem;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  &__card-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  &__card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+
   &__col-badge {
     font-size: 0.6875rem;
   }
 
-  &__body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
+  &__best-sentence {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    font-style: italic;
   }
 
-  &__body-title {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--foreground);
+  &__full-body {
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
   }
 
   &__body-text {
     margin: 0;
+    color: var(--foreground);
     font-size: 0.875rem;
     line-height: 1.6;
-    color: var(--foreground);
     white-space: pre-wrap;
     word-wrap: break-word;
   }

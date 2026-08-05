@@ -6,46 +6,118 @@ describe('SideBySideExplanation', () => {
   it('renders historical and predicted-class neighbors separately', () => {
     const wrapper = mount(SideBySideExplanation, {
       props: {
-        historicalTicket: {
-          ref: 'H-1',
-          label: 'Historical Team',
-          similarity: 0.81,
-          title: 'Historical ticket',
-          description: 'Historical description',
-        },
-        predictedClassTicket: {
-          ref: 'P-1',
-          label: 'Predicted Team',
-          similarity: 0.74,
-          title: 'Predicted ticket',
-          description: 'Predicted description',
-        },
+        historicalTickets: [
+          {
+            ref: 'H-1',
+            label: 'Historical Team',
+            similarity: 0.81,
+            title: 'Historical ticket one',
+            bestSentence: 'Historical best sentence one.',
+            description: 'Historical description one.',
+          },
+          {
+            ref: 'H-2',
+            label: 'Historical Team',
+            similarity: 0.74,
+            title: 'Historical ticket two',
+            bestSentence: 'Historical best sentence two.',
+            description: 'Historical description two.',
+          },
+        ],
+        predictedClassTickets: [
+          {
+            ref: 'P-1',
+            label: 'Predicted Team',
+            similarity: 0.81,
+            title: 'Predicted ticket one',
+            bestSentence: 'Predicted best sentence one.',
+            description: 'Predicted description one.',
+          },
+          {
+            ref: 'P-2',
+            label: 'Predicted Team',
+            similarity: 0.74,
+            title: 'Predicted ticket two',
+            bestSentence: 'Predicted best sentence two.',
+            description: 'Predicted description two.',
+          },
+        ],
       },
     })
 
-    expect(wrapper.text()).toContain('Closest past ticket')
-    expect(wrapper.text()).toContain('Closest predicted class ticket')
+    expect(wrapper.text()).toContain('Closest past tickets')
+    expect(wrapper.text()).toContain('Closest predicted class tickets')
+    expect(
+      wrapper.findAll('[data-track-region="historical_neighbor"] .side-by-side__card'),
+    ).toHaveLength(2)
+    expect(
+      wrapper.findAll('[data-track-region="predicted_class_neighbor"] .side-by-side__card'),
+    ).toHaveLength(2)
     expect(wrapper.text()).toContain('H-1')
+    expect(wrapper.text()).toContain('H-2')
     expect(wrapper.text()).toContain('P-1')
-    expect(wrapper.text()).toContain('Historical description')
-    expect(wrapper.text()).toContain('Predicted description')
+    expect(wrapper.text()).toContain('P-2')
+    expect(wrapper.text()).toContain('Historical best sentence one.')
+    expect(wrapper.text()).toContain('Predicted best sentence one.')
+    expect(wrapper.text()).not.toContain('Historical description one.')
+    expect(wrapper.text()).not.toContain('Predicted description one.')
     expect(wrapper.findAll('mark')).toHaveLength(0)
     expect(wrapper.text()).not.toContain('Current ticket')
+  })
+
+  it('expands cards independently and falls back to the first description sentence', async () => {
+    const wrapper = mount(SideBySideExplanation, {
+      props: {
+        historicalTickets: [
+          {
+            ref: 'H-1',
+            title: 'Historical ticket',
+            description: 'Fallback sentence. Second sentence.',
+          },
+          {
+            ref: 'H-2',
+            title: 'Another historical ticket',
+            description: 'Another first sentence. Another second sentence.',
+          },
+        ],
+        predictedClassTickets: [
+          {
+            ref: 'P-1',
+            title: 'Predicted ticket',
+            description: 'Predicted first sentence. Predicted second sentence.',
+          },
+        ],
+      },
+    })
+
+    const historicalCards = wrapper.findAll(
+      '[data-track-region="historical_neighbor"] .side-by-side__card',
+    )
+    const predictedCard = wrapper.find(
+      '[data-track-region="predicted_class_neighbor"] .side-by-side__card',
+    )
+
+    expect(historicalCards[0]?.text()).toContain('Fallback sentence.')
+    expect(historicalCards[0]?.text()).not.toContain('Second sentence.')
+    await historicalCards[0]?.trigger('click')
+    expect(historicalCards[0]?.text()).toContain('Second sentence.')
+    expect(historicalCards[1]?.text()).not.toContain('Another second sentence.')
+    expect(predictedCard.text()).not.toContain('Predicted second sentence.')
+    await predictedCard.trigger('click')
+    expect(predictedCard.text()).toContain('Predicted second sentence.')
+    expect(historicalCards[0]?.text()).toContain('Second sentence.')
   })
 
   it('keeps missing neighbor roles independent', () => {
     const wrapper = mount(SideBySideExplanation, {
       props: {
-        historicalTicket: null,
-        predictedClassTicket: {
-          ref: 'P-1',
-          title: 'Predicted ticket',
-        },
+        historicalTickets: [],
+        predictedClassTickets: [{ ref: 'P-1', title: 'Predicted ticket' }],
       },
     })
 
-    expect(wrapper.text()).toContain('No historical ticket found.')
-    expect(wrapper.text()).not.toContain('No predicted class ticket found.')
+    expect(wrapper.text()).toContain('No historical tickets found.')
+    expect(wrapper.text()).not.toContain('No predicted class tickets found.')
     expect(wrapper.text()).toContain('Predicted ticket')
   })
 })
