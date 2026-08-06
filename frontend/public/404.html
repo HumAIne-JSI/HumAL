@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>HumAL</title>
+    <script>
+      // GitHub Pages SPA fallback. A hard refresh on a client-side route
+      // (e.g. /HumAL/training) 404s on GitHub Pages, which then serves this
+      // file. We rewrite the path into the query string as /HumAL/?/<route>;
+      // src/main.ts restores the route and the app boots as if the deep link
+      // had been served directly.
+      // Note: assumes the app is deployed at a depth-1 subpath (/HumAL/).
+      ;(function (l) {
+        var basePath = l.pathname.split('/').slice(0, 2).join('/') // "/HumAL"
+        var rest = l.pathname.slice(basePath.length + 1).replace(/&/g, '~and~')
+        l.replace(
+          l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+          basePath + '/?/' + rest +
+          (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') + l.hash
+        )
+      })(window.location)
+    </script>
+  </head>
+  <body></body>
+</html>
