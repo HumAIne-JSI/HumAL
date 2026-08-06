@@ -515,6 +515,11 @@ const groupedShortcuts = computed(() => {
       width: 64px;
       min-width: 64px;
       max-width: 64px;
+
+      // The filter controls cannot fit in the collapsed queue rail.
+      :deep(.filter-bar) {
+        display: none;
+      }
     }
   }
 
