@@ -8,6 +8,7 @@
     <main class="app-layout__main">
       <router-view />
     </main>
+    <ExperimentTimer class="app-layout__timer" />
     <Toaster position="bottom-right" :duration="3000" rich-colors close-button />
   </div>
 </template>
@@ -17,6 +18,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Navigation from '@/components/Navigation.vue'
 import HumaineLogo from '@/components/HumaineLogo.vue'
+import ExperimentTimer from '@/components/ExperimentTimer.vue'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import { useMockModeStore } from '@/stores/useMockModeStore'
@@ -46,6 +48,8 @@ const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspa
     overflow: auto;
     padding: 1rem;
   }
+
+  &__timer { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; }
 }
 
 .app-standalone-bar {

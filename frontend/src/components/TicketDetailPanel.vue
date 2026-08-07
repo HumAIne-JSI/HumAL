@@ -35,7 +35,6 @@ import {
   Check,
   CheckCircle,
   ChevronRight,
-  RefreshCw,
   Coffee,
   AlertTriangle,
   HelpCircle,
@@ -66,6 +65,7 @@ const emit = defineEmits<{
     team: string,
     meta: {
       prediction?: string | null
+      secondPrediction?: string | null
       confidence?: number | null
       predictionRank?: number
     },
@@ -73,7 +73,7 @@ const emit = defineEmits<{
   (
     e: 'reassign',
     team: string,
-    meta: { prediction?: string | null; confidence?: number | null },
+    meta: { prediction?: string | null; secondPrediction?: string | null; confidence?: number | null },
   ): void
   (e: 'next'): void
   (e: 'labeled'): void
@@ -640,6 +640,7 @@ function handleConfirm(selectedPrediction = rankedPredictions.value[0], predicti
   showLabeledFlash.value = true
   emit('confirm', team, {
     prediction: modelPrediction,
+    secondPrediction: rankedPredictions.value[1]?.label ?? null,
     confidence: selectedPrediction.probability,
     predictionRank,
   })
@@ -653,6 +654,7 @@ function handleReassign() {
   showLabeledFlash.value = true
   emit('reassign', team, {
     prediction: prediction.value ? String(prediction.value.prediction) : null,
+    secondPrediction: rankedPredictions.value[1]?.label ?? null,
     confidence: prediction.value?.confidence ?? null,
   })
   selectedReassignTeam.value = ''
@@ -970,22 +972,10 @@ defineExpose({
                         @click="$emit('feedback', 'I_DONT_KNOW')"
                       >
                         <HelpCircle :size="14" />
-                        Skip
+                        I Don't Know
                       </Button>
                     </div>
                   </section>
-
-                  <Button
-                    class="detail-panel__reanalyze"
-                    variant="ghost"
-                    size="sm"
-                    @click="handlePredict"
-                    :disabled="isInferringAny"
-                    title="Try again"
-                  >
-                    <RefreshCw :size="14" :class="{ 'animate-spin': isInferringAny }" />
-                    Re-analyze
-                  </Button>
                 </div>
               </div>
             </div>
@@ -1298,10 +1288,6 @@ defineExpose({
     font-size: 0.75rem;
   }
 
-  &__reanalyze {
-    align-self: flex-start;
-  }
-
   &__empty {
     display: flex;
     justify-content: center;
@@ -1325,19 +1311,6 @@ defineExpose({
       margin: 0;
       font-size: 0.875rem;
     }
-  }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 

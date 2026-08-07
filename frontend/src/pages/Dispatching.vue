@@ -177,6 +177,23 @@ const probabilityByClass = computed((): Record<string, number> => {
   return out
 })
 
+// Model's second-best prediction, sent as label-with-info metadata only.
+// Prefers the supplementary top-K results (async + capability-gated); falls
+// back to the inference probability map so it works even before top-K lands.
+const secondModelPrediction = computed<string | null>(() => {
+  const topK = topKPredictions.value
+  if (topK.length > 0) {
+    return topK[1]?.label != null ? String(topK[1].label) : null
+  }
+  const probabilities = prediction.value?.probabilities
+  if (probabilities) {
+    const ranked = Object.entries(probabilities).sort((a, b) => b[1] - a[1])
+    const second = ranked[1]
+    if (second) return second[0]
+  }
+  return null
+})
+
 // Methods
 const handleInstanceSelect = (value: string) => {
   instanceStore.setInstance(Number(value) || 0)
@@ -345,6 +362,7 @@ const confirmPrediction = async () => {
         ticket_id: currentTicketIdx.value,
         label: String(prediction.value.prediction),
         model_prediction: String(prediction.value.prediction),
+        second_model_prediction: secondModelPrediction.value,
         start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
         end_time: new Date(now).toISOString(),
         is_tired: isTired.value ? true : undefined,
@@ -372,6 +390,7 @@ const reassignTeam = async () => {
         ticket_id: currentTicketIdx.value,
         label: selectedReassignTeam.value,
         model_prediction: prediction.value?.prediction != null ? String(prediction.value.prediction) : undefined,
+        second_model_prediction: secondModelPrediction.value,
         start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
         end_time: new Date(now).toISOString(),
         is_tired: isTired.value ? true : undefined,
@@ -423,11 +442,12 @@ const handleLabelerFeedback = async (type: LabelerFeedbackType) => {
   const now = Date.now()
   try {
     await labelMutation.mutateAsync([
-      {
+{
         ticket_id: currentTicketIdx.value,
         model_prediction: prediction.value?.prediction != null
           ? String(prediction.value.prediction)
           : undefined,
+        second_model_prediction: secondModelPrediction.value,
         start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
         end_time: new Date(now).toISOString(),
         is_tired: isTired.value ? true : undefined,

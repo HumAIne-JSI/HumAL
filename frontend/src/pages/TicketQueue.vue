@@ -178,6 +178,7 @@ function handleConfirm(
   team: string,
   meta: {
     prediction?: string | null
+    secondPrediction?: string | null
     confidence?: number | null
     predictionRank?: number
   } = {},
@@ -213,6 +214,7 @@ function handleConfirm(
       ticketId: ticket.id,
       label: team,
       prediction: meta.prediction ?? team,
+      secondPrediction: meta.secondPrediction ?? null,
       durationMs,
       isTired: isTired.value ? true : undefined,
       isDifficult: isDifficult.value ? true : undefined,
@@ -234,7 +236,7 @@ function handleConfirm(
 // Handle reassign
 function handleReassign(
   team: string,
-  meta: { prediction?: string | null; confidence?: number | null } = {},
+  meta: { prediction?: string | null; secondPrediction?: string | null; confidence?: number | null } = {},
 ) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
@@ -255,6 +257,7 @@ function handleReassign(
       ticketId: ticket.id,
       label: team,
       prediction: meta.prediction ?? null,
+      secondPrediction: meta.secondPrediction ?? null,
       durationMs,
       isTired: isTired.value ? true : undefined,
       isDifficult: isDifficult.value ? true : undefined,

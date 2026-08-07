@@ -30,6 +30,8 @@ export interface QueueDecisionInput {
   label?: string | null
   /** Model's suggested class, for benchmark confirm/override telemetry. */
   prediction?: string | null
+  /** Model's second-best prediction, stored as label-with-info metadata only. */
+  secondPrediction?: string | null
   /** Time the user spent on the decision, in milliseconds. */
   durationMs?: number | null
   explanation?: string | null
@@ -56,6 +58,7 @@ export function buildQueueLabelInfo(
     ticket_id: input.ticketId,
     ...(input.label?.trim() ? { label: input.label } : {}),
     model_prediction: input.prediction ?? undefined,
+    second_model_prediction: input.secondPrediction ?? undefined,
     start_time: new Date(startMs).toISOString(),
     end_time: new Date(endMs).toISOString(),
     explanation: input.explanation ?? undefined,

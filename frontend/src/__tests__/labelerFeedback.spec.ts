@@ -35,6 +35,7 @@ describe('buildQueueLabelInfo', () => {
         ticketId: 'T-1',
         label: 'Network',
         prediction: 'Hardware',
+        secondPrediction: 'Desktop',
         durationMs: 5000,
         isTired: true,
         isDifficult: true,
@@ -46,6 +47,7 @@ describe('buildQueueLabelInfo', () => {
       ticket_id: 'T-1',
       label: 'Network',
       model_prediction: 'Hardware',
+      second_model_prediction: 'Desktop',
       is_tired: true,
       is_difficult: true,
     })
@@ -54,11 +56,28 @@ describe('buildQueueLabelInfo', () => {
     expect(payload.end_time).toBe('2026-08-04T12:00:05.000Z')
   })
 
+  it('omits second_model_prediction when no second prediction is available', () => {
+    const payload = buildQueueLabelInfo(
+      {
+        ticketId: 'T-1b',
+        label: 'Network',
+        prediction: 'Hardware',
+        durationMs: 5000,
+      },
+      endMs,
+    )
+
+    expect(payload).toMatchObject({ ticket_id: 'T-1b', label: 'Network' })
+    expect(payload.second_model_prediction).toBeUndefined()
+  })
+
   it('omits the label and preserves flags for an IDK retirement', () => {
     const payload = buildQueueLabelInfo(
       {
         ticketId: 'T-2',
         durationMs: 2000,
+        prediction: 'Hardware',
+        secondPrediction: 'Desktop',
         isTired: true,
         isDifficult: true,
         iDontKnow: true,
@@ -69,6 +88,8 @@ describe('buildQueueLabelInfo', () => {
     expect(payload).not.toHaveProperty('label')
     expect(payload).toMatchObject({
       ticket_id: 'T-2',
+      model_prediction: 'Hardware',
+      second_model_prediction: 'Desktop',
       is_tired: true,
       is_difficult: true,
       i_dont_know: true,

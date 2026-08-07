@@ -277,6 +277,7 @@ async function main() {
             ticket_id: queryIdx,
             label: classList[0],
             model_prediction: classList[0],
+            second_model_prediction: classList[1] ?? null,
             start_time: start.toISOString(),
             end_time: now.toISOString(),
             most_helpful_feature: 'lime',

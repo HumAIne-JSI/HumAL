@@ -54,6 +54,11 @@ export interface LabelInfo {
   /** Optional: omitted when i_dont_know retires the ticket. */
   label?: string | null;
   model_prediction?: string | null;
+  /**
+   * Model's second-best prediction shown to the reviewer. Stored as metadata
+   * only; never counted as a correct prediction in al_events.
+   */
+  second_model_prediction?: string | null;
   /** ISO-8601 timestamp when the ticket was presented to the user. */
   start_time: string;
   /** ISO-8601 timestamp when the user submitted the decision. */
