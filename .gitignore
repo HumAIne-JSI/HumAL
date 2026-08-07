@@ -166,7 +166,7 @@ cython_debug/
 
 
 # BACKEND
-data/
+/data/
 backend/embeddings_cache/
 models/
 al_api_venv/
