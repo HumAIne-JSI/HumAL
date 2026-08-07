@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onUnmounted, Teleport, Transition } from 'vue'
-import { ChevronDown, ChevronUp, Check } from 'lucide-vue-next'
+import { computed, ref, watch, nextTick, onMounted, onUnmounted, Teleport, Transition, useId } from 'vue'
+import { ChevronDown, ChevronUp, Check, Search, X } from 'lucide-vue-next'
 
 // Types
 export interface SelectOption {
@@ -58,6 +58,74 @@ const selectedOption = computed(() => {
 
 const displayValue = computed(() => selectedOption.value?.label ?? '')
 
+// Filter: a visible search box at the top of the dropdown filters the list
+// live (contains, case-insensitive). Typing on the closed trigger opens the
+// dropdown and seeds the query.
+const selectId = useId()
+const filterQuery = ref('')
+const filterInputRef = ref<HTMLInputElement | null>(null)
+const activeIndex = ref<number | null>(null)
+
+const flatOptions = computed<SelectOption[]>(() => {
+  const flat: SelectOption[] = []
+  for (const item of props.options) {
+    if (isGroup(item)) {
+      flat.push(...item.options)
+    } else {
+      flat.push(item)
+    }
+  }
+  return flat
+})
+
+const filteredFlat = computed<SelectOption[]>(() => {
+  const query = filterQuery.value.trim().toLowerCase()
+  if (!query) return flatOptions.value
+  return flatOptions.value.filter(
+    (opt) => !opt.disabled && opt.label.toLowerCase().includes(query),
+  )
+})
+
+const filteredIndexMap = computed(() => {
+  const map = new Map<SelectOption, number>()
+  filteredFlat.value.forEach((opt, i) => map.set(opt, i))
+  return map
+})
+
+const activeOptionId = computed(() =>
+  activeIndex.value != null ? `${selectId}-option-${activeIndex.value}` : undefined,
+)
+
+function isPrintableKey(event: KeyboardEvent): boolean {
+  return (
+    event.key.length === 1 &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.key !== ' ' &&
+    !event.isComposing
+  )
+}
+
+function focusFilterInput() {
+  nextTick(() => {
+    const input = filterInputRef.value
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  })
+}
+
+function scrollActiveIntoView() {
+  nextTick(() => {
+    if (activeIndex.value == null) return
+    const el = contentRef.value?.querySelector<HTMLElement>(
+      `[data-index="${activeIndex.value}"]`,
+    )
+    el?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
 // Helpers
 function isGroup(item: SelectOption | SelectGroup): item is SelectGroup {
   return 'options' in item
@@ -110,10 +178,38 @@ const scrollDown = () => {
 const handleTriggerKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
+    if (open.value && event.key === 'Enter' && activeIndex.value != null) {
+      const option = filteredFlat.value[activeIndex.value]
+      if (option && !option.disabled) {
+        updateValue(option.value)
+        return
+      }
+    }
     toggleOpen()
   } else if (event.key === 'ArrowDown' && !open.value) {
     event.preventDefault()
     open.value = true
+  } else if (isPrintableKey(event)) {
+    if (!open.value) {
+      // Type to open + seed: open the dropdown and start the filter query.
+      event.preventDefault()
+      open.value = true
+      filterQuery.value = event.key
+      focusFilterInput()
+    } else {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
+}
+
+// Capture-phase handler: while the dropdown is open, swallow printable keys
+// typed anywhere inside the content (except in the filter input itself) so
+// they can't trigger page-level shortcuts like j/k navigation.
+const handleContentKeydown = (event: KeyboardEvent) => {
+  if (isPrintableKey(event) && document.activeElement !== filterInputRef.value) {
+    event.preventDefault()
+    event.stopPropagation()
   }
 }
 
@@ -121,6 +217,35 @@ const handleItemKeydown = (event: KeyboardEvent, value: string, disabled?: boole
   if ((event.key === 'Enter' || event.key === ' ') && !disabled) {
     event.preventDefault()
     updateValue(value)
+  }
+}
+
+const handleFilterKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const index = activeIndex.value ?? 0
+    const option = filteredFlat.value[index]
+    if (option && !option.disabled) {
+      updateValue(option.value)
+      return
+    }
+    closeSelect()
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const len = filteredFlat.value.length
+    if (!len) return
+    const current = activeIndex.value ?? (event.key === 'ArrowDown' ? -1 : 0)
+    activeIndex.value =
+      event.key === 'ArrowDown' ? (current + 1) % len : (current - 1 + len) % len
+    scrollActiveIntoView()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    if (filterQuery.value) {
+      filterQuery.value = ''
+    } else {
+      closeSelect()
+    }
   }
 }
 
@@ -151,7 +276,22 @@ watch(open, async (isOpen) => {
     await nextTick()
     updatePosition()
     checkScrollButtons()
+    focusFilterInput()
+  } else {
+    filterQuery.value = ''
+    activeIndex.value = null
   }
+})
+
+watch(filterQuery, () => {
+  if (!open.value) return
+  const list = filteredFlat.value
+  if (!list.length) {
+    activeIndex.value = null
+    return
+  }
+  activeIndex.value = 0
+  scrollActiveIntoView()
 })
 
 // Lifecycle
@@ -185,6 +325,7 @@ const contentStyle = computed(() => ({
       role="combobox"
       :aria-expanded="open"
       aria-haspopup="listbox"
+      :aria-activedescendant="activeOptionId"
       :disabled="disabled"
       :data-size="size"
       :data-state="open ? 'open' : 'closed'"
@@ -210,9 +351,33 @@ const contentStyle = computed(() => ({
           ref="contentRef"
           class="select-content"
           :style="contentStyle"
-          role="listbox"
           :data-state="open ? 'open' : 'closed'"
+          @keydown.capture="handleContentKeydown"
         >
+          <!-- Filter -->
+          <div class="select-search">
+            <Search :size="14" class="select-search__icon" />
+            <input
+              ref="filterInputRef"
+              v-model="filterQuery"
+              type="search"
+              class="select-search__input"
+              placeholder="Search..."
+              role="searchbox"
+              aria-label="Search options"
+              @keydown="handleFilterKeydown"
+            />
+            <button
+              v-if="filterQuery"
+              type="button"
+              class="select-search__clear"
+              aria-label="Clear search"
+              @click="filterQuery = ''"
+            >
+              <X :size="12" />
+            </button>
+          </div>
+
           <!-- Scroll Up Button -->
           <button
             v-if="showScrollUp"
@@ -224,8 +389,9 @@ const contentStyle = computed(() => ({
           </button>
 
           <!-- Viewport -->
-          <div ref="viewportRef" class="select-viewport" @scroll="checkScrollButtons">
-            <template v-for="(item, index) in options" :key="index">
+          <div ref="viewportRef" class="select-viewport" role="listbox" @scroll="checkScrollButtons">
+            <template v-if="!filterQuery.trim()">
+              <template v-for="(item, index) in options" :key="index">
               <!-- Group -->
               <template v-if="isGroup(item)">
                 <div class="select-group" :class="{ 'select-group--with-separator': index > 0 }">
@@ -234,13 +400,16 @@ const contentStyle = computed(() => ({
                     v-for="option in item.options"
                     :key="option.value"
                     role="option"
+                    :id="`${selectId}-option-${filteredIndexMap.get(option)}`"
+                    :data-index="filteredIndexMap.get(option)"
                     :aria-selected="option.value === modelValue"
                     :aria-disabled="option.disabled"
                     :data-state="option.value === modelValue ? 'checked' : 'unchecked'"
                     class="select-item"
                     :class="{
                       'select-item--selected': option.value === modelValue,
-                      'select-item--disabled': option.disabled
+                      'select-item--disabled': option.disabled,
+                      'select-item--active': filteredIndexMap.get(option) === activeIndex
                     }"
                     tabindex="0"
                     @click="!option.disabled && updateValue(option.value)"
@@ -258,13 +427,16 @@ const contentStyle = computed(() => ({
               <div
                 v-else
                 role="option"
+                :id="`${selectId}-option-${filteredIndexMap.get(item)}`"
+                :data-index="filteredIndexMap.get(item)"
                 :aria-selected="item.value === modelValue"
                 :aria-disabled="item.disabled"
                 :data-state="item.value === modelValue ? 'checked' : 'unchecked'"
                 class="select-item"
                 :class="{
                   'select-item--selected': item.value === modelValue,
-                  'select-item--disabled': item.disabled
+                  'select-item--disabled': item.disabled,
+                  'select-item--active': filteredIndexMap.get(item) === activeIndex
                 }"
                 tabindex="0"
                 @click="!item.disabled && updateValue(item.value)"
@@ -274,6 +446,36 @@ const contentStyle = computed(() => ({
                   <Check v-if="item.value === modelValue" :size="16" />
                 </span>
                 <span class="select-item__text">{{ item.label }}</span>
+              </div>
+              </template>
+            </template>
+
+            <!-- Flat filtered list while searching -->
+            <template v-else>
+              <div v-if="filteredFlat.length === 0" class="select-empty">No matches</div>
+              <div
+                v-for="option in filteredFlat"
+                :key="option.value"
+                role="option"
+                :id="`${selectId}-option-${filteredIndexMap.get(option)}`"
+                :data-index="filteredIndexMap.get(option)"
+                :aria-selected="option.value === modelValue"
+                :aria-disabled="option.disabled"
+                :data-state="option.value === modelValue ? 'checked' : 'unchecked'"
+                class="select-item"
+                :class="{
+                  'select-item--selected': option.value === modelValue,
+                  'select-item--disabled': option.disabled,
+                  'select-item--active': filteredIndexMap.get(option) === activeIndex
+                }"
+                tabindex="0"
+                @click="!option.disabled && updateValue(option.value)"
+                @keydown="handleItemKeydown($event, option.value, option.disabled)"
+              >
+                <span class="select-item__indicator">
+                  <Check v-if="option.value === modelValue" :size="16" />
+                </span>
+                <span class="select-item__text">{{ option.label }}</span>
               </div>
             </template>
           </div>
@@ -414,6 +616,60 @@ const contentStyle = computed(() => ({
   height: 1rem;
 }
 
+/* Select Search */
+.select-search {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.select-search__icon {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.select-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0.125rem 0;
+  font-size: 0.8125rem;
+  color: var(--popover-foreground);
+}
+
+.select-search__input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.select-search__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.select-search__clear:hover {
+  color: var(--foreground);
+  background-color: var(--accent);
+}
+
+/* Select Empty */
+.select-empty {
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
 /* Select Item */
 .select-item {
   position: relative;
@@ -429,11 +685,17 @@ const contentStyle = computed(() => ({
   line-height: 1.25rem;
   outline: none;
   user-select: none;
+  scroll-margin: 0.25rem;
   transition: background-color 0.1s ease;
 }
 
 .select-item:focus,
 .select-item:hover:not(.select-item--disabled) {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.select-item--active {
   background-color: var(--accent);
   color: var(--accent-foreground);
 }
