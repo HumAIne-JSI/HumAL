@@ -5,6 +5,7 @@ import type { ExplainLimeResponse } from '@/types/api'
 interface Props {
   text: string
   explanation?: ExplainLimeResponse | null
+  enabled?: boolean
 }
 
 interface Token {
@@ -15,6 +16,7 @@ interface Token {
 
 const props = withDefaults(defineProps<Props>(), {
   explanation: null,
+  enabled: false,
 })
 
 const wordWeights = computed(() => {
@@ -75,7 +77,7 @@ const tokens = computed((): Token[] => {
 
 function highlightStyle(weight: number): string {
   const intensity = Math.min(1, Math.abs(weight) / maxAbsWeight.value)
-  const percentage = (10 + intensity * 50).toFixed(1)
+  const percentage = (4 + intensity * 18).toFixed(1)
   const color = weight >= 0 ? 'var(--primary)' : 'var(--destructive)'
   return `background-color: color-mix(in srgb, ${color} ${percentage}%, transparent); border-bottom: 2px solid ${color};`
 }
@@ -88,15 +90,18 @@ function tokenTitle(token: Token): string {
 
 <template>
   <span class="lime-highlighted-text">
-    <template v-for="(token, index) in tokens" :key="index">
-      <mark
-        v-if="token.kind === 'word' && token.weight !== undefined"
-        :style="highlightStyle(token.weight)"
-        :title="tokenTitle(token)"
-        >{{ token.text }}</mark
-      >
-      <template v-else>{{ token.text }}</template>
+    <template v-if="enabled">
+      <template v-for="(token, index) in tokens" :key="index">
+        <mark
+          v-if="token.kind === 'word' && token.weight !== undefined"
+          :style="highlightStyle(token.weight)"
+          :title="tokenTitle(token)"
+          >{{ token.text }}</mark
+        >
+        <template v-else>{{ token.text }}</template>
+      </template>
     </template>
+    <template v-else>{{ text }}</template>
   </span>
 </template>
 
@@ -105,8 +110,8 @@ function tokenTitle(token: Token): string {
   mark {
     background: transparent;
     color: inherit;
-    padding: 0 1px;
-    border-radius: 2px;
+    padding: 0 0.08em;
+    border-radius: 0.15em;
     cursor: help;
   }
 }

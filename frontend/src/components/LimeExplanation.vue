@@ -71,6 +71,14 @@ const sortedFeatures = computed((): FeatureImportance[] => {
 
 const hasExplanation = computed(() => sortedFeatures.value.length > 0)
 
+const supportingFeatures = computed(() =>
+  sortedFeatures.value.filter((feature) => feature.importance >= 0),
+)
+
+const opposingFeatures = computed(() =>
+  sortedFeatures.value.filter((feature) => feature.importance < 0),
+)
+
 // Compute max importance for scaling bars
 const maxImportance = computed(() => {
   if (sortedFeatures.value.length === 0) return 1
@@ -122,25 +130,42 @@ const toggleExpanded = () => {
       </div>
 
       <div v-if="isExpanded || !collapsible" class="lime-explanation__features">
-        <div
-          v-for="(feature, index) in sortedFeatures"
-          :key="index"
-          class="feature-item"
-        >
-          <span class="feature-item__word">{{ feature.word }}</span>
-          <div class="feature-item__bar-container">
-            <div
-              class="feature-item__bar"
-              :class="{ 'feature-item__bar--negative': feature.importance < 0 }"
-              :style="{ width: getBarWidth(feature.importance) }"
-            />
-          </div>
-          <span
-            class="feature-item__value"
-            :class="{ 'feature-item__value--negative': feature.importance < 0 }"
+        <div v-if="supportingFeatures.length" class="feature-group">
+          <div class="feature-group__title feature-group__title--supporting">Supports</div>
+          <div
+            v-for="(feature, index) in supportingFeatures"
+            :key="`supporting-${index}`"
+            class="feature-item"
           >
-            {{ feature.importance.toFixed(3) }}
-          </span>
+            <span class="feature-item__word">{{ feature.word }}</span>
+            <div class="feature-item__bar-container">
+              <div
+                class="feature-item__bar"
+                :style="{ width: getBarWidth(feature.importance) }"
+              />
+            </div>
+            <span class="feature-item__value">+{{ feature.importance.toFixed(3) }}</span>
+          </div>
+        </div>
+
+        <div v-if="opposingFeatures.length" class="feature-group">
+          <div class="feature-group__title feature-group__title--opposing">Opposes</div>
+          <div
+            v-for="(feature, index) in opposingFeatures"
+            :key="`opposing-${index}`"
+            class="feature-item"
+          >
+            <span class="feature-item__word">{{ feature.word }}</span>
+            <div class="feature-item__bar-container">
+              <div
+                class="feature-item__bar feature-item__bar--negative"
+                :style="{ width: getBarWidth(feature.importance) }"
+              />
+            </div>
+            <span class="feature-item__value feature-item__value--negative">
+              {{ feature.importance.toFixed(3) }}
+            </span>
+          </div>
         </div>
       </div>
     </template>
@@ -194,8 +219,8 @@ const toggleExpanded = () => {
   }
 
   &__features {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
   }
 
@@ -207,12 +232,39 @@ const toggleExpanded = () => {
   }
 }
 
+.feature-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  & + & {
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--border);
+  }
+
+  &__title {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+
+    &--supporting {
+      color: var(--primary);
+    }
+
+    &--opposing {
+      color: var(--destructive);
+    }
+  }
+}
+
 .feature-item {
   display: grid;
-  grid-template-columns: 120px 1fr 60px;
+  grid-template-columns: minmax(0, 5rem) minmax(2rem, 1fr) auto;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 0.875rem;
+  gap: 0.375rem;
+  min-width: 0;
+  font-size: 0.75rem;
 
   &__word {
     font-weight: 500;
@@ -222,7 +274,8 @@ const toggleExpanded = () => {
   }
 
   &__bar-container {
-    height: 8px;
+    min-width: 0;
+    height: 6px;
     background: var(--muted);
     border-radius: 4px;
     overflow: hidden;
@@ -247,6 +300,19 @@ const toggleExpanded = () => {
     &--negative {
       color: var(--destructive);
     }
+  }
+}
+
+@media (max-width: 520px) {
+  .lime-explanation__features {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-group + .feature-group {
+    padding-top: 0.5rem;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 }
 </style>

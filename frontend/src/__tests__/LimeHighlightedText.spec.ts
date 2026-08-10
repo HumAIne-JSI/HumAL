@@ -7,6 +7,7 @@ describe('LimeHighlightedText', () => {
     const wrapper = mount(LimeHighlightedText, {
       props: {
         text: 'Cannot access network drive Z:',
+        enabled: true,
         explanation: [
           {
             text: 'Cannot access network drive Z:',
@@ -30,6 +31,24 @@ describe('LimeHighlightedText', () => {
     })
 
     expect(wrapper.text()).toBe('No explanation yet.')
+    expect(wrapper.findAll('mark')).toHaveLength(0)
+  })
+
+  it('renders plain text until highlighting is enabled', () => {
+    const wrapper = mount(LimeHighlightedText, {
+      props: {
+        text: 'Cannot access network drive Z:',
+        explanation: [
+          {
+            text: 'Cannot access network drive Z:',
+            prediction: { label: 'Network', probabilities: {} },
+            word_weights: [{ word: 'network', weight: 0.8 }],
+          },
+        ],
+      },
+    })
+
+    expect(wrapper.text()).toBe('Cannot access network drive Z:')
     expect(wrapper.findAll('mark')).toHaveLength(0)
   })
 })

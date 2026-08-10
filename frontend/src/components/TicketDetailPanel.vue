@@ -5,6 +5,7 @@ import Button from '@/components/ui/Button.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import Select from '@/components/ui/Select.vue'
 import LimeHighlightedText from '@/components/LimeHighlightedText.vue'
+import LimeExplanation from '@/components/LimeExplanation.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
 import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
 import { useInferWithModelCheck, useInferTopK } from '@/composables/api/useInference'
@@ -92,6 +93,7 @@ const loadingSimilarBody = ref(false)
 const selectedReassignTeam = ref<string>('')
 const showLabeledFlash = ref(false)
 const labeledTeamName = ref('')
+const showLimeHighlights = ref(false)
 const mockInferring = ref(false)
 const mockExplaining = ref(false)
 const mockFindingNearest = ref(false)
@@ -690,9 +692,10 @@ watch(
       similarPerClass.value = []
       isLoadingSimilarPerClass.value = false
       selectedReassignTeam.value = ''
-      showLabeledFlash.value = false
-      labeledTeamName.value = ''
-      mockInferring.value = false
+       showLabeledFlash.value = false
+       labeledTeamName.value = ''
+       showLimeHighlights.value = false
+       mockInferring.value = false
       mockExplaining.value = false
       mockFindingNearest.value = false
       resetInference()
@@ -834,31 +837,71 @@ defineExpose({
             </Button>
           </div>
         </div>
-        <h2 class="detail-panel__title">
-          <LimeHighlightedText :text="ticket.title" :explanation="explanation" />
-        </h2>
-        <div
-          v-if="hasLimeHighlights"
-          class="detail-panel__lime-legend"
-          aria-label="LIME highlight legend"
-        >
-          <span class="detail-panel__lime-legend-item">
-            <span class="detail-panel__lime-swatch detail-panel__lime-swatch--positive"></span>
-            supports
-          </span>
-          <span class="detail-panel__lime-legend-item">
-            <span class="detail-panel__lime-swatch detail-panel__lime-swatch--negative"></span>
-            opposes
-          </span>
-        </div>
       </header>
 
       <!-- Content -->
       <div class="detail-panel__content">
-        <!-- Description (plain paragraph, no card wrapper) -->
-        <p class="detail-panel__description">
-          <LimeHighlightedText :text="ticket.description" :explanation="explanation" />
-        </p>
+        <div class="detail-panel__ticket-explanation-grid">
+          <section class="detail-panel__ticket-column" aria-label="Ticket">
+            <h2 class="detail-panel__title">
+              <LimeHighlightedText
+                :text="ticket.title"
+                :explanation="explanation"
+                :enabled="showLimeHighlights"
+              />
+            </h2>
+            <p class="detail-panel__description">
+              <LimeHighlightedText
+                :text="ticket.description"
+                :explanation="explanation"
+                :enabled="showLimeHighlights"
+              />
+            </p>
+          </section>
+
+          <aside v-if="showXai" class="detail-panel__lime-column" aria-label="LIME explanation">
+            <div class="detail-panel__lime-column-header">
+              <div class="detail-panel__lime-column-title">
+                <Sparkles :size="15" />
+                <span>Model explanation</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                :disabled="!hasLimeHighlights"
+                :aria-pressed="showLimeHighlights"
+                @click="showLimeHighlights = !showLimeHighlights"
+              >
+                {{ showLimeHighlights ? 'Hide' : 'Show explanation' }}
+              </Button>
+            </div>
+
+            <span v-if="showLimeHighlights" class="detail-panel__lime-legend">
+              <span class="detail-panel__lime-legend-item">
+                <span class="detail-panel__lime-swatch detail-panel__lime-swatch--positive"></span>
+                supports
+              </span>
+              <span class="detail-panel__lime-legend-item">
+                <span class="detail-panel__lime-swatch detail-panel__lime-swatch--negative"></span>
+                opposes
+              </span>
+            </span>
+
+            <LimeExplanation
+              v-if="showLimeHighlights"
+              :explanation="explanation"
+              :loading="isExplainingAny"
+              :collapsible="false"
+              :max-words="10"
+              :ticket-ref="ticket.ref ?? ticket.id"
+              page="queue_aided"
+              class="detail-panel__lime-explanation"
+            />
+            <p v-else class="detail-panel__lime-empty">
+              {{ isExplainingAny ? 'Generating explanation...' : 'Reveal the words influencing this suggestion.' }}
+            </p>
+          </aside>
+        </div>
 
         <!-- Prediction Section -->
         <section class="detail-panel__prediction">
@@ -1108,13 +1151,58 @@ defineExpose({
     line-height: 1.35;
   }
 
+  &__ticket-explanation-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.85fr);
+    gap: 1rem;
+    align-items: start;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  &__ticket-column {
+    min-width: 0;
+  }
+
   &__lime-legend {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin-top: 0.375rem;
     font-size: 0.6875rem;
     color: var(--muted-foreground);
+  }
+
+  &__lime-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-width: 0;
+    padding: 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  &__lime-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__lime-column-title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 600;
+
+    svg {
+      flex-shrink: 0;
+      color: var(--primary);
+    }
   }
 
   &__lime-legend-item {
@@ -1155,8 +1243,17 @@ defineExpose({
     line-height: 1.65;
     color: var(--foreground);
     white-space: pre-wrap;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border);
+  }
+
+  &__lime-explanation {
+    padding-top: 0.25rem;
+  }
+
+  &__lime-empty {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
 
   &__prediction {
@@ -1380,6 +1477,10 @@ defineExpose({
 }
 
 @media (max-width: 640px) {
+  .detail-panel__ticket-explanation-grid {
+    grid-template-columns: 1fr;
+  }
+
   .detail-panel__decision-grid {
     grid-template-columns: 1fr;
   }
