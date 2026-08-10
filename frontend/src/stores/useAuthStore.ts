@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiService, setAuthToken, getAuthToken } from '@/services/api'
+import { queryClient } from '@/lib/queryClient'
+import { activeLearningKeys } from '@/composables/api/useActiveLearning'
 import type { LoginRequest, UserRegisterRequest, UserResponse } from '@/types/api'
 
 const USER_STORAGE_KEY = 'humal-auth-user'
@@ -39,6 +41,9 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(credentials: LoginRequest): Promise<void> {
     const res = await apiService.login(credentials)
     setToken(res.access_token)
+    // The instances query may have run before authentication on the login page.
+    // Refetch it with the newly available token while preserving anonymous access.
+    await queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() })
     // Best-effort: resolve identity; failure must not block login.
     try {
       persistUser(await apiService.getMe())

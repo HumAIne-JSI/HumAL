@@ -205,9 +205,11 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
       }
       // Update ticket status in store
       store.updateTicketStatus(variables.ticketId, 'resolved')
-      // Invalidate queries to refetch
       if (!isMockMode.value) {
-        queryClient.invalidateQueries({ queryKey: ticketQueueKeys.list(toValue(instanceId)) })
+        // The queue itself is NOT invalidated here: the label flows advance to
+        // the next ticket through useTicketQueue.refresh() (which refetches
+        // `next` + `tickets` with the just-updated model). Invalidating the
+        // same key here would fire a second, redundant fetch per label.
         // Refresh dashboard instance counters (labeled count).
         queryClient.invalidateQueries({ queryKey: activeLearningKeys.instances() })
       }
@@ -250,7 +252,8 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
         store.updateTicketStatus(ticketId, 'resolved')
       }
       store.clearBulkSelection()
-      // Invalidate queries to refetch
+      // Invalidate the queue here: bulk labeling has no advance step, so this
+      // is the only refetch that pulls fresh `next` recommendations.
       if (!isMockMode.value) {
         queryClient.invalidateQueries({ queryKey: ticketQueueKeys.list(toValue(instanceId)) })
         // Refresh dashboard instance counters (labeled count).
