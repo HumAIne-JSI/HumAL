@@ -120,4 +120,44 @@ describe('SideBySideExplanation', () => {
     expect(wrapper.text()).not.toContain('No predicted class tickets found.')
     expect(wrapper.text()).toContain('Predicted ticket')
   })
+
+  it('marks tickets that appear in both neighbor lists', () => {
+    const wrapper = mount(SideBySideExplanation, {
+      props: {
+        historicalTickets: [{ ref: 'D-1', title: 'Duplicate ticket' }],
+        predictedClassTickets: [{ ref: 'D-1', title: 'Duplicate ticket' }],
+      },
+    })
+
+    expect(wrapper.text()).toContain(
+      'A ticket may appear in both lists when it is relevant by both criteria.',
+    )
+    expect(wrapper.findAll('.side-by-side__card--cross-listed')).toHaveLength(2)
+    expect(wrapper.text()).toContain('Also closest predicted ticket')
+    expect(wrapper.text()).toContain('Also closest past ticket')
+    expect(wrapper.findAll('.side-by-side__ref-badge--cross-listed')).toHaveLength(2)
+  })
+
+  it('does not render empty reference badges and gives pairs distinct colors', () => {
+    const wrapper = mount(SideBySideExplanation, {
+      props: {
+        historicalTickets: [
+          { ref: 'D-1', title: 'First pair' },
+          { ref: 'D-2', title: 'Second pair' },
+        ],
+        predictedClassTickets: [
+          { ref: 'D-1', title: 'First pair' },
+          { ref: 'D-2', title: 'Second pair' },
+          { ref: '   ', title: 'No reference' },
+        ],
+      },
+    })
+
+    expect(wrapper.findAll('.side-by-side__card--cross-listed-info')).toHaveLength(2)
+    expect(wrapper.findAll('.side-by-side__card--cross-listed-success')).toHaveLength(2)
+    expect(wrapper.findAll('.side-by-side__ref-badge')).toHaveLength(4)
+    expect(wrapper.findAll('.side-by-side__ref-badge').some((badge) => badge.text() === '')).toBe(
+      false,
+    )
+  })
 })

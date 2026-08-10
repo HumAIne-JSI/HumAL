@@ -90,6 +90,41 @@ function hasTicketBody(ticket: NeighborTicketView): boolean {
 
 const hasHistoricalTickets = computed(() => props.historicalTickets.length > 0)
 const hasPredictedClassTickets = computed(() => props.predictedClassTickets.length > 0)
+
+function normalizedRef(ref?: string): string | undefined {
+  const normalized = ref?.trim()
+  return normalized || undefined
+}
+
+const crossListedRefs = computed(() => {
+  const historicalRefs = new Set(
+    props.historicalTickets
+      .map((ticket) => normalizedRef(ticket.ref))
+      .filter((ref): ref is string => Boolean(ref)),
+  )
+  return new Set(
+    props.predictedClassTickets
+      .map((ticket) => normalizedRef(ticket.ref))
+      .filter((ref): ref is string => Boolean(ref))
+      .filter((ref) => historicalRefs.has(ref)),
+  )
+})
+
+const crossListedRefColors = computed(() => {
+  const colors: Array<'info' | 'success'> = ['info', 'success']
+  return new Map(
+    [...crossListedRefs.value].map((ref, index) => [ref, colors[index % colors.length]]),
+  )
+})
+
+function crossListedColor(ticket: NeighborTicketView): 'info' | 'success' | null {
+  const ref = normalizedRef(ticket.ref)
+  return ref ? (crossListedRefColors.value.get(ref) ?? null) : null
+}
+
+function isCrossListed(ticket: NeighborTicketView): boolean {
+  return crossListedColor(ticket) !== null
+}
 </script>
 
 <template>
@@ -103,135 +138,183 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
       <Spinner label="Finding similar tickets..." />
     </div>
 
-    <div v-else class="side-by-side__grid">
-      <article class="side-by-side__col" data-track-region="historical_neighbor">
-        <header class="side-by-side__col-header">
-          <History :size="12" class="side-by-side__col-icon" />
-          <span class="side-by-side__col-label">Closest past tickets</span>
-        </header>
+    <div v-else class="side-by-side__content">
+      <p v-if="crossListedRefs.size > 0" class="side-by-side__cross-list-note">
+        A ticket may appear in both lists when it is relevant by both criteria.
+      </p>
 
-        <div v-if="hasHistoricalTickets" class="side-by-side__cards">
-          <article
-            v-for="(ticket, index) in historicalTickets"
-            :key="ticketKey('historical', ticket, index)"
-            class="side-by-side__card"
-            :class="{
-              'side-by-side__card--expanded': isExpanded(ticketKey('historical', ticket, index)),
-            }"
-            role="button"
-            tabindex="0"
-            :aria-expanded="isExpanded(ticketKey('historical', ticket, index))"
-            :aria-label="`${isExpanded(ticketKey('historical', ticket, index)) ? 'Collapse' : 'Expand'} historical ticket ${ticket.ref ?? index + 1}`"
-            @click="toggleExpanded(ticketKey('historical', ticket, index))"
-            @keydown="handleCardKeydown($event, ticketKey('historical', ticket, index))"
-          >
-            <header class="side-by-side__card-header">
-              <span class="side-by-side__rank">#{{ index + 1 }}</span>
-              <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
-              <ChevronUp v-if="isExpanded(ticketKey('historical', ticket, index))" :size="15" />
-              <ChevronDown v-else :size="15" />
-            </header>
-            <div class="side-by-side__card-meta">
-              <Badge v-if="ticket.ref" variant="outline" class="side-by-side__col-badge">
-                {{ ticket.ref }}
-              </Badge>
-              <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
-                {{ ticket.label }}
-              </Badge>
-              <Badge
-                v-if="formatSimilarity(ticket.similarity) !== null"
-                :variant="similarityVariant(formatSimilarity(ticket.similarity))"
-                class="side-by-side__col-badge"
+      <div class="side-by-side__grid">
+        <article class="side-by-side__col" data-track-region="historical_neighbor">
+          <header class="side-by-side__col-header">
+            <History :size="12" class="side-by-side__col-icon" />
+            <span class="side-by-side__col-label">Closest past tickets</span>
+          </header>
+
+          <div v-if="hasHistoricalTickets" class="side-by-side__cards">
+            <article
+              v-for="(ticket, index) in historicalTickets"
+              :key="ticketKey('historical', ticket, index)"
+              class="side-by-side__card"
+              :class="{
+                'side-by-side__card--expanded': isExpanded(ticketKey('historical', ticket, index)),
+                'side-by-side__card--cross-listed': isCrossListed(ticket),
+                'side-by-side__card--cross-listed-info': crossListedColor(ticket) === 'info',
+                'side-by-side__card--cross-listed-success': crossListedColor(ticket) === 'success',
+              }"
+              role="button"
+              tabindex="0"
+              :aria-expanded="isExpanded(ticketKey('historical', ticket, index))"
+              :aria-label="`${isExpanded(ticketKey('historical', ticket, index)) ? 'Collapse' : 'Expand'} historical ticket ${ticket.ref ?? index + 1}`"
+              @click="toggleExpanded(ticketKey('historical', ticket, index))"
+              @keydown="handleCardKeydown($event, ticketKey('historical', ticket, index))"
+            >
+              <header class="side-by-side__card-header">
+                <span class="side-by-side__rank">#{{ index + 1 }}</span>
+                <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
+                <ChevronUp v-if="isExpanded(ticketKey('historical', ticket, index))" :size="15" />
+                <ChevronDown v-else :size="15" />
+              </header>
+              <div class="side-by-side__card-meta">
+                <Badge
+                  v-if="normalizedRef(ticket.ref)"
+                  variant="outline"
+                  class="side-by-side__col-badge side-by-side__ref-badge"
+                  :class="{
+                    'side-by-side__ref-badge--cross-listed': isCrossListed(ticket),
+                    'side-by-side__ref-badge--cross-listed-info':
+                      crossListedColor(ticket) === 'info',
+                    'side-by-side__ref-badge--cross-listed-success':
+                      crossListedColor(ticket) === 'success',
+                  }"
+                >
+                  {{ normalizedRef(ticket.ref) }}
+                </Badge>
+                <Badge
+                  v-if="isCrossListed(ticket)"
+                  :variant="crossListedColor(ticket) ?? 'info'"
+                  class="side-by-side__col-badge side-by-side__match-badge"
+                >
+                  Also closest predicted ticket
+                </Badge>
+                <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
+                  {{ ticket.label }}
+                </Badge>
+                <Badge
+                  v-if="formatSimilarity(ticket.similarity) !== null"
+                  :variant="similarityVariant(formatSimilarity(ticket.similarity))"
+                  class="side-by-side__col-badge"
+                >
+                  {{ formatSimilarity(ticket.similarity) }}% match
+                </Badge>
+              </div>
+              <p
+                v-if="!isExpanded(ticketKey('historical', ticket, index))"
+                class="side-by-side__best-sentence"
               >
-                {{ formatSimilarity(ticket.similarity) }}% match
-              </Badge>
-            </div>
-            <p
-              v-if="!isExpanded(ticketKey('historical', ticket, index))"
-              class="side-by-side__best-sentence"
-            >
-              {{ bestSentence(ticket) }}
-            </p>
-            <div
-              v-if="isExpanded(ticketKey('historical', ticket, index))"
-              class="side-by-side__full-body"
-            >
-              <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
-                {{ ticket.description }}
+                {{ bestSentence(ticket) }}
               </p>
-              <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
-            </div>
-          </article>
-        </div>
-        <div v-else class="side-by-side__empty">No historical tickets found.</div>
-      </article>
+              <div
+                v-if="isExpanded(ticketKey('historical', ticket, index))"
+                class="side-by-side__full-body"
+              >
+                <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
+                  {{ ticket.description }}
+                </p>
+                <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
+              </div>
+            </article>
+          </div>
+          <div v-else class="side-by-side__empty">No historical tickets found.</div>
+        </article>
 
-      <article class="side-by-side__col" data-track-region="predicted_class_neighbor">
-        <header class="side-by-side__col-header">
-          <Search :size="12" class="side-by-side__col-icon" />
-          <span class="side-by-side__col-label">Closest predicted class tickets</span>
-        </header>
+        <article class="side-by-side__col" data-track-region="predicted_class_neighbor">
+          <header class="side-by-side__col-header">
+            <Search :size="12" class="side-by-side__col-icon" />
+            <span class="side-by-side__col-label">Closest predicted class tickets</span>
+          </header>
 
-        <div v-if="hasPredictedClassTickets" class="side-by-side__cards">
-          <article
-            v-for="(ticket, index) in predictedClassTickets"
-            :key="ticketKey('predicted-class', ticket, index)"
-            class="side-by-side__card"
-            :class="{
-              'side-by-side__card--expanded': isExpanded(
-                ticketKey('predicted-class', ticket, index),
-              ),
-            }"
-            role="button"
-            tabindex="0"
-            :aria-expanded="isExpanded(ticketKey('predicted-class', ticket, index))"
-            :aria-label="`${isExpanded(ticketKey('predicted-class', ticket, index)) ? 'Collapse' : 'Expand'} predicted class ticket ${ticket.ref ?? index + 1}`"
-            @click="toggleExpanded(ticketKey('predicted-class', ticket, index))"
-            @keydown="handleCardKeydown($event, ticketKey('predicted-class', ticket, index))"
-          >
-            <header class="side-by-side__card-header">
-              <span class="side-by-side__rank">#{{ index + 1 }}</span>
-              <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
-              <ChevronUp
+          <div v-if="hasPredictedClassTickets" class="side-by-side__cards">
+            <article
+              v-for="(ticket, index) in predictedClassTickets"
+              :key="ticketKey('predicted-class', ticket, index)"
+              class="side-by-side__card"
+              :class="{
+                'side-by-side__card--expanded': isExpanded(
+                  ticketKey('predicted-class', ticket, index),
+                ),
+                'side-by-side__card--cross-listed': isCrossListed(ticket),
+                'side-by-side__card--cross-listed-info': crossListedColor(ticket) === 'info',
+                'side-by-side__card--cross-listed-success': crossListedColor(ticket) === 'success',
+              }"
+              role="button"
+              tabindex="0"
+              :aria-expanded="isExpanded(ticketKey('predicted-class', ticket, index))"
+              :aria-label="`${isExpanded(ticketKey('predicted-class', ticket, index)) ? 'Collapse' : 'Expand'} predicted class ticket ${ticket.ref ?? index + 1}`"
+              @click="toggleExpanded(ticketKey('predicted-class', ticket, index))"
+              @keydown="handleCardKeydown($event, ticketKey('predicted-class', ticket, index))"
+            >
+              <header class="side-by-side__card-header">
+                <span class="side-by-side__rank">#{{ index + 1 }}</span>
+                <h4 class="side-by-side__card-title">{{ ticket.title || 'Untitled ticket' }}</h4>
+                <ChevronUp
+                  v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
+                  :size="15"
+                />
+                <ChevronDown v-else :size="15" />
+              </header>
+              <div class="side-by-side__card-meta">
+                <Badge
+                  v-if="normalizedRef(ticket.ref)"
+                  variant="outline"
+                  class="side-by-side__col-badge side-by-side__ref-badge"
+                  :class="{
+                    'side-by-side__ref-badge--cross-listed': isCrossListed(ticket),
+                    'side-by-side__ref-badge--cross-listed-info':
+                      crossListedColor(ticket) === 'info',
+                    'side-by-side__ref-badge--cross-listed-success':
+                      crossListedColor(ticket) === 'success',
+                  }"
+                >
+                  {{ normalizedRef(ticket.ref) }}
+                </Badge>
+                <Badge
+                  v-if="isCrossListed(ticket)"
+                  :variant="crossListedColor(ticket) ?? 'info'"
+                  class="side-by-side__col-badge side-by-side__match-badge"
+                >
+                  Also closest past ticket
+                </Badge>
+                <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
+                  {{ ticket.label }}
+                </Badge>
+                <Badge
+                  v-if="formatSimilarity(ticket.similarity) !== null"
+                  :variant="similarityVariant(formatSimilarity(ticket.similarity))"
+                  class="side-by-side__col-badge"
+                >
+                  {{ formatSimilarity(ticket.similarity) }}% match
+                </Badge>
+              </div>
+              <p
+                v-if="!isExpanded(ticketKey('predicted-class', ticket, index))"
+                class="side-by-side__best-sentence"
+              >
+                {{ bestSentence(ticket) }}
+              </p>
+              <div
                 v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
-                :size="15"
-              />
-              <ChevronDown v-else :size="15" />
-            </header>
-            <div class="side-by-side__card-meta">
-              <Badge v-if="ticket.ref" variant="outline" class="side-by-side__col-badge">
-                {{ ticket.ref }}
-              </Badge>
-              <Badge v-if="ticket.label" variant="secondary" class="side-by-side__col-badge">
-                {{ ticket.label }}
-              </Badge>
-              <Badge
-                v-if="formatSimilarity(ticket.similarity) !== null"
-                :variant="similarityVariant(formatSimilarity(ticket.similarity))"
-                class="side-by-side__col-badge"
+                class="side-by-side__full-body"
               >
-                {{ formatSimilarity(ticket.similarity) }}% match
-              </Badge>
-            </div>
-            <p
-              v-if="!isExpanded(ticketKey('predicted-class', ticket, index))"
-              class="side-by-side__best-sentence"
-            >
-              {{ bestSentence(ticket) }}
-            </p>
-            <div
-              v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
-              class="side-by-side__full-body"
-            >
-              <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
-                {{ ticket.description }}
-              </p>
-              <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
-            </div>
-          </article>
-        </div>
-        <div v-else class="side-by-side__empty">No predicted class tickets found.</div>
-      </article>
+                <p v-if="hasTicketBody(ticket)" class="side-by-side__body-text">
+                  {{ ticket.description }}
+                </p>
+                <p v-else class="side-by-side__empty-text">Full ticket body unavailable.</p>
+              </div>
+            </article>
+          </div>
+          <div v-else class="side-by-side__empty">No predicted class tickets found.</div>
+        </article>
+      </div>
     </div>
   </section>
 </template>
@@ -267,6 +350,19 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
     @media (max-width: 900px) {
       grid-template-columns: 1fr;
     }
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__cross-list-note {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1.4;
   }
 
   &__col {
@@ -329,6 +425,20 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
       outline: 2px solid var(--ring, var(--primary));
       outline-offset: 2px;
     }
+
+    &--cross-listed {
+      box-shadow: inset 3px 0 0 currentColor;
+    }
+
+    &--cross-listed-info {
+      color: var(--info);
+      border-color: color-mix(in srgb, var(--info) 65%, var(--border));
+    }
+
+    &--cross-listed-success {
+      color: var(--success);
+      border-color: color-mix(in srgb, var(--success) 65%, var(--border));
+    }
   }
 
   &__card-header {
@@ -374,6 +484,26 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
 
   &__col-badge {
     font-size: 0.6875rem;
+  }
+
+  &__ref-badge--cross-listed {
+    font-weight: 700;
+  }
+
+  &__ref-badge--cross-listed-info {
+    color: var(--info);
+    border-color: var(--info);
+  }
+
+  &__ref-badge--cross-listed-success {
+    color: var(--success);
+    border-color: var(--success);
+  }
+
+  &__match-badge {
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
   }
 
   &__best-sentence {
