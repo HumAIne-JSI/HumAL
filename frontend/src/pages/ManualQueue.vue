@@ -170,7 +170,7 @@ function handleConfirm(team: string) {
     {
       onSuccess: () => {
         resetPendingFeedback()
-        setTimeout(() => { void advanceToNextTicket() }, 600)
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to label ticket')

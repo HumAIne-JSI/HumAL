@@ -222,9 +222,7 @@ function handleConfirm(
     {
       onSuccess: () => {
         resetPendingFeedback()
-        setTimeout(() => {
-          void advanceToNextTicket()
-        }, 600)
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -265,9 +263,7 @@ function handleReassign(
     {
       onSuccess: () => {
         resetPendingFeedback()
-        setTimeout(() => {
-          void advanceToNextTicket()
-        }, 600)
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to reassign ticket')
