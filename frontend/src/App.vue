@@ -8,8 +8,9 @@
     <main class="app-layout__main">
       <router-view />
     </main>
-    <ExperimentTimer class="app-layout__timer" />
+<ExperimentTimer class="app-layout__timer" />
     <Toaster position="bottom-right" :duration="3000" rich-colors close-button />
+    <TutorialHost />
   </div>
 </template>
 
@@ -19,6 +20,7 @@ import { useRoute } from 'vue-router'
 import Navigation from '@/components/Navigation.vue'
 import HumaineLogo from '@/components/HumaineLogo.vue'
 import ExperimentTimer from '@/components/ExperimentTimer.vue'
+import TutorialHost from '@/components/TutorialHost.vue'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import { useMockModeStore } from '@/stores/useMockModeStore'

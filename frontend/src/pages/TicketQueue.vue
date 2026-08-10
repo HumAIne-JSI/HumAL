@@ -393,6 +393,53 @@ function toggleListCollapse() {
   userOverrodeCollapse.value = true
 }
 
+// The tutorial guide opens the first ticket automatically so its steps can
+// highlight the AI aids. Keep the queue rail expanded for the tour.
+const OPEN_FIRST_TICKET_EVENT = 'humal:tutorial-open-first-ticket'
+const OPEN_FIRST_TICKET_TIMEOUT = 30000
+
+let stopOpenFirstTicketWatch: (() => void) | undefined
+let openFirstTicketTimer: ReturnType<typeof setTimeout> | undefined
+
+function openFirstTicketForTutorial() {
+  userOverrodeCollapse.value = true
+
+  const first = tickets.value[0]
+  if (first) {
+    selectTicket(first.id)
+    return
+  }
+
+  clearTimeout(openFirstTicketTimer)
+  stopOpenFirstTicketWatch?.()
+
+  const stop = watch(tickets, (list) => {
+    const ticket = list[0]
+    if (!ticket) return
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+    clearTimeout(openFirstTicketTimer)
+    openFirstTicketTimer = undefined
+    selectTicket(ticket.id)
+  })
+  stopOpenFirstTicketWatch = stop
+
+  openFirstTicketTimer = setTimeout(() => {
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+  }, OPEN_FIRST_TICKET_TIMEOUT)
+}
+
+onMounted(() => {
+  window.addEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+})
+
+onUnmounted(() => {
+  window.removeEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+  stopOpenFirstTicketWatch?.()
+  clearTimeout(openFirstTicketTimer)
+})
+
 // Mount the delegated click listener once for this page.
 useClickTracking('queue_aided', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
 

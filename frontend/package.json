@@ -16,6 +16,7 @@
   "dependencies": {
     "@tanstack/vue-query": "^5.92.9",
     "chart.js": "^4.4.7",
+    "driver.js": "^1.8.0",
     "lucide-vue-next": "^0.563.0",
     "papaparse": "^5.5.2",
     "pinia": "^3.0.4",

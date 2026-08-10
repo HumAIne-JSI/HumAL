@@ -576,7 +576,7 @@ const contentStyle = computed(() => ({
 /* Select Content */
 .select-content {
   position: fixed;
-  z-index: 50;
+  z-index: 1000000001;
   min-width: 8rem;
   max-width: 32rem;
   overflow: hidden;
