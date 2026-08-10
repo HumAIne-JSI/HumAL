@@ -14,6 +14,7 @@ import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
 import { usePendingLabelerFeedback } from '@/composables/usePendingLabelerFeedback'
+import { apiService } from '@/services/api'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
   Pencil,
@@ -74,6 +75,7 @@ watch(
 const {
   store,
   isLoading,
+  isMockMode,
   tickets,
   selectedTicket,
   teams,
@@ -98,6 +100,56 @@ const {
   instanceId: selectedInstanceId,
   autoFetch: true,
 })
+
+// Manual queue labels do not show model output, but label-with-info still
+// needs the model's top two predictions for benchmark metadata.
+const hiddenPredictions = ref<{ prediction: string | null; secondPrediction: string | null }>({
+  prediction: null,
+  secondPrediction: null,
+})
+let hiddenInferenceTicketId: string | null = null
+let hiddenInferencePromise: Promise<void> | null = null
+
+async function fetchHiddenPredictions(ticketId: string, ticketRef: string) {
+  hiddenInferenceTicketId = ticketId
+  hiddenPredictions.value = { prediction: null, secondPrediction: null }
+
+  if (isMockMode.value || selectedInstanceId.value <= 0) return
+
+  const request = apiService
+    .inferProba(selectedInstanceId.value, undefined, [ticketRef])
+    .then((response) => {
+      if (hiddenInferenceTicketId !== ticketId) return
+      const row = response.probabilities?.[0] ?? []
+      const ranked = response.classes
+        .map((label, index) => ({ label, probability: row[index] ?? 0 }))
+        .filter(({ label }) => label != null)
+        .sort((a, b) => b.probability - a.probability)
+
+      hiddenPredictions.value = {
+        prediction: ranked[0] ? String(ranked[0].label) : null,
+        secondPrediction: ranked[1] ? String(ranked[1].label) : null,
+      }
+    })
+    .catch((error) => {
+      // Prediction metadata is supplementary; manual labeling remains usable
+      // if the model is unavailable or has not been trained yet.
+      console.warn('Manual queue inference failed:', error)
+    })
+
+  hiddenInferencePromise = request.finally(() => {
+    if (hiddenInferenceTicketId === ticketId) hiddenInferencePromise = null
+  })
+  await hiddenInferencePromise
+}
+
+async function ensureHiddenPredictions(ticket: { id: string; ref: string }) {
+  if (hiddenInferenceTicketId !== ticket.id) {
+    await fetchHiddenPredictions(ticket.id, ticket.ref)
+  } else if (hiddenInferencePromise) {
+    await hiddenInferencePromise
+  }
+}
 
 const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
   usePendingLabelerFeedback()
@@ -143,9 +195,10 @@ async function advanceToNextTicket() {
   }
 }
 
-function handleConfirm(team: string) {
+async function handleConfirm(team: string) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
+  await ensureHiddenPredictions(ticket)
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
 
   void telemetry.recordLabelDecision({
@@ -162,7 +215,8 @@ function handleConfirm(team: string) {
     {
       ticketId: ticket.id,
       label: team,
-      prediction: null,
+      prediction: hiddenPredictions.value.prediction,
+      secondPrediction: hiddenPredictions.value.secondPrediction,
       durationMs,
       isTired: isTired.value ? true : undefined,
       isDifficult: isDifficult.value ? true : undefined,
@@ -218,8 +272,11 @@ async function handleLabelerFeedback(type: LabelerFeedbackType) {
 
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
   try {
+    await ensureHiddenPredictions(ticket)
     await retireTicketAsync({
       ticketId: ticket.id,
+      prediction: hiddenPredictions.value.prediction,
+      secondPrediction: hiddenPredictions.value.secondPrediction,
       durationMs,
       isTired: isTired.value ? true : undefined,
       isDifficult: isDifficult.value ? true : undefined,
@@ -270,6 +327,20 @@ watch(
       userOverrodeCollapse.value = false
     }
   },
+)
+
+watch(
+  selectedTicket,
+  (ticket) => {
+    if (!ticket) {
+      hiddenInferenceTicketId = null
+      hiddenInferencePromise = null
+      hiddenPredictions.value = { prediction: null, secondPrediction: null }
+      return
+    }
+    void fetchHiddenPredictions(ticket.id, ticket.ref)
+  },
+  { immediate: true },
 )
 
 function toggleListCollapse() {
