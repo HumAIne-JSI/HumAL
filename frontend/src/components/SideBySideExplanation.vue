@@ -146,7 +146,12 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
                 {{ formatSimilarity(ticket.similarity) }}% match
               </Badge>
             </div>
-            <p class="side-by-side__best-sentence">{{ bestSentence(ticket) }}</p>
+            <p
+              v-if="!isExpanded(ticketKey('historical', ticket, index))"
+              class="side-by-side__best-sentence"
+            >
+              {{ bestSentence(ticket) }}
+            </p>
             <div
               v-if="isExpanded(ticketKey('historical', ticket, index))"
               class="side-by-side__full-body"
@@ -208,7 +213,12 @@ const hasPredictedClassTickets = computed(() => props.predictedClassTickets.leng
                 {{ formatSimilarity(ticket.similarity) }}% match
               </Badge>
             </div>
-            <p class="side-by-side__best-sentence">{{ bestSentence(ticket) }}</p>
+            <p
+              v-if="!isExpanded(ticketKey('predicted-class', ticket, index))"
+              class="side-by-side__best-sentence"
+            >
+              {{ bestSentence(ticket) }}
+            </p>
             <div
               v-if="isExpanded(ticketKey('predicted-class', ticket, index))"
               class="side-by-side__full-body"
