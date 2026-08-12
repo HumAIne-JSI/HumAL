@@ -8,6 +8,7 @@ import LimeHighlightedText from '@/components/LimeHighlightedText.vue'
 import LimeExplanation from '@/components/LimeExplanation.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
 import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
+import TeamGuide from '@/components/TeamGuide.vue'
 import { useInferWithModelCheck, useInferTopK } from '@/composables/api/useInference'
 import {
   useExplainLimeMutation,
@@ -952,7 +953,10 @@ defineExpose({
                 <div class="detail-panel__decision-side">
                   <!-- Manual reassignment is separate from model confirmation. -->
                   <section class="detail-panel__reassign" data-track-region="reassign_select">
-                    <span class="detail-panel__decision-heading">Manual reassignment</span>
+                    <div class="detail-panel__reassign-heading">
+                      <span class="detail-panel__decision-heading">Manual reassignment</span>
+                      <TeamGuide :teams="props.teams" @select="selectedReassignTeam = $event" />
+                    </div>
                     <div class="detail-panel__reassign-controls">
                       <Select
                         v-model="selectedReassignTeam"
@@ -1364,6 +1368,13 @@ defineExpose({
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+  }
+
+  &__reassign-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
 
   &__reassign-controls {

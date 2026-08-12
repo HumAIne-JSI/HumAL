@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Select from '@/components/ui/Select.vue'
+import TeamGuide from '@/components/TeamGuide.vue'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
@@ -123,6 +124,7 @@ watch(
               placeholder="Select team..."
               size="sm"
             />
+            <TeamGuide :teams="props.teams" @select="selectedTeam = $event" />
             <Button
               variant="default"
               size="sm"
