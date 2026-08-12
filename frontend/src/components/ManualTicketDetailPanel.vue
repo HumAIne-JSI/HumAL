@@ -150,7 +150,7 @@ watch(
               @click="$emit('feedback', 'I_AM_TIRED')"
             >
               <Coffee :size="14" />
-              I'm Tired
+              Tired
             </Button>
             <Button
               :variant="props.isDifficult ? 'secondary' : 'ghost'"
@@ -160,7 +160,7 @@ watch(
               @click="$emit('feedback', 'DIFFICULT_TICKET')"
             >
               <AlertTriangle :size="14" />
-              Difficult Ticket
+              Difficult
             </Button>
             <Button
               variant="ghost"

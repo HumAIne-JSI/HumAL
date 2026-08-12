@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { Search, X, BookOpen } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import { TEAM_GUIDE_BY_NAME } from '@/data/teamGuide'
+import { useTutorialStore } from '@/stores/useTutorialStore'
 
 const props = defineProps<{
   teams?: string[]
@@ -14,6 +15,9 @@ const emit = defineEmits<{
 
 const isOpen = ref(false)
 const searchQuery = ref('')
+
+const tutorial = useTutorialStore()
+const tourBlocked = computed(() => tutorial.activeTour !== null)
 
 const entries = computed(() => {
   const available = props.teams ?? Object.keys(TEAM_GUIDE_BY_NAME)
@@ -28,6 +32,7 @@ const entries = computed(() => {
 })
 
 function openGuide() {
+  if (tourBlocked.value) return
   searchQuery.value = ''
   isOpen.value = true
 }
@@ -48,6 +53,8 @@ function selectTeam(team: string) {
     size="sm"
     type="button"
     data-testid="team-guide-trigger"
+    :disabled="tourBlocked"
+    :title="tourBlocked ? 'Unavailable during the tour' : undefined"
     @click="openGuide()"
   >
     <BookOpen :size="14" />
