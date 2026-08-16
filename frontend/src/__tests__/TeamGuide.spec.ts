@@ -67,6 +67,19 @@ describe('TeamGuide', () => {
     expect(document.body.querySelector('[data-testid="team-guide"]')).toBeNull()
   })
 
+  it('focuses the search input when opened', async () => {
+    const { wrapper } = mountGuide({
+      teams: ['(GI-UX) Windows'],
+    })
+
+    await wrapper.get('[data-testid="team-guide-trigger"]').trigger('click')
+    await nextTick()
+
+    const search = document.body.querySelector<HTMLInputElement>('.team-guide__search input')
+    expect(search).not.toBeNull()
+    expect(document.activeElement).toBe(search)
+  })
+
   it('cannot open while the tour is active', async () => {
     const { wrapper, pinia } = mountGuide({ teams: ['(GI-UX) Windows'] })
     const tutorial = useTutorialStore(pinia)

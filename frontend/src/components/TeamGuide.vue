@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { Search, X, BookOpen } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import { TEAM_GUIDE_BY_NAME } from '@/data/teamGuide'
@@ -15,6 +15,7 @@ const emit = defineEmits<{
 
 const isOpen = ref(false)
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
 
 const tutorial = useTutorialStore()
 const tourBlocked = computed(() => tutorial.activeTour !== null)
@@ -35,6 +36,7 @@ function openGuide() {
   if (tourBlocked.value) return
   searchQuery.value = ''
   isOpen.value = true
+  nextTick(() => searchInput.value?.focus())
 }
 
 function closeGuide() {
@@ -83,7 +85,7 @@ function selectTeam(team: string) {
 
         <div class="team-guide__search">
           <Search :size="15" />
-          <input v-model="searchQuery" type="search" placeholder="Search teams and descriptions..." />
+          <input ref="searchInput" v-model="searchQuery" type="search" placeholder="Search teams and descriptions..." />
           <button v-if="searchQuery" type="button" aria-label="Clear search" @click="searchQuery = ''">
             <X :size="13" />
           </button>
