@@ -781,4 +781,12 @@ const contentStyle = computed(() => ({
     transform: scale(0.95) translateY(-2px);
   }
 }
+
+/* While a tour is active driver.js sets pointer-events: none on everything
+   except the highlighted element and popover. The dropdown is teleported to
+   <body>, outside the highlighted element, so restore interactivity. */
+.driver-active .select-content,
+.driver-active .select-content * {
+  pointer-events: auto;
+}
 </style>

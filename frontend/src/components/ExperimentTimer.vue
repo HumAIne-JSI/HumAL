@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Pause, Play, RotateCcw, Timer } from 'lucide-vue-next'
+import { RotateCcw, Timer } from 'lucide-vue-next'
 import { useExperimentTimerStore } from '@/stores/useExperimentTimerStore'
 
 const durations = [30, 60, 90] as const
@@ -17,7 +17,6 @@ const displayTime = computed(() => `${String(Math.floor(timer.remainingSeconds /
       <button v-for="minutes in durations" :key="minutes" type="button" class="experiment-timer__duration" :class="{ 'experiment-timer__duration--active': timer.selectedMinutes === minutes }" :aria-label="`Set ${minutes} minute timer`" @click="timer.selectDuration(minutes)">{{ minutes }}m</button>
     </div>
     <strong v-if="timer.selectedMinutes" class="experiment-timer__display">{{ displayTime }}</strong>
-    <button v-if="timer.selectedMinutes" type="button" class="experiment-timer__control" :aria-label="timer.isRunning ? 'Pause timer' : 'Resume timer'" @click="timer.toggle"><Pause v-if="timer.isRunning" :size="14" /><Play v-else :size="14" /></button>
     <button v-if="timer.selectedMinutes" type="button" class="experiment-timer__control" aria-label="Reset timer" @click="timer.reset"><RotateCcw :size="14" /></button>
   </div>
 </template>

@@ -40,12 +40,7 @@ export const useExperimentTimerStore = defineStore('experimentTimer', () => {
     endsAt.value = Date.now() + pausedSeconds.value * 1000
     isRunning.value = true
   }
-  function toggle() {
-    if (!selectedMinutes.value || remainingSeconds.value === 0) return
-    if (isRunning.value) { pausedSeconds.value = remainingSeconds.value; endsAt.value = null; isRunning.value = false }
-    else { endsAt.value = Date.now() + pausedSeconds.value * 1000; isRunning.value = true }
-  }
   function reset() { selectedMinutes.value = null; endsAt.value = null; pausedSeconds.value = 0; isRunning.value = false }
 
-  return { selectedMinutes, isRunning, remainingSeconds, selectDuration, toggle, reset, dispose: () => clearInterval(intervalId) }
+  return { selectedMinutes, isRunning, remainingSeconds, selectDuration, reset, dispose: () => clearInterval(intervalId) }
 })

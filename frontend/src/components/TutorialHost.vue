@@ -10,21 +10,22 @@ import type { Config, DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import { useTutorialStore } from '@/stores/useTutorialStore'
 import type { TourSegment } from '@/stores/useTutorialStore'
-import { useAuthStore } from '@/stores/useAuthStore'
 import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useInstances } from '@/composables/api/useActiveLearning'
 import { SEGMENT_ORDER, SEGMENT_ROUTES, TOUR_STEPS } from '@/lib/tutorialSteps'
 
 const tutorial = useTutorialStore()
-const auth = useAuthStore()
 const instanceStore = useInstanceStore()
 const route = useRoute()
 const router = useRouter()
 
+// Shared with the sidebar project selector, so the list is usually cached.
+const { data: instancesData } = useInstances()
+
 let driverInstance: ReturnType<typeof driver> | null = null
 let finished = false
 let stepBatch: DriveStep[] = []
-let instanceWatcher: (() => void) | null = null
-let everStarted = false
+let autoSelectedProject = false
 
 const EXPAND_EVENT = 'humal:tutorial-expand-sidebar'
 const OPEN_FIRST_TICKET_EVENT = 'humal:tutorial-open-first-ticket'
@@ -39,33 +40,9 @@ function openFirstTicket() {
   window.dispatchEvent(new CustomEvent(OPEN_FIRST_TICKET_EVENT))
 }
 
-function disarmInstanceWatcher() {
-  instanceWatcher?.()
-  instanceWatcher = null
-}
-
-/** Watch the instance picker: completing the "pick a project" step auto-advances. */
-function armInstanceWatcher() {
-  disarmInstanceWatcher()
-  // Disposed when the tour advances; `stop` closes over the watcher handle.
-  let stop: (() => void) | null = null
-  stop = watch(
-    () => instanceStore.selectedInstanceId,
-    (id) => {
-      if (id > 0) {
-        stop?.()
-        instanceWatcher = null
-        driverInstance?.moveNext()
-      }
-    },
-  )
-  instanceWatcher = () => {
-    stop?.()
-    stop = null
-  }
-}
-
-/** Clone the static steps, wiring in per-step hooks for auto-advance. */
+/** Clone the static steps, rewording the "pick a project" step when the
+ * first available project was auto-selected. The step advances only via its
+ * Next button so the user can switch projects freely while it is shown. */
 function buildSteps(segment: TourSegment): DriveStep[] {
   const steps = TOUR_STEPS[segment]
   const indexOfPick = segment === 'project' ? 1 : -1
@@ -73,8 +50,13 @@ function buildSteps(segment: TourSegment): DriveStep[] {
     if (index !== indexOfPick) return step
     return {
       ...step,
-      onHighlighted: () => armInstanceWatcher(),
-      onDeselected: () => disarmInstanceWatcher(),
+      popover: autoSelectedProject
+        ? {
+            ...step.popover,
+            description:
+              'All queues work on the selected project. We selected the first available one for you — change it here anytime if you like. Press Next to continue.',
+          }
+        : step.popover,
     }
   })
 }
@@ -106,7 +88,6 @@ const driverConfig: Config = {
     const exitIndex = driverInstance?.getActiveIndex()
     const lastIndex = stepBatch.length - 1
     const completed = finished || (exitIndex != null && exitIndex === lastIndex)
-    disarmInstanceWatcher()
     driverInstance = null
     finished = false
     if (completed) {
@@ -132,6 +113,23 @@ function advanceChain() {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Always pick the first available project so the queue segments have real
+ * tickets to show, overwriting any previous selection. Returns true when a
+ * project was auto-selected. Skips silently when the list is empty/unavailable. */
+async function autoSelectFirstInstance(): Promise<boolean> {
+  const deadline = Date.now() + 6000
+  while (Date.now() < deadline) {
+    const instances = instancesData.value?.instances
+    const firstKey = instances ? Object.keys(instances)[0] : undefined
+    if (firstKey) {
+      instanceStore.setInstance(firstKey)
+      return true
+    }
+    await wait(200)
+  }
+  return false
+}
+
 async function runSegment(segment: TourSegment) {
   if (driverInstance?.isActive()) driverInstance.destroy()
   if (segment === 'project') expandSidebar()
@@ -141,6 +139,10 @@ async function runSegment(segment: TourSegment) {
     await router.push({ name: routeName })
     // Let the page render its container elements before driving.
     await wait(400)
+  }
+
+  if (segment === 'project') {
+    autoSelectedProject = await autoSelectFirstInstance()
   }
 
   if (segment === 'manualQueue' || segment === 'ticketQueue') {
@@ -163,21 +165,7 @@ watch(
   },
 )
 
-// First-run intro: as soon as a signed-in user lands in the app shell and has
-// never completed the chain, walk them through it once.
-watch(
-  () => auth.isAuthenticated,
-  (authed) => {
-    if (authed && !tutorial.introChainSeen && !everStarted && !route.meta?.standalone) {
-      everStarted = true
-      setTimeout(() => tutorial.runChain(), 800)
-    }
-  },
-  { immediate: true },
-)
-
 onBeforeUnmount(() => {
-  disarmInstanceWatcher()
   if (driverInstance?.isActive()) driverInstance.destroy()
   driverInstance = null
 })
