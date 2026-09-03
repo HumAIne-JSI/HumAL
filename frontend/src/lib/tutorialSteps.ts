@@ -48,7 +48,7 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
       popover: {
         title: 'Experiment timer',
         description:
-          'A 30/60/90-minute countdown sits in the bottom-right corner. Start it before your session and keep an eye on it. ' +
+          'A 90-minute countdown sits in the bottom-right corner. Press play to start it before your session and keep an eye on it. ' +
           'It lets you know when the session is about to end.',
         side: 'top',
       },
