@@ -22,10 +22,10 @@ CMD ["nginx", "-g", "daemon off;"]
 ## docker login harbor.gftinnovation.eu
 
 ### 2. Builda l'immagine
-## docker build -t humaine-smart-ticketing-fe:1.1.0 .
+## docker build -t humaine-smart-ticketing-fe:1.1.2 .
 
 ### 3. Tagga l'immagine per il registry Harbor
-## docker tag humaine-smart-ticketing-fe:1.1.0 harbor.gftinnovation.eu/humaine/humaine-smart-ticketing-fe:1.1.0
+## docker tag humaine-smart-ticketing-fe:1.1.2 harbor.gftinnovation.eu/humaine/humaine-smart-ticketing-fe:1.1.2
 
 ### 4. Esegui il push
-## docker push harbor.gftinnovation.eu/humaine/humaine-smart-ticketing-fe:1.1.0
+## docker push harbor.gftinnovation.eu/humaine/humaine-smart-ticketing-fe:1.1.2
