@@ -8,7 +8,6 @@ import Spinner from '@/components/ui/Spinner.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import TicketDetailPanel from '@/components/TicketDetailPanel.vue'
-import BreakModal from '@/components/BreakModal.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
@@ -16,8 +15,7 @@ import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { AUTO_CLOSE_CONFIDENCE } from '@/composables/useUserBehaviorAggregator'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
-import { useLabelerFeedbackMutation } from '@/composables/api/useActiveLearning'
-import { useCapabilities } from '@/composables/api/useConfig'
+import { usePendingLabelerFeedback } from '@/composables/usePendingLabelerFeedback'
 import type { TicketStatus, SortOrder } from '@/stores/useTicketQueueStore'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
@@ -80,7 +78,7 @@ watch(
     if (newId > 0) {
       router.replace({ query: { ...route.query, instance: String(newId) } })
     }
-  }
+  },
 )
 
 // Ticket queue composable
@@ -101,6 +99,7 @@ const {
   setFilter,
   resetFilters,
   labelTicket,
+  retireTicketAsync,
   isLabeling,
   bulkLabel,
   isBulkLabeling,
@@ -112,14 +111,16 @@ const {
   autoFetch: true,
 })
 
-// Keyboard navigation
 const {
-  shortcuts,
-  isHelpOpen,
-  registerNavigationShortcuts,
-  openHelp,
-  closeHelp,
-} = useKeyboardNavigation()
+  isTired,
+  isDifficult,
+  toggle: togglePendingFeedback,
+  reset: resetPendingFeedback,
+} = usePendingLabelerFeedback()
+
+// Keyboard navigation
+const { shortcuts, isHelpOpen, registerNavigationShortcuts, openHelp, closeHelp } =
+  useKeyboardNavigation()
 
 // Register keyboard shortcuts
 registerNavigationShortcuts({
@@ -161,25 +162,47 @@ registerNavigationShortcuts({
   },
 })
 
+async function advanceToNextTicket() {
+  try {
+    await refresh()
+    if (selectNext()) {
+      selectionStartMs.value = Date.now()
+    }
+  } catch (e) {
+    toast.error('Failed to load the next ticket', { description: (e as Error).message })
+  }
+}
+
 // Handle confirm prediction
-function handleConfirm(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
+function handleConfirm(
+  team: string,
+  meta: {
+    prediction?: string | null
+    secondPrediction?: string | null
+    confidence?: number | null
+    predictionRank?: number
+  } = {},
+) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
+  const isAlternativePrediction = (meta.predictionRank ?? 1) > 1
+  const decisionAction = isAlternativePrediction ? 'override_label' : 'confirm_label'
 
   void telemetry.recordLabelDecision({
-    action: 'confirm_label',
+    action: decisionAction,
     ticketRef: ticket.ref ?? ticket.id,
     page: 'queue_aided',
     label: team,
     prediction: meta.prediction ?? team,
     confidence: meta.confidence ?? null,
+    predictionRank: meta.predictionRank ?? 1,
     durationMs,
   })
 
   // A high-confidence prediction that the operator confirms is effectively
   // managed & closed by the AI (programme KPI: % auto-managed & closed).
-  if ((meta.confidence ?? 0) >= AUTO_CLOSE_CONFIDENCE) {
+  if (!isAlternativePrediction && (meta.confidence ?? 0) >= AUTO_CLOSE_CONFIDENCE) {
     void telemetry.recordAutoClose(ticket.ref ?? ticket.id, 'queue_aided', {
       confidence: meta.confidence ?? null,
       prediction: meta.prediction ?? team,
@@ -187,10 +210,19 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
   }
 
   labelTicket(
-    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? team, durationMs },
+    {
+      ticketId: ticket.id,
+      label: team,
+      prediction: meta.prediction ?? team,
+      secondPrediction: meta.secondPrediction ?? null,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    },
     {
       onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
+        resetPendingFeedback()
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -200,7 +232,10 @@ function handleConfirm(team: string, meta: { prediction?: string | null; confide
 }
 
 // Handle reassign
-function handleReassign(team: string, meta: { prediction?: string | null; confidence?: number | null } = {}) {
+function handleReassign(
+  team: string,
+  meta: { prediction?: string | null; secondPrediction?: string | null; confidence?: number | null } = {},
+) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
@@ -216,10 +251,19 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team, prediction: meta.prediction ?? null, durationMs },
+    {
+      ticketId: ticket.id,
+      label: team,
+      prediction: meta.prediction ?? null,
+      secondPrediction: meta.secondPrediction ?? null,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    },
     {
       onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
+        resetPendingFeedback()
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to reassign ticket')
@@ -228,56 +272,64 @@ function handleReassign(team: string, meta: { prediction?: string | null; confid
   )
 }
 
-// Labeler feedback (skip-with-reason). Telemetry fires unconditionally so
-// click tracking works even when the backend feedback endpoint is unavailable;
-// the API call itself is capability-gated.
-const feedbackMutation = useLabelerFeedbackMutation(selectedInstanceId)
-const { data: capabilities } = useCapabilities()
-const labelerFeedbackEnabled = computed(() =>
-  (capabilities.value?.capabilities ?? []).includes('labeler_feedback'),
-)
-const breakModalOpen = ref(false)
-
 const FEEDBACK_TOAST: Record<LabelerFeedbackType, { title: string; description: string }> = {
-  I_AM_TIRED: { title: 'Time for a break', description: 'We saved your spot — resume when ready.' },
-  DIFFICULT_TICKET: { title: 'Marked as difficult', description: 'Loading another ticket…' },
+  I_AM_TIRED: {
+    title: 'Tired feedback selected',
+    description: 'Choose a label to submit this feedback.',
+  },
+  DIFFICULT_TICKET: {
+    title: 'Difficult feedback selected',
+    description: 'Choose a label to submit this feedback.',
+  },
   I_DONT_KNOW: { title: "Skipped: don't know", description: 'Loading another ticket…' },
 }
 
 async function handleLabelerFeedback(type: LabelerFeedbackType) {
   const ticket = selectedTicket.value
   const ticketRef = ticket?.ref ?? ticket?.id ?? null
+  if (!ticket) {
+    toast.error('No ticket selected', { description: 'Select a ticket first' })
+    return
+  }
 
-  // Always-on telemetry, even when the backend doesn't support feedback yet.
+  const copy = FEEDBACK_TOAST[type]
+  if (type !== 'I_DONT_KNOW') {
+    togglePendingFeedback(type)
+    const selected = type === 'I_AM_TIRED' ? isTired.value : isDifficult.value
+    void telemetry.recordLab('labeler_feedback', 'Ticket', {
+      feedback_type: type,
+      selected,
+      ticket_ref: ticketRef,
+      page: 'queue_aided',
+    })
+    toast.info(selected ? copy.title : `${copy.title} cleared`, {
+      description: selected ? copy.description : 'The next label will not include this flag.',
+    })
+    return
+  }
+
   void telemetry.recordLab('labeler_feedback', 'Ticket', {
     feedback_type: type,
+    selected: true,
     ticket_ref: ticketRef,
     page: 'queue_aided',
   })
 
-  if (labelerFeedbackEnabled.value && ticket) {
-    try {
-      await feedbackMutation.mutateAsync({
-        query_idx: ticket.id,
-        feedback_type: type,
-      })
-    } catch (e) {
-      toast.error('Failed to submit feedback', { description: (e as Error).message })
-    }
+  const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
+  try {
+    await retireTicketAsync({
+      ticketId: ticket.id,
+      prediction: ticket.prediction ?? null,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    })
+    resetPendingFeedback()
+    toast.info(copy.title, { description: copy.description })
+    await advanceToNextTicket()
+  } catch (e) {
+    toast.error('Failed to skip ticket', { description: (e as Error).message })
   }
-
-  const copy = FEEDBACK_TOAST[type]
-  toast.info(copy.title, { description: copy.description })
-
-  if (type === 'I_AM_TIRED') {
-    breakModalOpen.value = true
-  } else {
-    selectNext()
-  }
-}
-
-function handleResumeFromBreak() {
-  selectNext()
 }
 
 // Bulk action inline feedback
@@ -304,7 +356,7 @@ function handleBulkApprove() {
       onError: () => {
         toast.error('Bulk action failed')
       },
-    }
+    },
   )
 }
 
@@ -318,6 +370,7 @@ const userOverrodeCollapse = ref(false)
 watch(
   () => selectedTicket.value?.id ?? null,
   (newId, oldId) => {
+    if (newId !== oldId) resetPendingFeedback()
     if (newId && !oldId) {
       if (!userOverrodeCollapse.value && !hasBulkSelection.value) {
         isListCollapsed.value = true
@@ -326,7 +379,7 @@ watch(
       isListCollapsed.value = false
       userOverrodeCollapse.value = false
     }
-  }
+  },
 )
 
 watch(hasBulkSelection, (hasSelection, hadSelection) => {
@@ -340,11 +393,60 @@ function toggleListCollapse() {
   userOverrodeCollapse.value = true
 }
 
+// The tutorial guide opens the first ticket automatically so its steps can
+// highlight the AI aids. Keep the queue rail expanded for the tour.
+const OPEN_FIRST_TICKET_EVENT = 'humal:tutorial-open-first-ticket'
+const OPEN_FIRST_TICKET_TIMEOUT = 30000
+
+let stopOpenFirstTicketWatch: (() => void) | undefined
+let openFirstTicketTimer: ReturnType<typeof setTimeout> | undefined
+
+function openFirstTicketForTutorial() {
+  userOverrodeCollapse.value = true
+
+  const first = tickets.value[0]
+  if (first) {
+    selectTicket(first.id)
+    return
+  }
+
+  clearTimeout(openFirstTicketTimer)
+  stopOpenFirstTicketWatch?.()
+
+  const stop = watch(tickets, (list) => {
+    const ticket = list[0]
+    if (!ticket) return
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+    clearTimeout(openFirstTicketTimer)
+    openFirstTicketTimer = undefined
+    selectTicket(ticket.id)
+  })
+  stopOpenFirstTicketWatch = stop
+
+  openFirstTicketTimer = setTimeout(() => {
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+  }, OPEN_FIRST_TICKET_TIMEOUT)
+}
+
+onMounted(() => {
+  window.addEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+})
+
+onUnmounted(() => {
+  window.removeEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+  stopOpenFirstTicketWatch?.()
+  clearTimeout(openFirstTicketTimer)
+})
+
 // Mount the delegated click listener once for this page.
 useClickTracking('queue_aided', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
 
 // Emit view_ticket_start / view_ticket_end for time-on-ticket analytics.
-const viewedTicketRef = computed(() => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
+const viewedTicketRef = computed(
+  () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null,
+)
 useTicketViewLifecycle({ selectedTicketRef: viewedTicketRef, page: 'queue_aided' })
 
 // Grouped shortcuts by category for help modal
@@ -419,21 +521,26 @@ const groupedShortcuts = computed(() => {
 
         <!-- Bulk Actions Bar -->
         <Transition name="bulk-bar">
-        <div v-if="hasBulkSelection && !isListCollapsed" class="ticket-queue__bulk-bar">
-          <span class="ticket-queue__bulk-count">
-            <CheckSquare :size="14" />
-            {{ bulkSelectedTickets.length }} selected
-          </span>
-          <div class="ticket-queue__bulk-actions">
-            <Button variant="default" size="sm" @click="handleBulkApprove" :disabled="isBulkLabeling">
-              Approve All
-            </Button>
-            <Button variant="ghost" size="sm" @click="clearBulkSelection">
-              <X :size="14" />
-              Clear
-            </Button>
+          <div v-if="hasBulkSelection && !isListCollapsed" class="ticket-queue__bulk-bar">
+            <span class="ticket-queue__bulk-count">
+              <CheckSquare :size="14" />
+              {{ bulkSelectedTickets.length }} selected
+            </span>
+            <div class="ticket-queue__bulk-actions">
+              <Button
+                variant="default"
+                size="sm"
+                @click="handleBulkApprove"
+                :disabled="isBulkLabeling"
+              >
+                Approve All
+              </Button>
+              <Button variant="ghost" size="sm" @click="clearBulkSelection">
+                <X :size="14" />
+                Clear
+              </Button>
+            </div>
           </div>
-        </div>
         </Transition>
 
         <!-- Bulk Feedback Banner -->
@@ -453,12 +560,8 @@ const groupedShortcuts = computed(() => {
         <div v-else-if="tickets.length === 0" class="ticket-queue__empty">
           <Inbox :size="48" class="ticket-queue__empty-icon" />
           <h3>No tickets found</h3>
-          <p v-if="filters.search">
-            Try adjusting your filters
-          </p>
-          <p v-else>
-            No tickets are available for this project
-          </p>
+          <p v-if="filters.search">Try adjusting your filters</p>
+          <p v-else>No tickets are available for this project</p>
         </div>
 
         <!-- Ticket List -->
@@ -488,7 +591,9 @@ const groupedShortcuts = computed(() => {
           :instance-id="selectedInstanceId"
           :teams="teams"
           :show-xai="true"
-          :feedback-pending="feedbackMutation.isPending.value"
+          :feedback-pending="isLabeling"
+          :is-tired="isTired"
+          :is-difficult="isDifficult"
           @close="selectTicket(null)"
           @confirm="handleConfirm"
           @reassign="handleReassign"
@@ -497,9 +602,6 @@ const groupedShortcuts = computed(() => {
         />
       </div>
     </div>
-
-    <!-- "Time for a break" modal -->
-    <BreakModal v-model:open="breakModalOpen" @resume="handleResumeFromBreak" />
 
     <!-- Keyboard Shortcuts Modal -->
     <Teleport to="body">
@@ -594,7 +696,10 @@ const groupedShortcuts = computed(() => {
     max-width: 500px;
     border-right: 1px solid var(--border);
     background: var(--card);
-    transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+    transition:
+      width 0.2s ease,
+      min-width 0.2s ease,
+      max-width 0.2s ease;
 
     &--collapsed {
       width: 64px;
@@ -621,7 +726,10 @@ const groupedShortcuts = computed(() => {
     border-radius: 999px;
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s ease;
 
     &:hover {
       color: var(--foreground);

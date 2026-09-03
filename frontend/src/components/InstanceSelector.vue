@@ -38,10 +38,9 @@ const instanceOptions = computed(() => {
   return Object.entries(instances)
     .map(([id, info]) => {
       const accuracy = info.test_accuracy ?? info.training_accuracy
-      const accuracyStr = accuracy !== undefined ? ` - ${(accuracy * 100).toFixed(1)}%` : ''
       return {
         value: id,
-        label: `#${id} - ${info.model_name ?? info.model ?? 'Unknown'} (${info.qs ?? 'N/A'})${accuracyStr}`,
+        label: `#${id}`,
         trained: accuracy !== undefined,
       }
     })

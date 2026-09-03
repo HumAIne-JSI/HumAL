@@ -194,17 +194,17 @@ Mock mode OFF (live) → the branch backend has no generic /analytics/* telemetr
 
 Granular UX telemetry (clicks, open_page, tab_change, view_ticket_*, filters, etc.) is a no-op — see the early return in recordLab in useBenchmarkTelemetry.ts and the dropped postTelemetryEvent in router/index.ts. It is not sent anywhere.
 
-The only telemetry that reaches the backend is a human label decision, sent at the moment you confirm or override a ticket, via POST /activelearning/{id}/label-with-info. That fires from:
+The only decision telemetry that reaches the backend is sent via POST /activelearning/{id}/label-with-info. Confirm, override, and I Don't Know all use this endpoint:
 
-useTicketQueue.ts (single confirm/override in TicketQueue/ManualQueue), and
-Dispatching.vue (confirmPrediction / reassignTeam).
-The payload carries ticket_id, label, model_prediction, start_time/end_time (decision timing), and optional explanation / most_helpful_feature. Server-side this logs an al_events row + stages a label_decision, and the benchmarking service exports to MinIO once enough confirm/override events accumulate.
+useTicketQueue.ts (single decisions in TicketQueue/ManualQueue), and
+Dispatching.vue (confirmPrediction / reassignTeam / I Don't Know).
+Labeled decisions carry ticket_id, label, model_prediction, start_time/end_time (decision timing), and optional satisfaction flags. I Don't Know omits label and sends i_dont_know=true, which retires the ticket without training on it. Server-side this logs an al_events row + stages a label_decision, and the benchmarking service exports to MinIO once enough decisions accumulate.
 
 Bulk labeling still uses PUT /activelearning/{id}/label (persists the label but is not the rich telemetry channel — no per-ticket timing).
 
 In live mode both Analytics tabs render sample/empty data (guarded to avoid 404s), so they're effectively mock-only features with this backend.
 
-In one sentence: in live mode the backend only receives telemetry when you label a ticket (through label-with-info); everything else the dashboards show is client-side only and, in mock mode, nothing is sent at all.
+In one sentence: in live mode the backend only receives decision telemetry through label-with-info; everything else the dashboards show is client-side only and, in mock mode, nothing is sent at all.
 
 
 

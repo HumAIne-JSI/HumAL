@@ -11,11 +11,11 @@
  *   telemetry.recordClick('confirm_button', 'TKT-1', 'queue_aided');
  *   telemetry.recordLabelDecision({ action: 'confirm_label', ticketRef: 'TKT-1', page: 'queue_aided', label: 'Team A', prediction: 'Team A', confidence: 0.87, durationMs: 4321 });
  */
-import { useInstanceStore } from '@/stores/useInstanceStore';
-import { useMockModeStore } from '@/stores/useMockModeStore';
-import { useTelemetryStore } from '@/stores/useTelemetryStore';
-import { useAuthStore } from '@/stores/useAuthStore';
-import type { ObjectId } from '@/types/api';
+import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useMockModeStore } from '@/stores/useMockModeStore'
+import { useTelemetryStore } from '@/stores/useTelemetryStore'
+import { useAuthStore } from '@/stores/useAuthStore'
+import type { ObjectId } from '@/types/api'
 
 // Allow-list mirrors backend AGENT_AFFORDANCES[AgentId.LAB] + UX-only events
 // that the dashboard needs (view_*, run_*, change_*, create_*, tab_change, export).
@@ -49,16 +49,16 @@ const LAB_AFFORDANCES = new Set([
   // Ticket-lifecycle events for programme KPIs (AI auto-close, re-open)
   'ticket_auto_closed',
   'ticket_reopened',
-]);
+])
 
-export type LabAction = (typeof LAB_AFFORDANCES extends Set<infer T> ? T : never) | string;
-export type LabPage = 'queue_aided' | 'queue_manual' | 'new_instance' | string;
+export type LabAction = (typeof LAB_AFFORDANCES extends Set<infer T> ? T : never) | string
+export type LabPage = 'queue_aided' | 'queue_manual' | 'new_instance' | string
 
 export function useBenchmarkTelemetry() {
-  const instanceStore = useInstanceStore();
-  const mockStore = useMockModeStore();
-  const telemetryStore = useTelemetryStore();
-  const authStore = useAuthStore();
+  const instanceStore = useInstanceStore()
+  const mockStore = useMockModeStore()
+  const telemetryStore = useTelemetryStore()
+  const authStore = useAuthStore()
 
   function recordLab(
     action: string,
@@ -67,17 +67,17 @@ export function useBenchmarkTelemetry() {
     options: { duration_s?: number; interaction_id?: string; latency_ms?: number } = {},
   ): Promise<void> {
     if (!LAB_AFFORDANCES.has(action)) {
-      console.warn('[telemetry] unrecognised LAB action:', action);
-      return Promise.resolve();
+      console.warn('[telemetry] unrecognised LAB action:', action)
+      return Promise.resolve()
     }
-    const instanceId = instanceStore.selectedInstanceId;
-    const resolvedInstanceId = instanceId && instanceId > 0 ? instanceId : null;
+    const instanceId = instanceStore.selectedInstanceId
+    const resolvedInstanceId = instanceId && instanceId > 0 ? instanceId : null
     const latencyMs =
       options.latency_ms != null
         ? Math.round(options.latency_ms)
         : options.duration_s != null
           ? Math.round(options.duration_s * 1000)
-          : null;
+          : null
 
     // Unified pipeline: every tracked interaction is recorded to the local
     // event store in BOTH mock and live mode. Events are tagged with the mode
@@ -96,8 +96,8 @@ export function useBenchmarkTelemetry() {
       payload: { ...effect, object },
       user_id: authStore.user?.user_id || null,
       mock: mockStore.mockEnabled,
-    });
-    return Promise.resolve();
+    })
+    return Promise.resolve()
   }
 
   /**
@@ -109,7 +109,7 @@ export function useBenchmarkTelemetry() {
     latencyMs: number,
     effect: Record<string, unknown> = {},
   ): Promise<void> {
-    return recordLab(action, 'Mdl', effect, { latency_ms: latencyMs });
+    return recordLab(action, 'Mdl', effect, { latency_ms: latencyMs })
   }
 
   /**
@@ -121,7 +121,7 @@ export function useBenchmarkTelemetry() {
     page: LabPage,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    return recordLab('ticket_auto_closed', 'Ticket', { ticket_ref: ticketRef, page, ...extra });
+    return recordLab('ticket_auto_closed', 'Ticket', { ticket_ref: ticketRef, page, ...extra })
   }
 
   /**
@@ -133,7 +133,7 @@ export function useBenchmarkTelemetry() {
     page: LabPage,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    return recordLab('ticket_reopened', 'Ticket', { ticket_ref: ticketRef, page, ...extra });
+    return recordLab('ticket_reopened', 'Ticket', { ticket_ref: ticketRef, page, ...extra })
   }
 
   function recordClick(
@@ -147,17 +147,18 @@ export function useBenchmarkTelemetry() {
       ticket_ref: ticketRef,
       page,
       ...extra,
-    });
+    })
   }
 
   function recordLabelDecision(args: {
-    action: 'confirm_label' | 'override_label';
-    ticketRef: string | null;
-    page: LabPage;
-    label: string;
-    prediction?: string | null;
-    confidence?: number | null;
-    durationMs?: number | null;
+    action: 'confirm_label' | 'override_label'
+    ticketRef: string | null
+    page: LabPage
+    label: string
+    prediction?: string | null
+    confidence?: number | null
+    predictionRank?: number | null
+    durationMs?: number | null
   }): Promise<void> {
     return recordLab(
       args.action,
@@ -168,11 +169,12 @@ export function useBenchmarkTelemetry() {
         label: args.label,
         prediction: args.prediction ?? null,
         confidence: args.confidence ?? null,
+        prediction_rank: args.predictionRank ?? null,
       },
       {
         duration_s: args.durationMs != null ? args.durationMs / 1000 : undefined,
       },
-    );
+    )
   }
 
   function recordView(
@@ -197,9 +199,16 @@ export function useBenchmarkTelemetry() {
         ...extra,
       },
       options,
-    );
+    )
   }
 
-  return { recordLab, recordClick, recordLabelDecision, recordView, recordLatency, recordAutoClose, recordReopen };
+  return {
+    recordLab,
+    recordClick,
+    recordLabelDecision,
+    recordView,
+    recordLatency,
+    recordAutoClose,
+    recordReopen,
+  }
 }
-

@@ -4,9 +4,11 @@ import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import Select from '@/components/ui/Select.vue'
-import PredictionResult from '@/components/PredictionResult.vue'
+import LimeHighlightedText from '@/components/LimeHighlightedText.vue'
+import LimeExplanation from '@/components/LimeExplanation.vue'
 import SideBySideExplanation from '@/components/SideBySideExplanation.vue'
 import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
+import TeamGuide from '@/components/TeamGuide.vue'
 import { useInferWithModelCheck, useInferTopK } from '@/composables/api/useInference'
 import {
   useExplainLimeMutation,
@@ -22,10 +24,12 @@ import type {
   InferenceData,
   InferenceResponse,
   ExplainLimeResponse,
+  Neighbor,
   NearestTicketResponse,
   TopKPrediction,
   PerClassSimilarTicket,
   LabelerFeedbackType,
+  TicketAnalysisSource,
 } from '@/types/api'
 import {
   X,
@@ -33,7 +37,6 @@ import {
   Check,
   CheckCircle,
   ChevronRight,
-  RefreshCw,
   Coffee,
   AlertTriangle,
   HelpCircle,
@@ -46,17 +49,34 @@ export interface TicketDetailPanelProps {
   teams?: string[]
   showXai?: boolean
   feedbackPending?: boolean
+  isTired?: boolean
+  isDifficult?: boolean
 }
 
 const props = withDefaults(defineProps<TicketDetailPanelProps>(), {
   showXai: true,
   feedbackPending: false,
+  isTired: false,
+  isDifficult: false,
 })
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'confirm', team: string, meta: { prediction?: string | null; confidence?: number | null }): void
-  (e: 'reassign', team: string, meta: { prediction?: string | null; confidence?: number | null }): void
+  (
+    e: 'confirm',
+    team: string,
+    meta: {
+      prediction?: string | null
+      secondPrediction?: string | null
+      confidence?: number | null
+      predictionRank?: number
+    },
+  ): void
+  (
+    e: 'reassign',
+    team: string,
+    meta: { prediction?: string | null; secondPrediction?: string | null; confidence?: number | null },
+  ): void
   (e: 'next'): void
   (e: 'labeled'): void
   (e: 'feedback', type: LabelerFeedbackType): void
@@ -69,11 +89,12 @@ const telemetry = useBenchmarkTelemetry()
 const prediction = ref<InferenceResponse | null>(null)
 const explanation = ref<ExplainLimeResponse | null>(null)
 const nearestTickets = ref<NearestTicketResponse | null>(null)
-const similarTicketBody = ref<{ title?: string; description?: string } | null>(null)
+const neighborTicketBodies = ref<Record<string, { title?: string; description?: string }>>({})
 const loadingSimilarBody = ref(false)
 const selectedReassignTeam = ref<string>('')
 const showLabeledFlash = ref(false)
 const labeledTeamName = ref('')
+const showLimeHighlights = ref(false)
 const mockInferring = ref(false)
 const mockExplaining = ref(false)
 const mockFindingNearest = ref(false)
@@ -83,16 +104,12 @@ const topKPredictions = ref<TopKPrediction[]>([])
 const similarPerClass = ref<PerClassSimilarTicket[]>([])
 const isLoadingSimilarPerClass = ref(false)
 
-// Backend capabilities — feature-gate optional UI. Mock mode bypasses the
-// gate so the UX is exercised end-to-end without backend support for the
-// new top-K / per-class endpoints.
+// Backend capabilities gate only the optional per-class similar-ticket UI.
+// Ranked predictions are a required queue input and come from infer_proba.
 const { data: capabilities } = useCapabilities()
 const capabilitySet = computed(() => new Set(capabilities.value?.capabilities ?? []))
-const topKEnabled = computed(() =>
-  mockStore.mockEnabled || capabilitySet.value.has('top_k_inference'),
-)
-const perClassSimilarEnabled = computed(() =>
-  mockStore.mockEnabled || capabilitySet.value.has('similar_tickets_per_class'),
+const perClassSimilarEnabled = computed(
+  () => mockStore.mockEnabled || capabilitySet.value.has('similar_tickets_per_class'),
 )
 
 // ---------------------------------------------------------------------------
@@ -120,17 +137,69 @@ function mulberry32(seed: number) {
   }
 }
 const MOCK_STOP = new Set([
-  'the','and','for','with','that','this','from','have','has','are','was','were',
-  'but','not','can','cannot','all','any','will','when','where','what','which',
-  'into','about','been','because','just','only','over','under','after','before',
-  'their','there','they','them','then','than','these','those','your','please',
-  'thanks','need','needs','tried','using','use','get','got','make','made',
+  'the',
+  'and',
+  'for',
+  'with',
+  'that',
+  'this',
+  'from',
+  'have',
+  'has',
+  'are',
+  'was',
+  'were',
+  'but',
+  'not',
+  'can',
+  'cannot',
+  'all',
+  'any',
+  'will',
+  'when',
+  'where',
+  'what',
+  'which',
+  'into',
+  'about',
+  'been',
+  'because',
+  'just',
+  'only',
+  'over',
+  'under',
+  'after',
+  'before',
+  'their',
+  'there',
+  'they',
+  'them',
+  'then',
+  'than',
+  'these',
+  'those',
+  'your',
+  'please',
+  'thanks',
+  'need',
+  'needs',
+  'tried',
+  'using',
+  'use',
+  'get',
+  'got',
+  'make',
+  'made',
 ])
+const NEAREST_TICKET_TOP_K = 2
 function mockTokens(text: string): string[] {
   if (!text) return []
   const seen = new Set<string>()
   const out: string[] = []
-  for (const w of text.toLowerCase().replace(/[^a-z0-9\s\-]/g, ' ').split(/\s+/)) {
+  for (const w of text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s\-]/g, ' ')
+    .split(/\s+/)) {
     if (w.length >= 4 && !MOCK_STOP.has(w) && !seen.has(w)) {
       seen.add(w)
       out.push(w)
@@ -161,7 +230,10 @@ function generateMockPrediction(): InferenceResponse {
   probabilities[classes[i1] as string] = Number(p1.toFixed(3))
   probabilities[classes[i2] as string] = Number(Math.max(0.05, p2).toFixed(3))
   // Distribute the rest as small noise across remaining classes.
-  let leftover = Math.max(0, 1 - probabilities[classes[i1] as string]! - probabilities[classes[i2] as string]!)
+  let leftover = Math.max(
+    0,
+    1 - probabilities[classes[i1] as string]! - probabilities[classes[i2] as string]!,
+  )
   const others = classes.filter((_, idx) => idx !== i1 && idx !== i2)
   for (const c of others) {
     const v = leftover * (0.1 + rng() * 0.3)
@@ -177,7 +249,8 @@ function generateMockPrediction(): InferenceResponse {
 function generateMockLime(): ExplainLimeResponse {
   const rng = mulberry32(mockSeed() ^ 0xa5a5a5a5)
   const tokens = mockTokens(`${props.ticket?.title ?? ''} ${props.ticket?.description ?? ''}`)
-  const pool = tokens.length > 0 ? tokens : ['ticket', 'request', 'issue', 'system', 'access', 'report']
+  const pool =
+    tokens.length > 0 ? tokens : ['ticket', 'request', 'issue', 'system', 'access', 'report']
   const shuffled = [...pool]
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
@@ -194,7 +267,7 @@ function generateMockLime(): ExplainLimeResponse {
       prediction: { label: '', probabilities: {} },
       word_weights: top.map(([word, weight]) => ({ word, weight })),
       highlighted_tokens: [],
-      index: 0,
+      index: props.ticket?.ref ?? '',
       error: null,
       class_explanations: [],
     },
@@ -203,16 +276,31 @@ function generateMockLime(): ExplainLimeResponse {
 function generateMockNearest(pred: InferenceResponse): NearestTicketResponse {
   const rng = mulberry32(mockSeed() ^ 0x13572468)
   const refBase = props.ticket?.ref ?? 'TKT-0000'
-  const neighbor = {
-    ref: `${refBase}-N1`,
-    label: String(pred.prediction),
-    similarity: Number((0.72 + rng() * 0.18).toFixed(3)),
-    title: props.ticket?.title ?? null,
+  const makeNeighbor = (role: 'H' | 'P', index: number, label: string) => {
+    const body = generateMockSimilarBody()
+    const description =
+      `${body.description} ${index === 1 ? 'A second related case was reviewed for comparison.' : ''}`.trim()
+    return {
+      ref: `${refBase}-${role}${index + 1}`,
+      label,
+      similarity: Number((0.68 + rng() * 0.18 - index * 0.08).toFixed(3)),
+      title: `${body.title} ${index + 1}`,
+      description,
+      best_sentence: firstSentence(description),
+    }
   }
+  const historicalNeighbors = [
+    makeNeighbor('H', 0, 'Previously resolved'),
+    makeNeighbor('H', 1, 'Previously resolved'),
+  ]
+  const predictedClassNeighbors = [
+    makeNeighbor('P', 0, String(pred.prediction)),
+    makeNeighbor('P', 1, String(pred.prediction)),
+  ]
   return {
     query_idx: null,
-    predicted_class_neighbors: [neighbor],
-    historical_neighbors: [neighbor],
+    predicted_class_neighbors: predictedClassNeighbors,
+    historical_neighbors: historicalNeighbors,
   }
 }
 /** First available neighbour across predicted-class then historical lists. */
@@ -224,11 +312,7 @@ function generateMockSimilarBody(): { title: string; description: string } {
   const rng = mulberry32(mockSeed() ^ 0x9e3779b9)
   const baseTitle = props.ticket?.title ?? 'Past ticket'
   const baseDesc = props.ticket?.description ?? 'Past ticket description.'
-  const variations = [
-    'Previously reported — ',
-    'Past case: ',
-    'Earlier ticket: ',
-  ]
+  const variations = ['Previously reported — ', 'Past case: ', 'Earlier ticket: ']
   const tail = [
     ' Resolved by reassigning to the responsible team.',
     ' Closed after the requester confirmed the fix.',
@@ -281,47 +365,53 @@ const {
   mutate: runInference,
   isPending: isInferring,
   reset: resetInference,
-} = useInferWithModelCheck(computed(() => props.instanceId), {
-  onSuccess: (data) => {
-    prediction.value = data
-    telemetry.recordView(
-      'inspect_ticket',
-      props.ticket?.ref ?? props.ticket?.id ?? null,
-      'queue_aided',
-      { prediction: data.prediction, confidence: data.confidence ?? null },
-    )
-    // Auto-trigger XAI after prediction
-    if (props.showXai && props.ticket) {
-      runXaiAnalysis()
-    }
-    // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
-    if (props.ticket && topKEnabled.value && perClassSimilarEnabled.value) {
-      void fetchTopKAndPerClass(buildInferenceData(props.ticket))
-    }
+} = useInferWithModelCheck(
+  computed(() => props.instanceId),
+  {
+    onSuccess: (data) => {
+      prediction.value = data
+      telemetry.recordView(
+        'inspect_ticket',
+        props.ticket?.ref ?? props.ticket?.id ?? null,
+        'queue_aided',
+        { prediction: data.prediction, confidence: data.confidence ?? null },
+      )
+      // Auto-trigger XAI after prediction
+      if (props.showXai && props.ticket) {
+        runXaiAnalysis()
+      }
+       // Top-K predictions drive the queue's confirmation choices. Similar
+      // tickets remain an optional follow-up using the same ranked classes.
+      if (props.ticket) {
+        void fetchTopKAndPerClass(buildAnalysisSource(props.ticket))
+      }
+    },
   },
-})
+)
 
 // Top-K + per-class similar tickets mutations
-const inferTopKMutation = useInferTopK(computed(() => props.instanceId), 2)
-const perClassMutation = useNearestTicketsPerClassMutation(
+const inferTopKMutation = useInferTopK(
   computed(() => props.instanceId),
+  2,
 )
+const perClassMutation = useNearestTicketsPerClassMutation(computed(() => props.instanceId))
 
 /**
  * Fire-and-forget: fetch top-K predictions, then their per-class nearest
  * historical tickets. Silent on failure — supplementary signal only.
  */
-async function fetchTopKAndPerClass(data: InferenceData) {
+async function fetchTopKAndPerClass(source: TicketAnalysisSource) {
   try {
-    const topKRes = await inferTopKMutation.mutateAsync(data)
+    const topKRes = await inferTopKMutation.mutateAsync(source)
     const preds = topKRes?.predictions ?? []
     topKPredictions.value = preds
-    if (preds.length === 0) return
+    if (preds.length === 0 || !perClassSimilarEnabled.value) return
 
     isLoadingSimilarPerClass.value = true
     const classLabels = preds.map((p) => String(p.label))
     const perClassRes = await perClassMutation.mutateAsync({
-      ticket_data: data,
+      ticket_data: source.ticketData,
+      ticket_refs: source.ticketRefs,
       class_labels: classLabels,
     })
     similarPerClass.value = perClassRes?.items ?? []
@@ -342,6 +432,29 @@ const probabilityByClass = computed((): Record<string, number> => {
   return out
 })
 
+// Ranked choices used by the queue confirmation actions. Keep a primary
+// prediction as a graceful fallback while the probability request completes.
+const rankedPredictions = computed<TopKPrediction[]>(() => {
+  if (topKPredictions.value.length > 0) return topKPredictions.value.slice(0, 2)
+
+  const probabilities = prediction.value?.probabilities
+  if (probabilities) {
+    const ranked = Object.entries(probabilities)
+      .map(([label, probability]) => ({ label, probability }))
+      .sort((a, b) => b.probability - a.probability)
+      .slice(0, 2)
+    if (ranked.length > 0) return ranked
+  }
+
+  if (!prediction.value) return []
+  return [
+    {
+      label: String(prediction.value.prediction),
+      probability: prediction.value.confidence ?? 0,
+    },
+  ]
+})
+
 // XAI mutations
 const { mutate: explainLime, isPending: isExplainingLime } = useExplainLimeMutation(
   computed(() => props.instanceId),
@@ -355,7 +468,7 @@ const { mutate: explainLime, isPending: isExplainingLime } = useExplainLimeMutat
         { explanation_type: 'lime' },
       )
     },
-  }
+  },
 )
 
 const { mutate: findNearest, isPending: isFindingNearest } = useNearestTicketMutation(
@@ -369,10 +482,18 @@ const { mutate: findNearest, isPending: isFindingNearest } = useNearestTicketMut
         'queue_aided',
         {
           nearest_ref: firstNeighbor(data[0] ?? null)?.ref,
+          historical_ref: data[0]?.historical_neighbors?.[0]?.ref,
+          predicted_class_ref: data[0]?.predicted_class_neighbors?.[0]?.ref,
+          historical_refs: data[0]?.historical_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
+          predicted_class_refs: data[0]?.predicted_class_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
         },
       )
     },
-  }
+  },
 )
 
 // Team options for reassignment
@@ -381,30 +502,13 @@ const teamOptions = computed(() => {
   return props.teams.map((t) => ({ value: t, label: t }))
 })
 
-// Confidence level for styling
-const confidenceLevel = computed((): 'high' | 'medium' | 'low' => {
-  const conf = prediction.value?.confidence
-  if (conf === undefined) return 'low'
-  if (conf >= 0.8) return 'high'
-  if (conf >= 0.5) return 'medium'
-  return 'low'
-})
-
-const confidenceVariant = computed((): 'success' | 'warning' | 'destructive' => {
-  switch (confidenceLevel.value) {
-    case 'high':
-      return 'success'
-    case 'medium':
-      return 'warning'
-    case 'low':
-      return 'destructive'
-  }
-})
-
 // Combined loading flags (real mutations + mock simulation)
-const isInferringAny = computed(() => isInferring.value || mockInferring.value)
+const isInferringAny = computed(
+  () => isInferring.value || mockInferring.value || inferTopKMutation.isPending.value,
+)
 const isExplainingAny = computed(() => isExplainingLime.value || mockExplaining.value)
 const isFindingNearestAny = computed(() => isFindingNearest.value || mockFindingNearest.value)
+const hasLimeHighlights = computed(() => (explanation.value?.[0]?.word_weights?.length ?? 0) > 0)
 // (kept for parity with previous API; may be reused by callers)
 const isLoadingXai = computed(() => isExplainingAny.value || isFindingNearestAny.value)
 void isLoadingXai
@@ -420,6 +524,14 @@ function buildInferenceData(ticket: QueueTicket): InferenceData {
   }
 }
 
+// Build an analysis source that prefers the ticket ref (so backend can look
+// it up directly) but carries the text data as a fallback.
+function buildAnalysisSource(ticket: QueueTicket): TicketAnalysisSource {
+  const ref = ticket.ref ?? ticket.id ?? null
+  const ticketData = buildInferenceData(ticket)
+  return ref ? { ticketRefs: [ref], ticketData } : { ticketData }
+}
+
 // Run XAI analysis (real or mocked depending on global mock-mode)
 function runXaiAnalysis() {
   if (!props.ticket) return
@@ -430,7 +542,6 @@ function runXaiAnalysis() {
     const nearest = prediction.value
       ? generateMockNearest(prediction.value)
       : generateMockNearest(generateMockPrediction())
-    const body = generateMockSimilarBody()
     setTimeout(() => {
       explanation.value = lime
       mockExplaining.value = false
@@ -443,21 +554,44 @@ function runXaiAnalysis() {
     }, 250)
     setTimeout(() => {
       nearestTickets.value = nearest
-      similarTicketBody.value = body
+      neighborTicketBodies.value = Object.fromEntries(
+        [...nearest.historical_neighbors, ...nearest.predicted_class_neighbors].map((neighbor) => [
+          String(neighbor.ref),
+          {
+            title: neighbor.title ?? undefined,
+            description: neighbor.description ?? undefined,
+          },
+        ]),
+      )
       mockFindingNearest.value = false
       const nearestRef = firstNeighbor(nearest)?.ref
       telemetry.recordView(
         'view_nearest_ticket',
         props.ticket?.ref ?? props.ticket?.id ?? null,
         'queue_aided',
-        { nearest_ref: nearestRef, mock: true },
+        {
+          nearest_ref: nearestRef,
+          historical_ref: nearest.historical_neighbors?.[0]?.ref,
+          predicted_class_ref: nearest.predicted_class_neighbors?.[0]?.ref,
+          historical_refs: nearest.historical_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
+          predicted_class_refs: nearest.predicted_class_neighbors
+            ?.slice(0, NEAREST_TICKET_TOP_K)
+            .map((neighbor) => neighbor.ref),
+          mock: true,
+        },
       )
     }, 350)
     return
   }
   const ticketData = buildInferenceData(props.ticket)
-  explainLime({ ticket_data: ticketData })
-  findNearest({ ticket_data: ticketData })
+  const ticketRef = props.ticket?.ref ?? props.ticket?.id ?? null
+  const source: TicketAnalysisSource = ticketRef
+    ? { ticketRefs: [ticketRef], ticketData }
+    : { ticketData }
+  explainLime({ query_idx: source.ticketRefs, ticket_data: source.ticketData })
+  findNearest({ query_idx: source.ticketRefs, ticket_data: source.ticketData, top_k: NEAREST_TICKET_TOP_K })
 }
 
 // Handle prediction request (real or mocked depending on global mock-mode)
@@ -466,7 +600,7 @@ function handlePredict() {
   prediction.value = null
   explanation.value = null
   nearestTickets.value = null
-  similarTicketBody.value = null
+  neighborTicketBodies.value = {}
   topKPredictions.value = []
   similarPerClass.value = []
   isLoadingSimilarPerClass.value = false
@@ -495,31 +629,41 @@ function handlePredict() {
     }, 300)
     return
   }
-  runInference(buildInferenceData(props.ticket))
+  runInference(buildAnalysisSource(props.ticket))
 }
 
-// Confirm prediction as label
-function handleConfirm() {
-  if (!prediction.value) return
-  const team = String(prediction.value.prediction)
+const isManualReassignMode = computed(() => Boolean(selectedReassignTeam.value))
+
+// Confirm one of the ranked model predictions as the label.
+function handleConfirm(selectedPrediction = rankedPredictions.value[0], predictionRank = 1) {
+  if (!selectedPrediction || isManualReassignMode.value || props.feedbackPending) return
+  const team = String(selectedPrediction.label)
+  const modelPrediction = String(rankedPredictions.value[0]?.label ?? team)
   labeledTeamName.value = team
   showLabeledFlash.value = true
   emit('confirm', team, {
-    prediction: String(prediction.value.prediction),
-    confidence: prediction.value.confidence ?? null,
+    prediction: modelPrediction,
+    secondPrediction: rankedPredictions.value[1]?.label ?? null,
+    confidence: selectedPrediction.probability,
+    predictionRank,
   })
 }
 
 // Reassign to different team
 function handleReassign() {
-  if (!selectedReassignTeam.value) return
+  if (!selectedReassignTeam.value || props.feedbackPending) return
   const team = selectedReassignTeam.value
   labeledTeamName.value = team
   showLabeledFlash.value = true
   emit('reassign', team, {
     prediction: prediction.value ? String(prediction.value.prediction) : null,
+    secondPrediction: rankedPredictions.value[1]?.label ?? null,
     confidence: prediction.value?.confidence ?? null,
   })
+  selectedReassignTeam.value = ''
+}
+
+function clearReassignSelection() {
   selectedReassignTeam.value = ''
 }
 
@@ -543,15 +687,16 @@ watch(
       prediction.value = null
       explanation.value = null
       nearestTickets.value = null
-      similarTicketBody.value = null
+      neighborTicketBodies.value = {}
       loadingSimilarBody.value = false
       topKPredictions.value = []
       similarPerClass.value = []
       isLoadingSimilarPerClass.value = false
       selectedReassignTeam.value = ''
-      showLabeledFlash.value = false
-      labeledTeamName.value = ''
-      mockInferring.value = false
+       showLabeledFlash.value = false
+       labeledTeamName.value = ''
+       showLimeHighlights.value = false
+       mockInferring.value = false
       mockExplaining.value = false
       mockFindingNearest.value = false
       resetInference()
@@ -564,260 +709,382 @@ watch(
       }
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
-// Computed singular view of the nearest ticket response (the API returns the
-// same keys with either scalar or array values depending on entry point).
-const nearestSummary = computed(() => {
-  const first = firstNeighbor(nearestTickets.value)
-  if (!first) return null
-  return {
-    ref: String(first.ref),
-    label: first.label ? String(first.label) : undefined,
-    similarity: typeof first.similarity === 'number' ? first.similarity : undefined,
-  }
-})
+const historicalNeighbors = computed<Neighbor[]>(
+  () => nearestTickets.value?.historical_neighbors?.slice(0, NEAREST_TICKET_TOP_K) ?? [],
+)
+const predictedClassNeighbors = computed<Neighbor[]>(
+  () => nearestTickets.value?.predicted_class_neighbors?.slice(0, NEAREST_TICKET_TOP_K) ?? [],
+)
+const neighborRefs = computed(() => [
+  ...new Set(
+    [...historicalNeighbors.value, ...predictedClassNeighbors.value]
+      .map((neighbor) => neighbor.ref)
+      .filter((ref): ref is string => Boolean(ref))
+      .map(String),
+  ),
+])
 
-// When we have a nearest-ticket ref from the real API, fetch its body so the
-// side-by-side view can render the same LIME-highlighted words across both
-// tickets. Mock mode fills similarTicketBody directly inside runXaiAnalysis.
-watch(nearestSummary, async (summary) => {
-  if (!summary || mockStore.mockEnabled) return
-  if (props.instanceId <= 0) return
+let neighborBodyRequestId = 0
+
+// Hydrate both nearest-ticket roles in one request. The role-specific arrays
+// stay independent so a missing historical result cannot be replaced by a
+// predicted-class result (or vice versa).
+watch(neighborRefs, async (refs) => {
+  const requestId = ++neighborBodyRequestId
+  if (mockStore.mockEnabled) return
+
+  neighborTicketBodies.value = {}
+  loadingSimilarBody.value = false
+
+  if (refs.length === 0 || props.instanceId <= 0) return
+
   loadingSimilarBody.value = true
-  similarTicketBody.value = null
   try {
-    const response = await apiService.getTickets(props.instanceId, [summary.ref])
-    const first = response.tickets?.[0]
-    if (first) {
-      similarTicketBody.value = {
-        title: first.Title_anon,
-        description: first.Description_anon,
-      }
-    }
+    const response = await apiService.getTickets(props.instanceId, refs)
+    if (requestId !== neighborBodyRequestId) return
+
+    const bodies = new Map(
+      response.tickets.map((ticket) => [
+        String(ticket.Ref),
+        {
+          title: ticket.Title_anon,
+          description: ticket.Description_anon,
+        },
+      ]),
+    )
+    neighborTicketBodies.value = Object.fromEntries(bodies)
   } catch {
-    similarTicketBody.value = null
+    if (requestId === neighborBodyRequestId) {
+      neighborTicketBodies.value = {}
+    }
   } finally {
-    loadingSimilarBody.value = false
+    if (requestId === neighborBodyRequestId) loadingSimilarBody.value = false
   }
 })
 
-const similarTicketForView = computed(() => {
-  if (!nearestSummary.value) return null
+function firstSentence(text?: string | null): string | undefined {
+  const normalized = text?.trim()
+  if (!normalized) return undefined
+  const match = normalized.match(/^.*?[.!?](?:\s|$)/)
+  return (match?.[0] ?? normalized).trim()
+}
+
+function neighborForView(
+  neighbor: Neighbor,
+  bodies: Record<string, { title?: string; description?: string }>,
+) {
+  const body = bodies[String(neighbor.ref)]
+  const description = body?.description ?? neighbor.description ?? undefined
   return {
-    ref: nearestSummary.value.ref,
-    label: nearestSummary.value.label,
-    similarity: nearestSummary.value.similarity,
-    title: similarTicketBody.value?.title,
-    description: similarTicketBody.value?.description,
+    ref: String(neighbor.ref),
+    label: neighbor.label ? String(neighbor.label) : undefined,
+    similarity: typeof neighbor.similarity === 'number' ? neighbor.similarity : undefined,
+    title: body?.title ?? neighbor.title ?? undefined,
+    description,
+    bestSentence: neighbor.best_sentence?.trim() || firstSentence(description),
   }
-})
+}
 
-const currentTicketForView = computed(() => ({
-  title: props.ticket?.title,
-  description: props.ticket?.description,
-}))
+const historicalTicketsForView = computed(() =>
+  historicalNeighbors.value.map((neighbor) =>
+    neighborForView(neighbor, neighborTicketBodies.value),
+  ),
+)
+const predictedClassTicketsForView = computed(() =>
+  predictedClassNeighbors.value.map((neighbor) =>
+    neighborForView(neighbor, neighborTicketBodies.value),
+  ),
+)
 
 // Expose imperative actions so parent-level keyboard shortcuts (e.g. the "c"
 // confirm shortcut) can drive the panel. No-op when there's no prediction yet.
 defineExpose({
   confirmPrediction: () => {
-    if (prediction.value) handleConfirm()
+    if (rankedPredictions.value.length > 0) handleConfirm(rankedPredictions.value[0])
   },
 })
 </script>
 
 <template>
   <Transition name="detail-fade" mode="out-in">
-  <div class="detail-panel" v-if="ticket" :key="ticket.id" data-track-region="ticket_detail">
-    <!-- Labeled Flash Overlay -->
-    <Transition name="flash-fade">
-      <div v-if="showLabeledFlash" class="detail-panel__labeled-flash">
-        <CheckCircle :size="20" />
-        <span>Labeled &mdash; {{ labeledTeamName }}</span>
-      </div>
-    </Transition>
-
-    <!-- Header -->
-    <header class="detail-panel__header">
-      <div class="detail-panel__header-row">
-        <div class="detail-panel__header-left">
-          <span class="detail-panel__ref">{{ ticket.ref }}</span>
-          <span class="detail-panel__ref-sep">&middot;</span>
-          <Badge v-if="ticket.team" variant="secondary">{{ ticket.team }}</Badge>
-          <Badge v-if="ticket.category" variant="outline">{{ ticket.category }}</Badge>
-          <span class="detail-panel__time">{{ formatDate(ticket.timestamp) }}</span>
+    <div class="detail-panel" v-if="ticket" :key="ticket.id" data-track-region="ticket_detail">
+      <!-- Labeled Flash Overlay -->
+      <Transition name="flash-fade">
+        <div v-if="showLabeledFlash" class="detail-panel__labeled-flash">
+          <CheckCircle :size="20" />
+          <span>Labeled &mdash; {{ labeledTeamName }}</span>
         </div>
-        <div class="detail-panel__header-right">
-          <Button variant="ghost" size="icon" @click="$emit('next')" title="Next ticket">
-            <ChevronRight :size="16" />
-          </Button>
-          <Button variant="ghost" size="icon" @click="$emit('close')">
-            <X :size="16" />
-          </Button>
-        </div>
-      </div>
-      <h2 class="detail-panel__title">{{ ticket.title }}</h2>
-    </header>
+      </Transition>
 
-    <!-- Content -->
-    <div class="detail-panel__content">
-      <!-- Description (plain paragraph, no card wrapper) -->
-      <p class="detail-panel__description">{{ ticket.description }}</p>
-
-      <!-- Prediction Section -->
-      <section class="detail-panel__prediction">
-        <Transition name="prediction-fade" mode="out-in">
-        <!-- Loading -->
-        <div v-if="isInferringAny" key="loading" class="detail-panel__loading">
-          <Spinner label="Getting suggestion..." />
-        </div>
-
-        <!-- Prediction Result -->
-        <div v-else-if="prediction" key="result" class="detail-panel__prediction-inner" data-track-region="prediction_card">
-          <PredictionResult
-            :prediction="prediction.prediction"
-            :confidence="prediction.confidence"
-            :probabilities="prediction.probabilities"
-            show-details
-            compact
-          />
-
-          <!-- Actions row: Reassign + Confirm + Re-analyze -->
-          <div class="detail-panel__actions">
-            <div class="detail-panel__reassign" data-track-region="reassign_select">
-              <Select
-                v-model="selectedReassignTeam"
-                placeholder="Reassign to..."
-                :options="teamOptions"
-                size="sm"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                :disabled="!selectedReassignTeam"
-                @click="handleReassign"
-              >
-                Reassign
-              </Button>
-            </div>
-
-            <Button variant="default" size="sm" class="detail-panel__confirm" data-track-region="confirm_button" @click="handleConfirm">
-              <Check :size="14" />
-              Confirm
+      <!-- Header -->
+      <header class="detail-panel__header">
+        <div class="detail-panel__header-row">
+          <div class="detail-panel__header-left">
+            <span class="detail-panel__ref">{{ ticket.ref }}</span>
+            <span class="detail-panel__ref-sep">&middot;</span>
+            <Badge v-if="ticket.team" variant="secondary">{{ ticket.team }}</Badge>
+            <Badge v-if="ticket.category" variant="outline">{{ ticket.category }}</Badge>
+            <span class="detail-panel__time">{{ formatDate(ticket.timestamp) }}</span>
+          </div>
+          <div class="detail-panel__header-right">
+            <Button variant="ghost" size="icon" @click="$emit('next')" title="Next ticket">
+              <ChevronRight :size="16" />
             </Button>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              @click="handlePredict"
-              :disabled="isInferringAny"
-              title="Try again"
-            >
-              <RefreshCw :size="14" :class="{ 'animate-spin': isInferringAny }" />
+            <Button variant="ghost" size="icon" @click="$emit('close')">
+              <X :size="16" />
             </Button>
           </div>
         </div>
+      </header>
 
-        <!-- Empty state -->
-        <div v-else key="empty" class="detail-panel__empty">
-          <Button variant="default" size="sm" @click="handlePredict">
-            Get AI Suggestion
-          </Button>
+      <!-- Content -->
+      <div class="detail-panel__content">
+        <div class="detail-panel__ticket-explanation-grid">
+          <section class="detail-panel__ticket-column" aria-label="Ticket">
+            <h2 class="detail-panel__title">
+              <LimeHighlightedText
+                :text="ticket.title"
+                :explanation="explanation"
+                :enabled="showLimeHighlights"
+              />
+            </h2>
+            <p class="detail-panel__description">
+              <LimeHighlightedText
+                :text="ticket.description"
+                :explanation="explanation"
+                :enabled="showLimeHighlights"
+              />
+            </p>
+          </section>
+
+          <aside v-if="showXai" class="detail-panel__lime-column" aria-label="LIME explanation">
+            <div class="detail-panel__lime-column-header">
+              <div class="detail-panel__lime-column-title">
+                <Sparkles :size="15" />
+                <span>Model explanation</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                :disabled="!hasLimeHighlights"
+                :aria-pressed="showLimeHighlights"
+                @click="showLimeHighlights = !showLimeHighlights"
+              >
+                {{ showLimeHighlights ? 'Hide' : 'Show explanation' }}
+              </Button>
+            </div>
+
+            <span v-if="showLimeHighlights" class="detail-panel__lime-legend">
+              <span class="detail-panel__lime-legend-item">
+                <span class="detail-panel__lime-swatch detail-panel__lime-swatch--positive"></span>
+                supports
+              </span>
+              <span class="detail-panel__lime-legend-item">
+                <span class="detail-panel__lime-swatch detail-panel__lime-swatch--negative"></span>
+                opposes
+              </span>
+            </span>
+
+            <LimeExplanation
+              v-if="showLimeHighlights"
+              :explanation="explanation"
+              :loading="isExplainingAny"
+              :collapsible="false"
+              :max-words="10"
+              :ticket-ref="ticket.ref ?? ticket.id"
+              page="queue_aided"
+              class="detail-panel__lime-explanation"
+            />
+            <p v-else class="detail-panel__lime-empty">
+              {{ isExplainingAny ? 'Generating explanation...' : 'Reveal the words influencing this suggestion.' }}
+            </p>
+          </aside>
         </div>
-        </Transition>
-      </section>
 
-      <!-- Skip-with-reason feedback (always visible; backend call is gated
-           by capability + handled by the parent page). -->
-      <section class="detail-panel__feedback" data-track-region="labeler_feedback">
-        <span class="detail-panel__feedback-label">Skip this ticket:</span>
-        <div class="detail-panel__feedback-row">
-          <Button
-            variant="ghost"
-            size="sm"
-            :disabled="feedbackPending"
-            @click="$emit('feedback', 'I_AM_TIRED')"
-          >
-            <Coffee :size="14" />
-            I'm Tired
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            :disabled="feedbackPending"
-            @click="$emit('feedback', 'DIFFICULT_TICKET')"
-          >
-            <AlertTriangle :size="14" />
-            Difficult Ticket
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            :disabled="feedbackPending"
-            @click="$emit('feedback', 'I_DONT_KNOW')"
-          >
-            <HelpCircle :size="14" />
-            I Don't Know
-          </Button>
-        </div>
-      </section>
+        <!-- Prediction Section -->
+        <section class="detail-panel__prediction">
+          <Transition name="prediction-fade" mode="out-in">
+            <!-- Loading -->
+            <div v-if="isInferringAny" key="loading" class="detail-panel__loading">
+              <Spinner label="Getting suggestion..." />
+            </div>
 
-      <!-- Side-by-side LIME-highlighted comparison (replaces the previous
-           XAI tabs + labeling-context insights). Renders the current ticket
-           body alongside the nearest already-labeled ticket, with the LIME
-           top words highlighted in both columns using the same color scale. -->
-      <SideBySideExplanation
-        v-if="showXai && prediction"
-        :current-ticket="currentTicketForView"
-        :similar-ticket="similarTicketForView"
-        :lime="explanation"
-        :loading-lime="isExplainingAny"
-        :loading-similar="isFindingNearestAny || loadingSimilarBody"
-      />
+            <!-- Prediction Result -->
+            <div
+              v-else-if="prediction"
+              key="result"
+              class="detail-panel__prediction-inner"
+              data-track-region="prediction_card"
+            >
+              <div class="detail-panel__decision-grid">
+                <section class="detail-panel__model-predictions" aria-label="Model predictions">
+                  <div class="detail-panel__decision-heading">Model top predictions</div>
+                  <div
+                    v-for="(suggestion, index) in rankedPredictions"
+                    :key="suggestion.label"
+                    class="detail-panel__prediction-choice"
+                  >
+                    <span class="detail-panel__prediction-rank">{{ index + 1 }}</span>
+                    <div class="detail-panel__prediction-choice-info">
+                      <strong>{{ suggestion.label }}</strong>
+                      <span>{{ (suggestion.probability * 100).toFixed(1) }}%</span>
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      data-track-region="confirm_button"
+                      :disabled="isManualReassignMode || feedbackPending"
+                      :title="
+                        isManualReassignMode
+                          ? 'Clear the manual reassignment before confirming a model prediction'
+                          : `Confirm ${suggestion.label}`
+                      "
+                      @click="handleConfirm(suggestion, index + 1)"
+                    >
+                      <Check :size="14" />
+                      Confirm
+                    </Button>
+                  </div>
+                </section>
 
-      <!-- Similar Tickets by Predicted Class (top-K, capability-gated) -->
-      <section
-        v-if="perClassSimilarEnabled && topKEnabled && (similarPerClass.length > 0 || isLoadingSimilarPerClass)"
-        class="detail-panel__per-class"
-        data-track-region="per_class_similar"
-      >
-        <h3 class="detail-panel__per-class-title">
-          <Sparkles :size="16" />
-          Similar Tickets by Category
-        </h3>
-        <p class="detail-panel__per-class-desc">
-          The closest past ticket for each of the AI's top suggestions.
-        </p>
+                <div class="detail-panel__decision-side">
+                  <!-- Manual reassignment is separate from model confirmation. -->
+                  <section class="detail-panel__reassign" data-track-region="reassign_select">
+                    <div class="detail-panel__reassign-heading">
+                      <span class="detail-panel__decision-heading">Manual reassignment</span>
+                      <TeamGuide :teams="props.teams" @select="selectedReassignTeam = $event" />
+                    </div>
+                    <div class="detail-panel__reassign-controls">
+                      <Select
+                        v-model="selectedReassignTeam"
+                        placeholder="Select team..."
+                        :options="teamOptions"
+                        size="sm"
+                        :disabled="feedbackPending"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :disabled="!selectedReassignTeam || feedbackPending"
+                        @click="handleReassign"
+                      >
+                        Reassign
+                      </Button>
+                      <Button
+                        v-if="selectedReassignTeam"
+                        variant="ghost"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        @click="clearReassignSelection"
+                      >
+                        <X :size="14" />
+                        Clear
+                      </Button>
+                    </div>
+                    <p v-if="isManualReassignMode" class="detail-panel__reassign-warning">
+                      Manual reassignment selected. Model confirmations are disabled.
+                    </p>
+                  </section>
 
-        <div
-          v-if="isLoadingSimilarPerClass && similarPerClass.length === 0"
-          class="detail-panel__per-class-loading"
+                  <section class="detail-panel__feedback" data-track-region="labeler_feedback">
+                    <span class="detail-panel__decision-heading">Tired/Difficult feedback</span>
+                    <div class="detail-panel__feedback-row">
+                      <Button
+                        :variant="props.isTired ? 'secondary' : 'ghost'"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        :aria-pressed="props.isTired"
+                        @click="$emit('feedback', 'I_AM_TIRED')"
+                      >
+                        <Coffee :size="14" />
+                        Tired
+                      </Button>
+                      <Button
+                        :variant="props.isDifficult ? 'secondary' : 'ghost'"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        :aria-pressed="props.isDifficult"
+                        @click="$emit('feedback', 'DIFFICULT_TICKET')"
+                      >
+                        <AlertTriangle :size="14" />
+                        Difficult
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        :disabled="feedbackPending"
+                        @click="$emit('feedback', 'I_DONT_KNOW')"
+                      >
+                        <HelpCircle :size="14" />
+                        I Don't Know
+                      </Button>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else key="empty" class="detail-panel__empty">
+              <Button variant="default" size="sm" @click="handlePredict">
+                Get AI Suggestion
+              </Button>
+            </div>
+          </Transition>
+        </section>
+
+        <!-- Compare the two nearest-ticket roles returned by /nearest. -->
+        <SideBySideExplanation
+          v-if="showXai && prediction"
+          :historical-tickets="historicalTicketsForView"
+          :predicted-class-tickets="predictedClassTicketsForView"
+          :loading-similar="isFindingNearestAny || loadingSimilarBody"
+        />
+
+        <!-- Similar Tickets by Predicted Class (top-K, capability-gated) -->
+        <section
+          v-if="perClassSimilarEnabled && (similarPerClass.length > 0 || isLoadingSimilarPerClass)"
+          class="detail-panel__per-class"
+          data-track-region="per_class_similar"
         >
-          <Spinner label="Finding similar tickets by category..." />
-        </div>
+          <h3 class="detail-panel__per-class-title">
+            <Sparkles :size="16" />
+            Similar Tickets by Category
+          </h3>
+          <p class="detail-panel__per-class-desc">
+            The closest past ticket for each of the AI's top suggestions.
+          </p>
 
-        <div v-else class="detail-panel__per-class-grid">
-          <SimilarTicketByClass
-            v-for="(item, idx) in similarPerClass"
-            :key="`${item.class_label}-${item.ticket_ref}`"
-            :item="item"
-            :rank="idx + 1"
-            :probability="probabilityByClass[item.class_label] ?? null"
-          />
-        </div>
-      </section>
-    </div>
-  </div>
+          <div
+            v-if="isLoadingSimilarPerClass && similarPerClass.length === 0"
+            class="detail-panel__per-class-loading"
+          >
+            <Spinner label="Finding similar tickets by category..." />
+          </div>
 
-  <!-- Empty State -->
-  <div v-else key="empty" class="detail-panel detail-panel--empty">
-    <div class="detail-panel__empty-state">
-      <FileText :size="40" class="detail-panel__empty-icon" />
-      <p>Select a ticket to view details</p>
+          <div v-else class="detail-panel__per-class-grid">
+            <SimilarTicketByClass
+              v-for="(item, idx) in similarPerClass"
+              :key="`${item.class_label}-${item.ticket_ref}`"
+              :item="item"
+              :rank="idx + 1"
+              :probability="probabilityByClass[item.class_label] ?? null"
+            />
+          </div>
+        </section>
+      </div>
     </div>
-  </div>
+
+    <!-- Empty State -->
+    <div v-else key="empty" class="detail-panel detail-panel--empty">
+      <div class="detail-panel__empty-state">
+        <FileText :size="40" class="detail-panel__empty-icon" />
+        <p>Select a ticket to view details</p>
+      </div>
+    </div>
   </Transition>
 </template>
 
@@ -888,6 +1155,82 @@ defineExpose({
     line-height: 1.35;
   }
 
+  &__ticket-explanation-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.85fr);
+    gap: 1rem;
+    align-items: start;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  &__ticket-column {
+    min-width: 0;
+  }
+
+  &__lime-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.6875rem;
+    color: var(--muted-foreground);
+  }
+
+  &__lime-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-width: 0;
+    padding: 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  &__lime-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__lime-column-title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 600;
+
+    svg {
+      flex-shrink: 0;
+      color: var(--primary);
+    }
+  }
+
+  &__lime-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  &__lime-swatch {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 2px;
+
+    &--positive {
+      background: color-mix(in srgb, var(--primary) 45%, transparent);
+      border-bottom: 2px solid var(--primary);
+    }
+
+    &--negative {
+      background: color-mix(in srgb, var(--destructive) 45%, transparent);
+      border-bottom: 2px solid var(--destructive);
+    }
+  }
+
   &__content {
     flex: 1;
     min-height: 0;
@@ -904,8 +1247,17 @@ defineExpose({
     line-height: 1.65;
     color: var(--foreground);
     white-space: pre-wrap;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--border);
+  }
+
+  &__lime-explanation {
+    padding-top: 0.25rem;
+  }
+
+  &__lime-empty {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
 
   &__prediction {
@@ -944,22 +1296,104 @@ defineExpose({
     font-size: 0.875rem;
   }
 
-  &__actions {
+  &__decision-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  &__model-predictions,
+  &__decision-side {
     display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  &__decision-heading {
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  &__prediction-choice {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
     align-items: center;
     gap: 0.5rem;
-    flex-wrap: wrap;
-    padding-top: 0.5rem;
+    min-height: 2.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+
+  &__prediction-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  &__prediction-choice-info {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.1rem;
+
+    strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.8125rem;
+    }
+
+    span {
+      color: var(--muted-foreground);
+      font-size: 0.6875rem;
+      font-variant-numeric: tabular-nums;
+    }
   }
 
   &__reassign {
     display: flex;
-    align-items: center;
-    gap: 0.25rem;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 
-  &__confirm {
-    margin-left: auto;
+  &__reassign-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__reassign-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    flex-wrap: wrap;
+
+    .select {
+      flex: 1 1 12rem;
+      min-width: 10rem;
+    }
+  }
+
+  &__reassign-warning {
+    margin: 0;
+    color: var(--warning);
+    font-size: 0.75rem;
   }
 
   &__empty {
@@ -988,19 +1422,12 @@ defineExpose({
   }
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 // Detail panel transition
 .detail-fade-enter-active,
 .detail-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .detail-fade-enter-from {
   opacity: 0;
@@ -1014,7 +1441,9 @@ defineExpose({
 // Prediction section transition
 .prediction-fade-enter-active,
 .prediction-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.15s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.15s ease;
 }
 .prediction-fade-enter-from {
   opacity: 0;
@@ -1027,7 +1456,9 @@ defineExpose({
 
 // Flash overlay transition
 .flash-fade-enter-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 .flash-fade-leave-active {
   transition: opacity 0.4s ease;
@@ -1044,17 +1475,9 @@ defineExpose({
 .detail-panel__feedback {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 0.4rem;
-  padding: 0.75rem 1rem;
-  margin: 0 1rem;
+  padding-top: 0.5rem;
   border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
-}
-
-.detail-panel__feedback-label {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
 }
 
 .detail-panel__feedback-row {
@@ -1062,7 +1485,16 @@ defineExpose({
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
-  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .detail-panel__ticket-explanation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-panel__decision-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 // Similar Tickets by Predicted Class

@@ -55,8 +55,9 @@ export function useQueryStrategies(options?: UseConfigOptions) {
 
 /**
  * Fetch backend capabilities flags. Used to feature-gate UI for features
- * whose backend endpoints are not always available (e.g. top-K inference,
- * per-class similar tickets, labeler-feedback events).
+ * whose backend endpoints are not always available (e.g. top-K inference and
+ * per-class similar tickets). Labeler satisfaction flags are part of the
+ * label-with-info decision endpoint and are not capability-gated.
  *
  * @example
  * ```ts

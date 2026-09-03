@@ -54,6 +54,11 @@ export interface LabelInfo {
   /** Optional: omitted when i_dont_know retires the ticket. */
   label?: string | null;
   model_prediction?: string | null;
+  /**
+   * Model's second-best prediction shown to the reviewer. Stored as metadata
+   * only; never counted as a correct prediction in al_events.
+   */
+  second_model_prediction?: string | null;
   /** ISO-8601 timestamp when the ticket was presented to the user. */
   start_time: string;
   /** ISO-8601 timestamp when the user submitted the decision. */
@@ -76,6 +81,11 @@ export interface InferenceData {
   title_anon?: string;
   description_anon?: string;
   public_log_anon?: string;
+}
+
+export interface TicketAnalysisSource {
+  ticketData?: InferenceData;
+  ticketRefs?: string[];
 }
 
 // API Response Types
@@ -152,17 +162,9 @@ export interface InferProbaResponse {
   probabilities: number[][];
 }
 
-// Labeler feedback (skip-with-reason events)
+// Labeler feedback controls; only I_DONT_KNOW retires the ticket.
 export type LabelerFeedbackType = 'I_AM_TIRED' | 'DIFFICULT_TICKET' | 'I_DONT_KNOW';
 
-export interface LabelerFeedbackRequest {
-  query_idx: number | string;
-  feedback_type: LabelerFeedbackType;
-}
-
-export interface LabelerFeedbackResponse {
-  status: string;
-}
 
 // Error Types
 export interface ApiErrorData {
@@ -254,8 +256,9 @@ export interface XaiWordWeight {
 
 export interface XaiHighlightedToken {
   token: string;
-  direction: 'positive' | 'negative';
+  direction: 'support' | 'oppose' | 'neutral' | 'positive' | 'negative';
   intensity: number;
+  weight?: number;
 }
 
 export interface XaiPrediction {
@@ -277,7 +280,8 @@ export interface XaiResultFile {
    */
   word_weights: (XaiWordWeight | [string, number])[];
   highlighted_tokens?: XaiHighlightedToken[];
-  index?: number;
+  /** Ticket reference string (e.g. "R-523890"), or empty for ad-hoc requests. */
+  index?: string | null;
   error?: string | null;
   /** Per-class breakdowns. */
   class_explanations?: unknown[];

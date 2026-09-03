@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import Button from '@/components/ui/Button.vue'
@@ -7,15 +7,14 @@ import Spinner from '@/components/ui/Spinner.vue'
 import TicketFilterBar from '@/components/TicketFilterBar.vue'
 import TicketListItem from '@/components/TicketListItem.vue'
 import ManualTicketDetailPanel from '@/components/ManualTicketDetailPanel.vue'
-import BreakModal from '@/components/BreakModal.vue'
 import { useTicketQueue } from '@/composables/api/useTicketQueue'
 import { useKeyboardNavigation, formatShortcutKey } from '@/composables/useKeyboardNavigation'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { useClickTracking } from '@/composables/useClickTracking'
 import { useTicketViewLifecycle } from '@/composables/useTicketViewLifecycle'
-import { useLabelerFeedbackMutation } from '@/composables/api/useActiveLearning'
-import { useCapabilities } from '@/composables/api/useConfig'
+import { usePendingLabelerFeedback } from '@/composables/usePendingLabelerFeedback'
+import { apiService } from '@/services/api'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
   Pencil,
@@ -76,6 +75,7 @@ watch(
 const {
   store,
   isLoading,
+  isMockMode,
   tickets,
   selectedTicket,
   teams,
@@ -89,6 +89,8 @@ const {
   setFilter,
   resetFilters,
   labelTicket,
+  retireTicketAsync,
+  isLabeling,
   bulkLabel,
   isBulkLabeling,
   filters,
@@ -98,6 +100,59 @@ const {
   instanceId: selectedInstanceId,
   autoFetch: true,
 })
+
+// Manual queue labels do not show model output, but label-with-info still
+// needs the model's top two predictions for benchmark metadata.
+const hiddenPredictions = ref<{ prediction: string | null; secondPrediction: string | null }>({
+  prediction: null,
+  secondPrediction: null,
+})
+let hiddenInferenceTicketId: string | null = null
+let hiddenInferencePromise: Promise<void> | null = null
+
+async function fetchHiddenPredictions(ticketId: string, ticketRef: string) {
+  hiddenInferenceTicketId = ticketId
+  hiddenPredictions.value = { prediction: null, secondPrediction: null }
+
+  if (isMockMode.value || selectedInstanceId.value <= 0) return
+
+  const request = apiService
+    .inferProba(selectedInstanceId.value, undefined, [ticketRef])
+    .then((response) => {
+      if (hiddenInferenceTicketId !== ticketId) return
+      const row = response.probabilities?.[0] ?? []
+      const ranked = response.classes
+        .map((label, index) => ({ label, probability: row[index] ?? 0 }))
+        .filter(({ label }) => label != null)
+        .sort((a, b) => b.probability - a.probability)
+
+      hiddenPredictions.value = {
+        prediction: ranked[0] ? String(ranked[0].label) : null,
+        secondPrediction: ranked[1] ? String(ranked[1].label) : null,
+      }
+    })
+    .catch((error) => {
+      // Prediction metadata is supplementary; manual labeling remains usable
+      // if the model is unavailable or has not been trained yet.
+      console.warn('Manual queue inference failed:', error)
+    })
+
+  hiddenInferencePromise = request.finally(() => {
+    if (hiddenInferenceTicketId === ticketId) hiddenInferencePromise = null
+  })
+  await hiddenInferencePromise
+}
+
+async function ensureHiddenPredictions(ticket: { id: string; ref: string }) {
+  if (hiddenInferenceTicketId !== ticket.id) {
+    await fetchHiddenPredictions(ticket.id, ticket.ref)
+  } else if (hiddenInferencePromise) {
+    await hiddenInferencePromise
+  }
+}
+
+const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
+  usePendingLabelerFeedback()
 
 const {
   shortcuts,
@@ -129,9 +184,21 @@ registerNavigationShortcuts({
   },
 })
 
-function handleConfirm(team: string) {
+async function advanceToNextTicket() {
+  try {
+    await refresh()
+    if (selectNext()) {
+      selectionStartMs.value = Date.now()
+    }
+  } catch (e) {
+    toast.error('Failed to load the next ticket', { description: (e as Error).message })
+  }
+}
+
+async function handleConfirm(team: string) {
   if (!selectedTicket.value) return
   const ticket = selectedTicket.value
+  await ensureHiddenPredictions(ticket)
   const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
 
   void telemetry.recordLabelDecision({
@@ -145,10 +212,19 @@ function handleConfirm(team: string) {
   })
 
   labelTicket(
-    { ticketId: ticket.id, label: team, prediction: null, durationMs },
+    {
+      ticketId: ticket.id,
+      label: team,
+      prediction: hiddenPredictions.value.prediction,
+      secondPrediction: hiddenPredictions.value.secondPrediction,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    },
     {
       onSuccess: () => {
-        setTimeout(() => selectNext(), 600)
+        resetPendingFeedback()
+        void advanceToNextTicket()
       },
       onError: () => {
         toast.error('Failed to label ticket')
@@ -157,55 +233,60 @@ function handleConfirm(team: string) {
   )
 }
 
-// Labeler feedback (skip-with-reason). Telemetry fires unconditionally so
-// click tracking works even when the backend feedback endpoint is unavailable;
-// the API call itself is capability-gated.
-const feedbackMutation = useLabelerFeedbackMutation(selectedInstanceId)
-const { data: capabilities } = useCapabilities()
-const labelerFeedbackEnabled = computed(() =>
-  (capabilities.value?.capabilities ?? []).includes('labeler_feedback'),
-)
-const breakModalOpen = ref(false)
-
 const FEEDBACK_TOAST: Record<LabelerFeedbackType, { title: string; description: string }> = {
-  I_AM_TIRED: { title: 'Time for a break', description: 'We saved your spot — resume when ready.' },
-  DIFFICULT_TICKET: { title: 'Marked as difficult', description: 'Loading another ticket…' },
+  I_AM_TIRED: { title: 'Tired feedback selected', description: 'Choose a label to submit this feedback.' },
+  DIFFICULT_TICKET: { title: 'Difficult feedback selected', description: 'Choose a label to submit this feedback.' },
   I_DONT_KNOW: { title: "Skipped: don't know", description: 'Loading another ticket…' },
 }
 
 async function handleLabelerFeedback(type: LabelerFeedbackType) {
   const ticket = selectedTicket.value
   const ticketRef = ticket?.ref ?? ticket?.id ?? null
+  if (!ticket) {
+    toast.error('No ticket selected', { description: 'Select a ticket first' })
+    return
+  }
+
+  const copy = FEEDBACK_TOAST[type]
+  if (type !== 'I_DONT_KNOW') {
+    togglePendingFeedback(type)
+    const selected = type === 'I_AM_TIRED' ? isTired.value : isDifficult.value
+    void telemetry.recordLab('labeler_feedback', 'Ticket', {
+      feedback_type: type,
+      selected,
+      ticket_ref: ticketRef,
+      page: 'queue_manual',
+    })
+    toast.info(selected ? copy.title : `${copy.title} cleared`, {
+      description: selected ? copy.description : 'The next label will not include this flag.',
+    })
+    return
+  }
 
   void telemetry.recordLab('labeler_feedback', 'Ticket', {
     feedback_type: type,
+    selected: true,
     ticket_ref: ticketRef,
     page: 'queue_manual',
   })
 
-  if (labelerFeedbackEnabled.value && ticket) {
-    try {
-      await feedbackMutation.mutateAsync({
-        query_idx: ticket.id,
-        feedback_type: type,
-      })
-    } catch (e) {
-      toast.error('Failed to submit feedback', { description: (e as Error).message })
-    }
+  const durationMs = selectionStartMs.value != null ? Date.now() - selectionStartMs.value : null
+  try {
+    await ensureHiddenPredictions(ticket)
+    await retireTicketAsync({
+      ticketId: ticket.id,
+      prediction: hiddenPredictions.value.prediction,
+      secondPrediction: hiddenPredictions.value.secondPrediction,
+      durationMs,
+      isTired: isTired.value ? true : undefined,
+      isDifficult: isDifficult.value ? true : undefined,
+    })
+    resetPendingFeedback()
+    toast.info(copy.title, { description: copy.description })
+    await advanceToNextTicket()
+  } catch (e) {
+    toast.error('Failed to skip ticket', { description: (e as Error).message })
   }
-
-  const copy = FEEDBACK_TOAST[type]
-  toast.info(copy.title, { description: copy.description })
-
-  if (type === 'I_AM_TIRED') {
-    breakModalOpen.value = true
-  } else {
-    selectNext()
-  }
-}
-
-function handleResumeFromBreak() {
-  selectNext()
 }
 
 const bulkFeedback = ref<string | null>(null)
@@ -238,6 +319,7 @@ const userOverrodeCollapse = ref(false)
 watch(
   () => selectedTicket.value?.id ?? null,
   (newId, oldId) => {
+    if (newId !== oldId) resetPendingFeedback()
     if (newId && !oldId) {
       if (!userOverrodeCollapse.value) isListCollapsed.value = true
     } else if (!newId) {
@@ -247,10 +329,71 @@ watch(
   },
 )
 
+watch(
+  selectedTicket,
+  (ticket) => {
+    if (!ticket) {
+      hiddenInferenceTicketId = null
+      hiddenInferencePromise = null
+      hiddenPredictions.value = { prediction: null, secondPrediction: null }
+      return
+    }
+    void fetchHiddenPredictions(ticket.id, ticket.ref)
+  },
+  { immediate: true },
+)
+
 function toggleListCollapse() {
   isListCollapsed.value = !isListCollapsed.value
   userOverrodeCollapse.value = true
 }
+
+// The tutorial guide opens the first ticket automatically so its steps can
+// highlight the labeling actions. Keep the queue rail expanded for the tour.
+const OPEN_FIRST_TICKET_EVENT = 'humal:tutorial-open-first-ticket'
+const OPEN_FIRST_TICKET_TIMEOUT = 30000
+
+let stopOpenFirstTicketWatch: (() => void) | undefined
+let openFirstTicketTimer: ReturnType<typeof setTimeout> | undefined
+
+function openFirstTicketForTutorial() {
+  userOverrodeCollapse.value = true
+
+  const first = tickets.value[0]
+  if (first) {
+    selectTicket(first.id)
+    return
+  }
+
+  clearTimeout(openFirstTicketTimer)
+  stopOpenFirstTicketWatch?.()
+
+  const stop = watch(tickets, (list) => {
+    const ticket = list[0]
+    if (!ticket) return
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+    clearTimeout(openFirstTicketTimer)
+    openFirstTicketTimer = undefined
+    selectTicket(ticket.id)
+  })
+  stopOpenFirstTicketWatch = stop
+
+  openFirstTicketTimer = setTimeout(() => {
+    stopOpenFirstTicketWatch?.()
+    stopOpenFirstTicketWatch = undefined
+  }, OPEN_FIRST_TICKET_TIMEOUT)
+}
+
+onMounted(() => {
+  window.addEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(OPEN_FIRST_TICKET_EVENT, openFirstTicketForTutorial)
+  stopOpenFirstTicketWatch?.()
+  clearTimeout(openFirstTicketTimer)
+})
 
 // Mount the delegated click listener once for this page.
 useClickTracking('queue_manual', () => selectedTicket.value?.ref ?? selectedTicket.value?.id ?? null)
@@ -381,7 +524,9 @@ const groupedShortcuts = computed(() => {
         <ManualTicketDetailPanel
           :ticket="selectedTicket"
           :teams="teams"
-          :feedback-pending="feedbackMutation.isPending.value"
+          :feedback-pending="isLabeling"
+          :is-tired="isTired"
+          :is-difficult="isDifficult"
           @close="selectTicket(null)"
           @confirm="handleConfirm"
           @next="selectNext"
@@ -389,9 +534,6 @@ const groupedShortcuts = computed(() => {
         />
       </div>
     </div>
-
-    <!-- "Time for a break" modal -->
-    <BreakModal v-model:open="breakModalOpen" @resume="handleResumeFromBreak" />
 
     <Teleport to="body">
       <div v-if="isHelpOpen" class="shortcuts-modal" @click.self="closeHelp">
@@ -491,6 +633,11 @@ const groupedShortcuts = computed(() => {
       width: 64px;
       min-width: 64px;
       max-width: 64px;
+
+      // The filter controls cannot fit in the collapsed queue rail.
+      :deep(.filter-bar) {
+        display: none;
+      }
     }
   }
 

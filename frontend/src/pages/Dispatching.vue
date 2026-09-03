@@ -14,7 +14,6 @@ import SimilarTicketByClass from '@/components/SimilarTicketByClass.vue'
 import {
   useInstanceInfo,
   useLabelWithInfo,
-  useLabelerFeedbackMutation,
 } from '@/composables/api/useActiveLearning'
 import {
   useInferWithModelCheck,
@@ -27,6 +26,7 @@ import {
 } from '@/composables/api/useXai'
 import { useTeams } from '@/composables/api/useData'
 import { useCapabilities } from '@/composables/api/useConfig'
+import { usePendingLabelerFeedback } from '@/composables/usePendingLabelerFeedback'
 import { apiService } from '@/services/api'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import type {
@@ -37,6 +37,7 @@ import type {
   TopKPrediction,
   PerClassSimilarTicket,
   LabelerFeedbackType,
+  TicketAnalysisSource,
 } from '@/types/api'
 import {
   Search,
@@ -49,7 +50,6 @@ import {
   Coffee,
   AlertTriangle,
   HelpCircle,
-  X,
   Sparkles,
 } from 'lucide-vue-next'
 
@@ -102,9 +102,6 @@ const nearestMutation = useNearestTicketMutation(selectedInstanceId)
 const inferTopKMutation = useInferTopK(selectedInstanceId, 2)
 const perClassMutation = useNearestTicketsPerClassMutation(selectedInstanceId)
 
-// Labeler feedback (skip-with-reason events)
-const feedbackMutation = useLabelerFeedbackMutation(selectedInstanceId)
-
 // Backend capabilities — used to feature-gate optional UI
 const { data: capabilities } = useCapabilities()
 const capabilitySet = computed(() => new Set(capabilities.value?.capabilities ?? []))
@@ -112,16 +109,9 @@ const topKEnabled = computed(() => capabilitySet.value.has('top_k_inference'))
 const perClassSimilarEnabled = computed(() =>
   capabilitySet.value.has('similar_tickets_per_class')
 )
-const labelerFeedbackEnabled = computed(() =>
-  capabilitySet.value.has('labeler_feedback')
-)
 
 // Labeling composables
-const labelMutation = useLabelWithInfo(selectedInstanceId, {
-  onSuccess: () => {
-    toast.success('Label submitted', { description: 'Proceeding to next ticket' })
-  },
-})
+const labelMutation = useLabelWithInfo(selectedInstanceId)
 const { data: teamsData } = useTeams(selectedInstanceId, undefined, {
   enabled: computed(() => selectedInstanceId.value > 0),
 })
@@ -132,6 +122,8 @@ const currentTicketRef = ref<string | null>(null)
 const ticketShownAtMs = ref<number | null>(null)
 const selectedReassignTeam = ref<string>('')
 const isFetchingNextTicket = ref(false)
+const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
+  usePendingLabelerFeedback()
 
 // Input
 const ticket = ref<InferenceData>({
@@ -148,9 +140,6 @@ const nearestResult = ref<NearestTicketResponse | null>(null)
 const topKPredictions = ref<TopKPrediction[]>([])
 const similarPerClass = ref<PerClassSimilarTicket[]>([])
 const isLoadingSimilarPerClass = ref(false)
-
-// Break / feedback UI state
-const breakModalOpen = ref(false)
 
 // Processing states
 const isRunning = ref(false)
@@ -188,6 +177,23 @@ const probabilityByClass = computed((): Record<string, number> => {
   return out
 })
 
+// Model's second-best prediction, sent as label-with-info metadata only.
+// Prefers the supplementary top-K results (async + capability-gated); falls
+// back to the inference probability map so it works even before top-K lands.
+const secondModelPrediction = computed<string | null>(() => {
+  const topK = topKPredictions.value
+  if (topK.length > 0) {
+    return topK[1]?.label != null ? String(topK[1].label) : null
+  }
+  const probabilities = prediction.value?.probabilities
+  if (probabilities) {
+    const ranked = Object.entries(probabilities).sort((a, b) => b[1] - a[1])
+    const second = ranked[1]
+    if (second) return second[0]
+  }
+  return null
+})
+
 // Methods
 const handleInstanceSelect = (value: string) => {
   instanceStore.setInstance(Number(value) || 0)
@@ -197,6 +203,7 @@ const handleInstanceSelect = (value: string) => {
   nearestResult.value = null
   topKPredictions.value = []
   similarPerClass.value = []
+  resetPendingFeedback()
 }
 
 const runDispatch = async () => {
@@ -213,17 +220,23 @@ const runDispatch = async () => {
   similarPerClass.value = []
 
   try {
+    // Build the analysis source: prefer ticket refs when a queue ticket was
+    // loaded, fall back to the free-form ticket text otherwise.
+    const source: TicketAnalysisSource = currentTicketRef.value
+      ? { ticketRefs: [currentTicketRef.value], ticketData: ticket.value }
+      : { ticketData: ticket.value }
+
     // Run inference (primary)
-    const inferRes = await inferMutation.mutateAsync(ticket.value)
+    const inferRes = await inferMutation.mutateAsync(source)
     prediction.value = inferRes
 
     // Run XAI in parallel - use correct payload structure
     const [limeRes, nearestRes] = await Promise.all([
-      limeMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+      limeMutation.mutateAsync({ query_idx: source.ticketRefs, ticket_data: source.ticketData }).catch((e) => {
         console.warn('LIME explanation failed:', e)
         return null
       }),
-      nearestMutation.mutateAsync({ ticket_data: ticket.value }).catch((e) => {
+      nearestMutation.mutateAsync({ query_idx: source.ticketRefs, ticket_data: source.ticketData }).catch((e) => {
         console.warn('Nearest tickets failed:', e)
         return null
       }),
@@ -235,7 +248,7 @@ const runDispatch = async () => {
     // Supplementary, fire-and-forget: top-K predictions → per-class similar tickets.
     // Both are capability-gated and silent — never block the labeling flow.
     if (topKEnabled.value && perClassSimilarEnabled.value) {
-      void fetchTopKAndPerClass(ticket.value)
+      void fetchTopKAndPerClass(source)
     }
 
     toast.success('Dispatch analysis complete')
@@ -250,9 +263,9 @@ const runDispatch = async () => {
  * Fire-and-forget: fetch top-K predictions, then their per-class nearest
  * historical tickets. Silent on failure — supplementary signal only.
  */
-const fetchTopKAndPerClass = async (data: InferenceData) => {
+const fetchTopKAndPerClass = async (source: TicketAnalysisSource) => {
   try {
-    const topKRes = await inferTopKMutation.mutateAsync(data)
+    const topKRes = await inferTopKMutation.mutateAsync(source)
     const preds = topKRes?.predictions ?? []
     topKPredictions.value = preds
 
@@ -261,7 +274,8 @@ const fetchTopKAndPerClass = async (data: InferenceData) => {
     isLoadingSimilarPerClass.value = true
     const classLabels = preds.map((p) => String(p.label))
     const perClassRes = await perClassMutation.mutateAsync({
-      ticket_data: data,
+      ticket_data: source.ticketData,
+      ticket_refs: source.ticketRefs,
       class_labels: classLabels,
     })
     similarPerClass.value = perClassRes?.items ?? []
@@ -283,6 +297,7 @@ const clearAll = () => {
   currentTicketIdx.value = null
   currentTicketRef.value = null
   selectedReassignTeam.value = ''
+  resetPendingFeedback()
 }
 
 // ----- Labeling Mode Methods -----
@@ -347,10 +362,14 @@ const confirmPrediction = async () => {
         ticket_id: currentTicketIdx.value,
         label: String(prediction.value.prediction),
         model_prediction: String(prediction.value.prediction),
+        second_model_prediction: secondModelPrediction.value,
         start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
         end_time: new Date(now).toISOString(),
+        is_tired: isTired.value ? true : undefined,
+        is_difficult: isDifficult.value ? true : undefined,
       },
     ])
+    toast.success('Label submitted', { description: 'Proceeding to next ticket' })
     // Fetch next ticket automatically
     await fetchNextTicket()
   } catch (e) {
@@ -371,10 +390,14 @@ const reassignTeam = async () => {
         ticket_id: currentTicketIdx.value,
         label: selectedReassignTeam.value,
         model_prediction: prediction.value?.prediction != null ? String(prediction.value.prediction) : undefined,
+        second_model_prediction: secondModelPrediction.value,
         start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
         end_time: new Date(now).toISOString(),
+        is_tired: isTired.value ? true : undefined,
+        is_difficult: isDifficult.value ? true : undefined,
       },
     ])
+    toast.success('Label submitted', { description: 'Proceeding to next ticket' })
     selectedReassignTeam.value = ''
     // Fetch next ticket automatically
     await fetchNextTicket()
@@ -387,12 +410,12 @@ const reassignTeam = async () => {
 
 const FEEDBACK_COPY: Record<LabelerFeedbackType, { toast: string; description: string }> = {
   I_AM_TIRED: {
-    toast: 'Time for a break',
-    description: 'We saved your spot — resume when ready.',
+    toast: 'Tired feedback selected',
+    description: 'Choose a label to submit this feedback.',
   },
   DIFFICULT_TICKET: {
-    toast: 'Marked as difficult',
-    description: 'Loading another ticket…',
+    toast: 'Difficult feedback selected',
+    description: 'Choose a label to submit this feedback.',
   },
   I_DONT_KNOW: {
     toast: "Skipped: don't know",
@@ -406,31 +429,38 @@ const handleLabelerFeedback = async (type: LabelerFeedbackType) => {
     return
   }
 
-  try {
-    await feedbackMutation.mutateAsync({
-      query_idx: currentTicketIdx.value,
-      feedback_type: type,
+  if (type !== 'I_DONT_KNOW') {
+    togglePendingFeedback(type)
+    const selected = type === 'I_AM_TIRED' ? isTired.value : isDifficult.value
+    const copy = FEEDBACK_COPY[type]
+    toast.info(selected ? copy.toast : `${copy.toast} cleared`, {
+      description: selected ? copy.description : 'The next label will not include this flag.',
     })
+    return
+  }
+
+  const now = Date.now()
+  try {
+    await labelMutation.mutateAsync([
+{
+        ticket_id: currentTicketIdx.value,
+        model_prediction: prediction.value?.prediction != null
+          ? String(prediction.value.prediction)
+          : undefined,
+        second_model_prediction: secondModelPrediction.value,
+        start_time: new Date(ticketShownAtMs.value ?? now).toISOString(),
+        end_time: new Date(now).toISOString(),
+        is_tired: isTired.value ? true : undefined,
+        is_difficult: isDifficult.value ? true : undefined,
+        i_dont_know: true,
+      },
+    ])
     const copy = FEEDBACK_COPY[type]
     toast.info(copy.toast, { description: copy.description })
-
-    if (type === 'I_AM_TIRED') {
-      breakModalOpen.value = true
-    } else {
-      await fetchNextTicket()
-    }
+    await fetchNextTicket()
   } catch (e) {
-    toast.error('Failed to submit feedback', { description: (e as Error).message })
+    toast.error('Failed to skip ticket', { description: (e as Error).message })
   }
-}
-
-const resumeFromBreak = async () => {
-  breakModalOpen.value = false
-  await fetchNextTicket()
-}
-
-const closeBreakModal = () => {
-  breakModalOpen.value = false
 }
 </script>
 
@@ -578,28 +608,28 @@ const closeBreakModal = () => {
                 </Button>
               </div>
 
-              <!-- Skip-with-reason feedback (capability-gated) -->
+              <!-- Tired/Difficult require a label; I Don't Know retires the ticket. -->
               <div
-                v-if="labelerFeedbackEnabled && currentTicketIdx"
+                v-if="currentTicketIdx"
                 class="labeling-actions__feedback"
               >
-                <span class="labeling-actions__label">Or skip this ticket:</span>
+                <span class="labeling-actions__label">Tired/Difficult feedback (label required):</span>
                 <div class="labeling-actions__feedback-row">
                   <Button
-                    variant="ghost"
+                    :variant="isTired ? 'secondary' : 'ghost'"
                     size="sm"
-                    :loading="feedbackMutation.isPending.value"
-                    :disabled="feedbackMutation.isPending.value || labelMutation.isPending.value"
+                    :disabled="labelMutation.isPending.value"
+                    :aria-pressed="isTired"
                     @click="handleLabelerFeedback('I_AM_TIRED')"
                   >
                     <Coffee :size="16" />
                     I'm Tired
                   </Button>
                   <Button
-                    variant="ghost"
+                    :variant="isDifficult ? 'secondary' : 'ghost'"
                     size="sm"
-                    :loading="feedbackMutation.isPending.value"
-                    :disabled="feedbackMutation.isPending.value || labelMutation.isPending.value"
+                    :disabled="labelMutation.isPending.value"
+                    :aria-pressed="isDifficult"
                     @click="handleLabelerFeedback('DIFFICULT_TICKET')"
                   >
                     <AlertTriangle :size="16" />
@@ -608,8 +638,8 @@ const closeBreakModal = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    :loading="feedbackMutation.isPending.value"
-                    :disabled="feedbackMutation.isPending.value || labelMutation.isPending.value"
+                    :loading="labelMutation.isPending.value"
+                    :disabled="labelMutation.isPending.value"
                     @click="handleLabelerFeedback('I_DONT_KNOW')"
                   >
                     <HelpCircle :size="16" />
@@ -689,43 +719,6 @@ const closeBreakModal = () => {
       </div>
     </template>
 
-    <!-- Break / "Time for a break" modal -->
-    <Teleport to="body">
-      <div
-        v-if="breakModalOpen"
-        class="break-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="break-modal-title"
-        @click.self="closeBreakModal"
-      >
-        <div class="break-modal__panel">
-          <button
-            type="button"
-            class="break-modal__close"
-            aria-label="Close"
-            @click="closeBreakModal"
-          >
-            <X :size="18" />
-          </button>
-          <div class="break-modal__icon">
-            <Coffee :size="36" />
-          </div>
-          <h2 id="break-modal-title" class="break-modal__title">Time for a break</h2>
-          <p class="break-modal__body">
-            We've saved your spot. Step away, grab a coffee, and come back when you're ready —
-            labeling quality matters more than speed.
-          </p>
-          <div class="break-modal__actions">
-            <Button variant="ghost" @click="closeBreakModal">Stay here</Button>
-            <Button variant="default" @click="resumeFromBreak">
-              <RefreshCw :size="16" />
-              I'm back — next ticket
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -1024,92 +1017,4 @@ const closeBreakModal = () => {
   }
 }
 
-// "Time for a break" modal — matches project-wide Teleport modal convention
-.break-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background-color: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  animation: break-modal-fade 0.15s ease-out;
-
-  &__panel {
-    position: relative;
-    width: 100%;
-    max-width: 28rem;
-    padding: 2rem 1.75rem 1.5rem;
-    background-color: var(--card);
-    color: var(--card-foreground);
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) + 0.25rem);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-    text-align: center;
-  }
-
-  &__close {
-    position: absolute;
-    top: 0.625rem;
-    right: 0.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius);
-    color: var(--muted-foreground);
-    cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease;
-
-    &:hover {
-      background-color: var(--muted);
-      color: var(--foreground);
-    }
-  }
-
-  &__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 3.5rem;
-    height: 3.5rem;
-    margin: 0 auto 0.75rem;
-    border-radius: 9999px;
-    background-color: var(--muted);
-    color: var(--primary);
-  }
-
-  &__title {
-    margin: 0 0 0.5rem;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--foreground);
-  }
-
-  &__body {
-    margin: 0 0 1.5rem;
-    font-size: 0.9375rem;
-    line-height: 1.5;
-    color: var(--muted-foreground);
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.625rem;
-    flex-wrap: wrap;
-  }
-}
-
-@keyframes break-modal-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 </style>

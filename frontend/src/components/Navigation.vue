@@ -57,6 +57,10 @@
       </nav>
 
       <div v-if="!isCollapsed" class="sidebar__footer">
+        <button type="button" class="sidebar__tour" @click="tutorialStore.runChain()">
+          <Play class="sidebar__tour-icon" />
+          <span>Tour guide</span>
+        </button>
         <MockToggle />
         <div class="sidebar__account">
           <span class="sidebar__account-user" :title="accountLabel">{{ accountLabel }}</span>
@@ -71,21 +75,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PanelLeftClose, PanelLeftOpen, LogOut, ExternalLink } from 'lucide-vue-next'
+import { PanelLeftClose, PanelLeftOpen, LogOut, ExternalLink, Play } from 'lucide-vue-next'
 import { navItems } from '../router'
 import InstanceSelector from './InstanceSelector.vue'
 import MockToggle from './MockToggle.vue'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useTutorialStore } from '@/stores/useTutorialStore'
 
 const STORAGE_KEY = 'humal-sidebar-collapsed'
+const EXPAND_EVENT = 'humal:tutorial-expand-sidebar'
 
 const route = useRoute()
 const router = useRouter()
 const instanceStore = useInstanceStore()
 const authStore = useAuthStore()
+const tutorialStore = useTutorialStore()
 
 const accountLabel = computed(() => authStore.user?.username || 'System user')
 
@@ -102,6 +109,20 @@ watch(isCollapsed, (value) => {
 
 const toggleCollapsed = () => {
   isCollapsed.value = !isCollapsed.value
+}
+
+// The tutorial relies on the sidebar (project selector, nav). When the sidebar
+// is collapsed, expand it so the guided steps are visible.
+onMounted(() => {
+  window.addEventListener(EXPAND_EVENT, handleTutorialExpand)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(EXPAND_EVENT, handleTutorialExpand)
+})
+
+const handleTutorialExpand = () => {
+  isCollapsed.value = false
 }
 
 const handleInstanceChange = (value: string) => {
@@ -271,6 +292,32 @@ const resolveHref = (path: string): string => router.resolve(path).href
   &__footer {
     padding: 1rem;
     border-top: 1px solid var(--sidebar-border);
+  }
+
+  &__tour {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-medium);
+    color: var(--sidebar-primary, inherit);
+    background: transparent;
+    border: 1px dashed var(--sidebar-border);
+    border-radius: var(--radius);
+    cursor: pointer;
+
+    &:hover {
+      background-color: var(--sidebar-accent);
+    }
+  }
+
+  &__tour-icon {
+    width: 0.875rem;
+    height: 0.875rem;
   }
 
   &__account {

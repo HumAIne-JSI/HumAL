@@ -6,6 +6,7 @@ import {
   type InferenceData,
   type InferenceResponse,
   type InferenceTopKResponse,
+  type TicketAnalysisSource,
 } from '@/types/api';
 import type { QueryMeta } from '@/lib/queryClient';
 
@@ -22,17 +23,18 @@ export interface UseInferenceOptions {
 
 /**
  * Run inference on a ticket using a trained model.
- * 
+ * Accepts either ad-hoc ticket data (InferenceData) or a ticket ref source.
+ *
  * @example
  * ```ts
  * const { mutate: infer, isPending, data: result } = useInfer(instanceId);
- * 
- * // Run inference
- * infer({
- *   title_anon: 'Cannot connect to VPN',
- *   description_anon: 'Getting timeout errors...',
- * });
- * 
+ *
+ * // Inference by ticket ref
+ * infer({ ticketRefs: ['R-1234'] });
+ *
+ * // Inference by ad-hoc data
+ * infer({ ticketData: { title_anon: 'Cannot connect to VPN' } });
+ *
  * // Access result
  * // result.value?.prediction, result.value?.confidence
  * ```
@@ -42,7 +44,13 @@ export function useInfer(
   options?: UseInferenceOptions
 ) {
   return useMutation({
-    mutationFn: (data: InferenceData) => apiService.infer(toValue(instanceId), data),
+    mutationFn: (source: InferenceData | TicketAnalysisSource) => {
+      if (source && 'ticketData' in source) {
+        const { ticketRefs, ticketData } = source as TicketAnalysisSource;
+        return apiService.infer(toValue(instanceId), ticketData, ticketRefs);
+      }
+      return apiService.infer(toValue(instanceId), source as InferenceData);
+    },
     onSuccess: options?.onSuccess,
     onError: options?.onError,
     meta: options?.meta,
@@ -51,7 +59,7 @@ export function useInfer(
 
 /**
  * Inference hook with custom error handling for "model not trained" case.
- * 
+ *
  * @example
  * ```ts
  * const { mutate: infer, isPending } = useInferWithModelCheck(instanceId, {
@@ -66,7 +74,13 @@ export function useInferWithModelCheck(
   }
 ) {
   return useMutation({
-    mutationFn: (data: InferenceData) => apiService.infer(toValue(instanceId), data),
+    mutationFn: (source: InferenceData | TicketAnalysisSource) => {
+      if (source && 'ticketData' in source) {
+        const { ticketRefs, ticketData } = source as TicketAnalysisSource;
+        return apiService.infer(toValue(instanceId), ticketData, ticketRefs);
+      }
+      return apiService.infer(toValue(instanceId), source as InferenceData);
+    },
     onSuccess: options?.onSuccess,
     onError: options?.onError,
     meta: {
@@ -90,6 +104,7 @@ export interface UseInferTopKOptions {
 
 /**
  * Run top-K inference: returns the K highest-probability predicted classes.
+ * Accepts either ad-hoc ticket data or a ticket ref source.
  * Silent by default — this is a supplementary feature used to surface
  * additional similar-ticket candidates for the labeler.
  */
@@ -99,8 +114,12 @@ export function useInferTopK(
   options?: UseInferTopKOptions
 ) {
   return useMutation({
-    mutationFn: (data: InferenceData) =>
-      apiService.inferTopK(toValue(instanceId), data, toValue(topK)),
+    mutationFn: (source: InferenceData | TicketAnalysisSource) => {
+      if (source && 'ticketData' in source) {
+        return apiService.inferTopK(toValue(instanceId), source, toValue(topK));
+      }
+      return apiService.inferTopK(toValue(instanceId), { ticketData: source as InferenceData }, toValue(topK));
+    },
     onSuccess: options?.onSuccess,
     onError: options?.onError,
     meta: {

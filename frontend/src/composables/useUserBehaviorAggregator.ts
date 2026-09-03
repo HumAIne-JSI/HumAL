@@ -606,6 +606,9 @@ export function aggregateSatisfaction(
       continue
     }
     if (e.action === 'labeler_feedback') {
+      // A false selection is a toggle-off interaction, not a reported flag.
+      // Missing values remain compatible with older stored telemetry events.
+      if (e.payload?.['selected'] === false) continue
       const ft = String(e.payload?.['feedback_type'] ?? '')
       if (ft === 'I_AM_TIRED' || isFlag(e, 'is_tired')) tiredFb++
       else if (ft === 'DIFFICULT_TICKET' || isFlag(e, 'is_difficult')) difficultFb++

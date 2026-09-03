@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Select from '@/components/ui/Select.vue'
+import TeamGuide from '@/components/TeamGuide.vue'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
 import type { LabelerFeedbackType } from '@/types/api'
 import {
@@ -20,10 +21,14 @@ export interface ManualTicketDetailPanelProps {
   ticket: QueueTicket | null
   teams?: string[]
   feedbackPending?: boolean
+  isTired?: boolean
+  isDifficult?: boolean
 }
 
 const props = withDefaults(defineProps<ManualTicketDetailPanelProps>(), {
   feedbackPending: false,
+  isTired: false,
+  isDifficult: false,
 })
 
 const emit = defineEmits<{
@@ -119,6 +124,7 @@ watch(
               placeholder="Select team..."
               size="sm"
             />
+            <TeamGuide :teams="props.teams" @select="selectedTeam = $event" />
             <Button
               variant="default"
               size="sm"
@@ -132,28 +138,29 @@ watch(
           </div>
         </section>
 
-        <!-- Skip-with-reason feedback (always visible; backend call is gated
-             by capability + handled by the parent page). -->
+        <!-- Tired/Difficult are attached to the next label; I Don't Know retires. -->
         <section class="manual-detail__feedback" data-track-region="labeler_feedback">
-          <span class="manual-detail__feedback-label">Skip this ticket:</span>
+          <span class="manual-detail__feedback-label">Tired/Difficult feedback (label required):</span>
           <div class="manual-detail__feedback-row">
             <Button
-              variant="ghost"
+              :variant="props.isTired ? 'secondary' : 'ghost'"
               size="sm"
               :disabled="feedbackPending"
+              :aria-pressed="props.isTired"
               @click="$emit('feedback', 'I_AM_TIRED')"
             >
               <Coffee :size="14" />
-              I'm Tired
+              Tired
             </Button>
             <Button
-              variant="ghost"
+              :variant="props.isDifficult ? 'secondary' : 'ghost'"
               size="sm"
               :disabled="feedbackPending"
+              :aria-pressed="props.isDifficult"
               @click="$emit('feedback', 'DIFFICULT_TICKET')"
             >
               <AlertTriangle :size="14" />
-              Difficult Ticket
+              Difficult
             </Button>
             <Button
               variant="ghost"

@@ -17,7 +17,6 @@ export {
   useNextInstances,
   useCreateInstance,
   useLabelInstance,
-  useLabelerFeedbackMutation,
   useSaveModel,
   useDeleteInstance,
   activeLearningKeys,

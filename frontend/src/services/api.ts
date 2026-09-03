@@ -3,8 +3,9 @@ import {
   type NewInstanceRequest,
   type LabelRequest,
   type LabelInfo,
-  type InferenceData,
-  type CreateInstanceResponse,
+   type InferenceData,
+   type TicketAnalysisSource,
+   type CreateInstanceResponse,
   type NextInstancesResponse,
   type LabelInstanceResponse,
   type InstanceInfo,
@@ -12,8 +13,6 @@ import {
   type InferenceResponse,
   type InferenceTopKResponse,
   type InferProbaResponse,
-  type LabelerFeedbackRequest,
-  type LabelerFeedbackResponse,
   type ConfigModelsResponse,
   type ConfigStrategiesResponse,
   type TicketsResponse,
@@ -96,7 +95,6 @@ export const API_ENDPOINTS = {
   GET_NEXT_INSTANCES: (id: number) => `/activelearning/${id}/next`,
   LABEL_INSTANCE: (id: number) => `/activelearning/${id}/label`,
   LABEL_WITH_INFO: (id: number) => `/activelearning/${id}/label-with-info`,
-  LABELER_FEEDBACK: (id: number) => `/activelearning/${id}/feedback`,
   GET_INFO: (id: number) => `/activelearning/${id}/info`,
   SAVE_MODEL: (id: number) => `/activelearning/${id}/save`,
   GET_INSTANCES: '/activelearning/instances',
@@ -234,11 +232,11 @@ export const apiService = {
     }),
 
   /**
-   * Submit human label decisions with full context (timing, model prediction,
-   * explanation). This is the primary telemetry channel on the humaine-al-api
-   * backend: it persists the decision AND records the benchmark event, while
-   * also retraining the model and recomputing metrics (same side effects as
-   * labelInstance — never call both for the same ticket).
+   * Submit human label decisions or i-don't-know retirements with full context
+   * (timing, model prediction, explanation). This is the primary telemetry
+   * channel on the humaine-al-api backend: it persists the decision AND records
+   * the benchmark event. Labeled decisions also retrain and recompute metrics;
+   * never call labelInstance for the same ticket.
    */
   labelWithInfo: (id: number, data: LabelInfo[]) =>
     apiCall<{ message?: string } & Record<string, unknown>>(
@@ -248,16 +246,6 @@ export const apiService = {
         body: JSON.stringify(data),
       },
     ),
-
-  /**
-   * Submit a labeler-feedback (skip-with-reason) event for the current ticket.
-   * Does NOT submit a class label — the ticket stays in the unlabeled pool.
-   */
-  submitLabelerFeedback: (id: number, data: LabelerFeedbackRequest) =>
-    apiCall<LabelerFeedbackResponse>(API_ENDPOINTS.LABELER_FEEDBACK(id), {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
 
   getInstanceInfo: (id: number) => apiCall<InstanceInfo>(API_ENDPOINTS.GET_INFO(id)),
 
@@ -291,8 +279,6 @@ export const apiService = {
 
   // Inference
   infer: async (id: number, data?: InferenceData | null, queryIdx?: string[]): Promise<InferenceResponse> => {
-    // The API accepts EITHER an ad-hoc `data` body OR a `query_idx` query param
-    // (ticket refs) — never both. Passing query_idx logs events server-side.
     const useQueryIdx = !!queryIdx?.length;
     const params = new URLSearchParams();
     if (useQueryIdx) queryIdx!.forEach((idx) => params.append('query_idx', idx));
@@ -339,8 +325,15 @@ export const apiService = {
    * The backend has no dedicated top-K route, so this is derived from
    * POST /activelearning/{id}/infer_proba by sorting the probability row.
    */
-  inferTopK: async (id: number, data: InferenceData, topK: number = 2): Promise<InferenceTopKResponse> => {
-    const proba = await apiService.inferProba(id, data);
+  inferTopK: async (id: number, source: TicketAnalysisSource, topK: number = 2): Promise<InferenceTopKResponse> => {
+    const useQueryIdx = !!source.ticketRefs?.length;
+    const params = new URLSearchParams();
+    if (useQueryIdx) source.ticketRefs!.forEach((idx) => params.append('query_idx', idx));
+    const endpoint = `${API_ENDPOINTS.INFER_PROBA(id)}${params.toString() ? `?${params.toString()}` : ''}`;
+    const proba = await apiCall<InferProbaResponse>(endpoint, {
+      method: 'POST',
+      body: useQueryIdx ? undefined : JSON.stringify(source.ticketData ?? {}),
+    });
     const row = proba.probabilities?.[0] ?? [];
     const predictions = proba.classes
       .map((cls, i) => ({ label: String(cls ?? ''), probability: row[i] ?? 0 }))
@@ -354,15 +347,18 @@ export const apiService = {
     id: number,
     payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number; top_k?: number }
   ) => {
+    const useQueryIdx = !!payload.query_idx?.length;
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
     if (payload.top_k !== undefined) params.append('top_k', String(payload.top_k));
-    if (payload.query_idx) payload.query_idx.forEach((idx) => params.append('query_idx', idx));
+    // query_idx and ticket_data are mutually exclusive — never both. Refs win
+    // so the backend can resolve the ticket text by ref and log events.
+    if (useQueryIdx) payload.query_idx!.forEach((idx) => params.append('query_idx', idx));
     const endpoint = `${API_ENDPOINTS.EXPLAIN_LIME(id)}${params.toString() ? `?${params.toString()}` : ''}`;
     return apiCall<ExplainLimeResponse>(endpoint, {
       method: 'POST',
-      // Body is the ad-hoc ticket data (or null when using query_idx refs).
-      body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
+      // Body is the ad-hoc ticket data (omitted when using query_idx refs).
+      body: useQueryIdx ? undefined : JSON.stringify(payload.ticket_data ?? {}),
     });
   },
 
@@ -370,19 +366,24 @@ export const apiService = {
    * Get nearest historical tickets via POST /xai/{id}/nearest.
    * Returns one NearestTicketResponse per query (each with predicted-class and
    * historical neighbour lists).
+   * Request carries EITHER a `Data` body OR repeated `query_idx` query params —
+   * never both. `top_k` / `model_id` are query parameters.
    */
   getNearest: (
     id: number,
     payload: { ticket_data?: InferenceData; query_idx?: string[]; model_id?: number; top_k?: number }
   ) => {
+    const useQueryIdx = !!payload.query_idx?.length;
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
     if (payload.top_k !== undefined) params.append('top_k', String(payload.top_k));
-    if (payload.query_idx) payload.query_idx.forEach((idx) => params.append('query_idx', idx));
+    // Refs are repeated query_idx query params (no body); otherwise the body
+    // carries the ad-hoc Data object.
+    if (useQueryIdx) payload.query_idx!.forEach((idx) => params.append('query_idx', idx));
     const endpoint = `${API_ENDPOINTS.XAI_NEAREST(id)}${params.toString() ? `?${params.toString()}` : ''}`;
     return apiCall<NearestTicketResponse[]>(endpoint, {
       method: 'POST',
-      body: payload.ticket_data ? JSON.stringify(payload.ticket_data) : undefined,
+      body: useQueryIdx ? undefined : JSON.stringify(payload.ticket_data ?? {}),
     });
   },
 
@@ -395,15 +396,19 @@ export const apiService = {
    */
   getNearestTicketsPerClass: async (
     id: number,
-    payload: { ticket_data: InferenceData; class_labels: string[]; model_id?: number }
+    payload: { ticket_data?: InferenceData; class_labels: string[]; ticket_refs?: string[]; model_id?: number }
   ): Promise<SimilarTicketsPerClassResponse> => {
+    const useQueryIdx = !!payload.ticket_refs?.length;
     const params = new URLSearchParams();
     if (payload.model_id !== undefined) params.append('model_id', String(payload.model_id));
     params.append('top_k', String(Math.max(payload.class_labels.length, 1)));
+    // Refs are repeated query_idx query params (no body); otherwise the body
+    // carries the ad-hoc Data object.
+    if (useQueryIdx) payload.ticket_refs!.forEach((ref) => params.append('query_idx', ref));
     const endpoint = `${API_ENDPOINTS.XAI_NEAREST(id)}?${params.toString()}`;
     const results = await apiCall<NearestTicketResponse[]>(endpoint, {
       method: 'POST',
-      body: JSON.stringify(payload.ticket_data),
+      body: useQueryIdx ? undefined : JSON.stringify(payload.ticket_data ?? {}),
     });
 
     const first = results?.[0];
