@@ -41,7 +41,7 @@ const lineWidths = computed(() => {
     height: 1rem;
     background-color: var(--muted);
     border-radius: 0.25rem;
-    animation: shimmer 2s infinite;
+    animation: shimmer 2s ease-in-out infinite;
 
     @media (prefers-reduced-motion: reduce) {
       animation: none;

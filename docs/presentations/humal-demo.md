@@ -554,11 +554,12 @@ Here: `vpn_request` → *Network Access* (72%) with a ready-to-send reply.
 PRESENTER SCRIPT — Ticket Evolution (1.5 min)
 What to say: "Now the Tier-2 operator's tool — turning a routed ticket into a sent reply in seconds."
 What to click:
-- Type a Title + Description (or use 'Pick a ticket' to pull one you just labeled).
-- Click 'Generate solution'.
-- Walk the result: 'Category' = vpn_request, 'Suggested Team' = Network Access, 'Certainty' 72%, and a 'Quality check' badge showing whether past feedback was applied.
-- Scroll to 'Suggested Response' — a ready-to-send draft the operator can edit.
-- Below: 'Similar Past Replies' with match % and 👍/👎 votes — real precedents.
+- Pick a ticket you just labeled from the 'From queue' tab, or type a Title + Description in 'Ticket details'.
+- Click 'Generate solution' (or Ctrl+Enter); the header steps move to 'Review draft'.
+- Walk the draft summary: 'Suggested team' = Network Access (with an inline 'Reassign'), 'Category' = vpn_request, 'Certainty' 72%, and 'Past feedback' showing how many votes shaped the ranking.
+- The 'Suggested reply' is a ready-to-send draft the operator can edit.
+- Alongside: 'Similar past replies' with match % and 👍/👎 votes — real precedents.
+- Click 'Send to Network Access' → the confirmation screen offers 'Resolve next queued ticket'.
 Key line: "Approve it and it joins the knowledge base — the next similar ticket gets an even better draft. No retraining wait."
 -->
 
@@ -572,21 +573,21 @@ Key line: "Approve it and it joins the knowledge base — the next similar ticke
 
 | Control | What it does |
 |---|---|
-| **Title · Description** | The incoming ticket *(required to generate)* |
-| **AI model (optional)** | Predict the team with a trained model first |
-| **Suggestions to retrieve** (1–20) | How many similar past replies to pull |
-| **Service category / subcategory** | Sharpen retrieval to the right area |
-| **Generate solution** | Classify + draft a reply + fetch precedents |
-| **Certainty · Quality check** | Team confidence · whether community feedback was applied |
-| **Suggested Response** → **Copy · Regen · Send to Team · Export** | Edit & use the draft; *Send to Team* saves it to the KB |
-| **Similar Past Replies** → 👍 / 👎 · **Use this reply** | Rate a precedent or reuse it verbatim |
-| **Pick a ticket** (drawer) | Pull a ticket you already labeled in the queue |
+| **From queue · Ticket details** | Pull a ticket you already labeled, or type one in *(title or description required)* |
+| **Advanced options → AI model** | Predict the team with a trained model first |
+| **Advanced options → Similar replies to retrieve** (1–20) | How many similar past replies to pull |
+| **Advanced options → Service category / subcategory** | Sharpen retrieval to the right area |
+| **Generate solution** (Ctrl+Enter) | Classify + draft a reply + fetch precedents |
+| **Certainty · Past feedback** | Team confidence · how many community votes shaped the ranking |
+| **Suggested reply** → **Copy · Regenerate · Export · Send to {team}** | Edit & use the draft; *Send* saves it to the KB |
+| **Similar past replies** → 👍 / 👎 · **Use in draft** | Rate a precedent or reuse it (with Undo) |
+| **Resolve next queued ticket** | After sending, load the next labeled ticket |
 
 <!--
 PRESENTER SCRIPT — Resolution controls (45s)
-- 'Suggestions to retrieve' = the top-K knob for the RAG search; more = more precedents, slower.
-- 'Send to Team' is the money button: it saves the approved reply and grows the knowledge base incrementally.
-- 👍/👎 on precedents feed the 'Quality check' — the community teaches the retrieval what's actually helpful.
+- 'Similar replies to retrieve' = the top-K knob for the RAG search; more = more precedents, slower.
+- 'Send to {team}' is the money button: it saves the approved reply and grows the knowledge base incrementally.
+- 👍/👎 on precedents feed future rankings — the community teaches the retrieval what's actually helpful.
 -->
 
 ---
@@ -725,7 +726,7 @@ PRESENTER SCRIPT — Targets (30s)
 1. **Login** → **Home**: point at System Status (API, projects, models).
 2. **New Project**: pick *AI Model* + *Labeling Strategy* → *Load from Data* → **Create Project**.
 3. **Ticket Queue**: select a ticket → read **84%** suggestion → open **Why this suggestion?** → **Confirm** (<kbd>c</kbd>) one, **Reassign** another.
-4. **Ticket Evolution** *(new tab)*: enter a ticket → **Generate solution** → review reply + precedents → **Send to Team**.
+4. **Ticket Evolution** *(new tab)*: pick or enter a ticket → **Generate solution** → review the draft + precedents → **Send to {team}** → **Resolve next queued ticket**.
 5. **Performance**: walk the scorecards → **Export** a snapshot.
 
 > **Fallback:** if anything misbehaves live, the screenshots in this deck reproduce every step.

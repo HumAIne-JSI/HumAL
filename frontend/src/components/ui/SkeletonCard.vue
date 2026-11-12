@@ -75,7 +75,7 @@ const props = withDefaults(defineProps<Props>(), {
   width: 60%;
   background-color: var(--muted);
   border-radius: 0.25rem;
-  animation: shimmer 2s infinite;
+  animation: shimmer 2s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -88,7 +88,7 @@ const props = withDefaults(defineProps<Props>(), {
   width: 70%;
   background-color: var(--muted);
   border-radius: 0.25rem;
-  animation: shimmer 2s infinite;
+  animation: shimmer 2s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -101,7 +101,7 @@ const props = withDefaults(defineProps<Props>(), {
   height: 2.5rem;
   background-color: var(--muted);
   border-radius: 0.25rem;
-  animation: shimmer 2s infinite;
+  animation: shimmer 2s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -122,7 +122,7 @@ const props = withDefaults(defineProps<Props>(), {
   height: 1rem;
   background-color: var(--muted);
   border-radius: 0.25rem;
-  animation: shimmer 2s infinite;
+  animation: shimmer 2s ease-in-out infinite;
 
   &--last {
     width: 85%;
@@ -139,7 +139,7 @@ const props = withDefaults(defineProps<Props>(), {
   background-color: var(--muted);
   border-radius: 0;
   margin-top: auto;
-  animation: shimmer 2s infinite;
+  animation: shimmer 2s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;

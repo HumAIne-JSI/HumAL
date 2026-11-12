@@ -34,20 +34,16 @@ async function runAction(page, action) {
   }
   if (action === 'generateResolution') {
     try {
-      await page.getByPlaceholder('Enter ticket title...').fill('VPN connection keeps dropping every few minutes')
+      await page.getByRole('tab', { name: /Ticket details/i }).click({ timeout: 8000 })
+      await page.getByLabel('Title', { exact: true }).fill('VPN connection keeps dropping every few minutes')
       await page
-        .getByPlaceholder('Enter ticket description...')
+        .getByLabel('Description', { exact: true })
         .fill(
           'Since this morning my VPN disconnects every 5-10 minutes. I have to reconnect constantly and it interrupts my work. I am on the corporate laptop over home Wi-Fi.',
         )
       await page.getByRole('button', { name: /Generate solution/i }).click({ timeout: 8000 })
-      await page.waitForTimeout(3500)
-      // Bring the generated reply card into view for the screenshot.
-      try {
-        await page.getByText('Suggested Response', { exact: false }).first().scrollIntoViewIfNeeded({ timeout: 5000 })
-      } catch {
-        await page.getByText('Suggested Team', { exact: false }).first().scrollIntoViewIfNeeded({ timeout: 5000 })
-      }
+      // Wait for the generated reply to land in the draft editor.
+      await page.getByLabel('Suggested reply').waitFor({ timeout: 15000 })
       await page.waitForTimeout(700)
     } catch (e) {
       console.log('  (generateResolution skipped:', e.message.split('\n')[0], ')')
