@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import Card from '@/components/ui/Card.vue'
-import Badge from '@/components/ui/Badge.vue'
-import Button from '@/components/ui/Button.vue'
-import Input from '@/components/ui/Input.vue'
-import Textarea from '@/components/ui/Textarea.vue'
-import Progress from '@/components/ui/Progress.vue'
-import Spinner from '@/components/ui/Spinner.vue'
-import ExportButton from '@/components/ExportButton.vue'
-import InstanceSelector from '@/components/InstanceSelector.vue'
-import SkeletonCard from '@/components/ui/SkeletonCard.vue'
-import SkeletonText from '@/components/ui/SkeletonText.vue'
-import LoadingPhase from '@/components/ui/LoadingPhase.vue'
+import ResolutionSteps, { type ResolutionStage } from '@/components/ResolutionSteps.vue'
+import ResolutionIntake from '@/components/ResolutionIntake.vue'
+import ResolutionTicketSummary from '@/components/ResolutionTicketSummary.vue'
+import ResolutionDraft from '@/components/ResolutionDraft.vue'
+import ResolutionSimilarReplies from '@/components/ResolutionSimilarReplies.vue'
+import ResolutionSent from '@/components/ResolutionSent.vue'
+import type { LoadingPhaseStep } from '@/components/ui/LoadingPhase.vue'
 import { useLoadingPhase } from '@/composables/useLoadingPhase'
-import { useInstances } from '@/composables/api/useActiveLearning'
-import { useCategories, useSubcategories } from '@/composables/api/useData'
+import { useResolutionEffort } from '@/composables/useResolutionEffort'
+import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { useInfer } from '@/composables/api/useInference'
 import {
   useAssistedResolution,
@@ -23,158 +18,75 @@ import {
   useFeedbackStats,
   useSaveResolvedTicket,
   DEFAULT_RESOLUTION_TOP_K,
-  type AssistedResolution,
+  type AssistedResolution
 } from '@/composables/api/useResolution'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useLabeledTicketsStore, type LabeledTicket } from '@/stores/useLabeledTicketsStore'
-import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import type { ResolutionSimilarReply, ResolutionFeedbackStatsResponse } from '@/types/api'
-import {
-  MessageSquare,
-  ThumbsUp,
-  ThumbsDown,
-  Copy,
-  Check,
-  RefreshCw,
-  FileText,
-  Sparkles,
-  Users,
-  Target,
-  Save,
-  Gavel,
-  Brain,
-  Inbox,
-  Trash2,
-  X,
-  ChevronLeft,
-} from 'lucide-vue-next'
+
+type VoteLabel = 0 | 1
+
+interface DraftSnapshot {
+  text: string
+  reason: string
+}
 
 const authStore = useAuthStore()
 const telemetry = useBenchmarkTelemetry()
 const labeledStore = useLabeledTicketsStore()
-const labeledTickets = computed(() => labeledStore.tickets)
 
-// Pick-a-ticket side drawer: collapsed by default so the input stays the focus.
-const labeledCollapsed = ref(true)
-const labeledSearch = ref('')
-const labeledTeamFilter = ref('')
-const labeledTeams = computed(() => {
-  const set = new Set<string>()
-  for (const ticket of labeledTickets.value) {
-    if (ticket.label) set.add(ticket.label)
-  }
-  return Array.from(set).sort()
-})
-const filteredLabeledTickets = computed(() => {
-  const query = labeledSearch.value.trim().toLowerCase()
-  const team = labeledTeamFilter.value
-  return labeledTickets.value.filter((ticket) => {
-    if (team && ticket.label !== team) return false
-    if (!query) return true
-    return (
-      ticket.ref.toLowerCase().includes(query) ||
-      ticket.title.toLowerCase().includes(query) ||
-      ticket.description.toLowerCase().includes(query) ||
-      ticket.label.toLowerCase().includes(query)
-    )
-  })
-})
+const pageRef = ref<HTMLElement | null>(null)
+const stage = ref<ResolutionStage>('intake')
 
-// Form state
+// Ticket
 const ticketTitle = ref('')
 const ticketDescription = ref('')
 const topK = ref(DEFAULT_RESOLUTION_TOP_K)
 const selectedCategory = ref('')
 const selectedSubcategory = ref('')
-
+// Optional Active-Learning bridge: a trained instance predicts the team before
+// resolving, sharpening retrieval + judging.
+const selectedInstanceId = ref(0)
 // A labeled ticket pulled from the queue: its human label is reused as the
 // predicted-team hint, taking priority over model inference.
 const presetTeam = ref('')
 const selectedLabeledRef = ref('')
+// A team the specialist picked via "Reassign"; it outranks every other hint so
+// regenerating never silently reverts the decision.
+const manualTeam = ref('')
 
-// Optional Active-Learning bridge: a trained instance used to predict the team
-// before resolving, sharpening retrieval + judging.
-const selectedInstanceId = ref(0)
-const instanceModel = computed<string>({
-  get: () => (selectedInstanceId.value > 0 ? String(selectedInstanceId.value) : ''),
-  set: (value) => {
-    selectedInstanceId.value = value ? Number(value) : 0
-  },
-})
-
-// Result state
+// Draft
 const result = ref<AssistedResolution | null>(null)
 const editedResponse = ref('')
-const savedToKb = ref(false)
+const undoSnapshot = ref<DraftSnapshot | null>(null)
+const appliedReplyId = ref<string | null>(null)
+const intakeError = ref<string | null>(null)
+const draftError = ref<string | null>(null)
+const phaseSteps = ref<LoadingPhaseStep[]>([])
 
-// Progressive loading phase tracking
-const { currentPhase, isLoading, startPhase, reset: resetPhase } = useLoadingPhase()
-
-// Demo-only: reassign the ticket to a different team.
-const AVAILABLE_TEAMS = [
-  'Network Operations',
-  'Hardware Support',
-  'Software Support',
-  'Security',
-  'Database Administration',
-  'Cloud Infrastructure',
-  'Identity & Access',
-  'Service Desk',
-]
-const reassignOpen = ref(false)
-const reassignTeam = ref('')
-const copiedToClipboard = ref(false)
-// Per-reply feedback: retrieved_id -> submitted vote / aggregated stats.
-const votes = ref<Record<string, 0 | 1>>({})
+// Per-reply feedback: retrieved_id -> submitted vote / in-flight vote / stats.
+const votes = ref<Record<string, VoteLabel>>({})
+const pendingVotes = ref<Record<string, VoteLabel>>({})
 const stats = ref<Record<string, ResolutionFeedbackStatsResponse>>({})
-const votingId = ref<string | null>(null)
 // A stable id grouping all feedback from one generated resolution.
 const queryId = ref('')
 
-// Manual-effort telemetry: how much / how long the operator edits the suggested
-// reply before using it, so Analytics can estimate operator effort saved.
-const generatedAtMs = ref<number | null>(null)
-const firstEditMs = ref<number | null>(null)
-const effortRecorded = ref(false)
+const { currentPhase, isLoading, startPhase, reset: resetPhase } = useLoadingPhase()
+const effort = useResolutionEffort(result, editedResponse)
 
-// Detect the first manual edit of the generated reply.
-watch(editedResponse, (value) => {
-  if (result.value && firstEditMs.value == null && value !== result.value.response) {
-    firstEditMs.value = Date.now()
-  }
-})
-
-// Reference data for the optional service-category fields.
-const { data: instancesData } = useInstances()
-const firstInstanceId = computed(() => {
-  const instances = instancesData.value?.instances
-  const keys = instances ? Object.keys(instances) : []
-  return keys.length ? Number(keys[0]) : 0
-})
-const catInstanceId = computed(() =>
-  selectedInstanceId.value > 0 ? selectedInstanceId.value : firstInstanceId.value,
-)
-const { data: categoriesData } = useCategories(catInstanceId, undefined, {
-  enabled: computed(() => catInstanceId.value > 0),
-})
-const { data: subcategoriesData } = useSubcategories(catInstanceId, undefined, undefined, {
-  enabled: computed(() => catInstanceId.value > 0),
-})
-const categories = computed(() => categoriesData.value?.categories ?? [])
-const subcategories = computed(() => subcategoriesData.value?.subcategories ?? [])
-
-// Mutations
 const assisted = useAssistedResolution({ meta: { silent: true } })
 const inferMutation = useInfer(selectedInstanceId, { meta: { silent: true } })
 const feedbackMutation = useResolutionFeedback({ meta: { silent: true } })
-const statsMutation = useFeedbackStats()
+const statsMutation = useFeedbackStats({ meta: { silent: true } })
 const saveMutation = useSaveResolvedTicket({ meta: { silent: true } })
 
-// Computed
-const hasInput = computed(() => !!(ticketTitle.value.trim() || ticketDescription.value.trim()))
 const isResolving = computed(() => assisted.isPending.value || inferMutation.isPending.value)
 const isSaving = computed(() => saveMutation.isPending.value)
-const confidencePct = computed(() => (result.value ? (result.value.team_confidence ?? 0) * 100 : 0))
+const isBusy = computed(() => isResolving.value || isSaving.value)
+const nextQueuedTicket = computed<LabeledTicket | null>(() => labeledStore.tickets[0] ?? null)
+const willPredictTeam = computed(
+  () => !manualTeam.value && !presetTeam.value && selectedInstanceId.value > 0
+)
 
 const exportData = computed(() => {
   if (!result.value) return []
@@ -188,272 +100,227 @@ const exportData = computed(() => {
       predicted_team: result.value.predicted_team,
       team_confidence: result.value.team_confidence,
       response: editedResponse.value,
-      similar_count: result.value.similar_replies.length,
-    },
+      similar_count: result.value.similar_replies.length
+    }
   ]
 })
 
-// Helpers
-const matchPct = (reply: ResolutionSimilarReply): number =>
-  Math.round((reply.enhanced_score ?? 0) * 100)
+const errorMessage = (error: unknown): string | undefined =>
+  error instanceof Error ? error.message : undefined
 
-const isVoting = (id: string): boolean => votingId.value === id
-
-function statsFor(id: string): { up: number; down: number } | null {
-  const entry = stats.value[id]
-  if (!entry) return null
-  let up = 0
-  let down = 0
-  for (const [, upvotes, downvotes] of entry.agg) {
-    up += upvotes
-    down += downvotes
-  }
-  return { up, down }
+// Generation: (predict team) → draft reply → load feedback stats.
+function beginGeneration(): void {
+  intakeError.value = null
+  draftError.value = null
+  phaseSteps.value = [
+    ...(willPredictTeam.value ? [{ id: 'classifying', label: 'Predicting team' }] : []),
+    { id: 'generating', label: 'Drafting reply' },
+    { id: 'retrieving', label: 'Loading feedback' }
+  ]
+  startPhase(willPredictTeam.value ? 'classifying' : 'generating')
+  stage.value = 'review'
 }
 
-async function loadStats(replies: ResolutionSimilarReply[]): Promise<void> {
-  await Promise.all(
-    replies.map(async (reply) => {
-      try {
-        stats.value[reply.retrieved_id] = await statsMutation.mutateAsync({
-          retrievedId: reply.retrieved_id,
-        })
-      } catch {
-        // Feedback stats are non-critical decoration.
-      }
-    }),
-  )
-}
+// A regenerate may start while the previous run is still loading feedback;
+// only the latest run may reset the shared progress indicator.
+let generationRun = 0
 
-// Methods
 async function generate(): Promise<void> {
-  if (!hasInput.value) {
-    toast.error('Empty ticket', { description: 'Please enter a title or description' })
+  if (isBusy.value) return
+  const run = ++generationRun
+  beginGeneration()
+  try {
+    const data = await requestDraft(await predictTeam())
+    applyResult(data)
+    await loadFeedback(data.similar_replies)
+  } catch (error) {
+    handleGenerateError(error)
+  } finally {
+    if (run === generationRun) resetPhase()
+  }
+}
+
+// Prefer a manual reassignment, then the human label from the queue; otherwise
+// best-effort AL inference.
+async function predictTeam(): Promise<string | undefined> {
+  const hint = manualTeam.value || presetTeam.value
+  if (hint) return hint
+  if (!willPredictTeam.value) return undefined
+  try {
+    const inference = await inferMutation.mutateAsync({
+      title_anon: ticketTitle.value,
+      description_anon: ticketDescription.value
+    })
+    return inference.prediction != null ? String(inference.prediction) : undefined
+  } catch {
+    // Inference is optional; the resolution API classifies on its own.
+    return undefined
+  }
+}
+
+function requestDraft(predictedTeam: string | undefined): Promise<AssistedResolution> {
+  startPhase('generating')
+  return assisted.mutateAsync({
+    title: ticketTitle.value,
+    description: ticketDescription.value,
+    top_k: topK.value,
+    predicted_team: predictedTeam
+  })
+}
+
+function applyResult(data: AssistedResolution): void {
+  if (result.value) snapshotDraft('A new draft replaced your previous text.', data.response)
+  result.value = data
+  editedResponse.value = data.response
+  votes.value = {}
+  stats.value = {}
+  appliedReplyId.value = null
+  queryId.value = crypto.randomUUID()
+  effort.start()
+  telemetry.recordLab('run_prediction', 'Ticket', {
+    page: 'resolution',
+    classification: data.classification,
+    predicted_team: data.predicted_team
+  })
+}
+
+async function loadFeedback(replies: ResolutionSimilarReply[]): Promise<void> {
+  if (!replies.length) return
+  startPhase('retrieving')
+  await Promise.all(replies.map((reply) => refreshStats(reply.retrieved_id)))
+}
+
+// Responses that arrive after the draft was replaced belong to a stale query.
+async function refreshStats(retrievedId: string): Promise<void> {
+  const qid = queryId.value
+  try {
+    const data = await statsMutation.mutateAsync({ retrievedId })
+    if (queryId.value === qid) stats.value[retrievedId] = data
+  } catch {
+    // Feedback stats are non-critical decoration.
+  }
+}
+
+// A failed first draft returns to the ticket; a failed regenerate keeps the draft.
+function handleGenerateError(error: unknown): void {
+  const message = errorMessage(error) ?? 'Unable to reach the resolution service.'
+  if (result.value) {
+    draftError.value = message
     return
   }
-
-  // Start the analyzing phase
-  startPhase('analyzing')
-
-  // Prefer the human label from the queue; otherwise best-effort AL inference to
-  // predict the team/class and sharpen retrieval + judging.
-  let predictedTeam: string | undefined = presetTeam.value || undefined
-  if (!predictedTeam && selectedInstanceId.value > 0) {
-    try {
-      // Transition to classifying phase when inference starts
-      startPhase('classifying')
-      const inference = await inferMutation.mutateAsync({
-        title_anon: ticketTitle.value,
-        description_anon: ticketDescription.value,
-      })
-      predictedTeam = inference.prediction != null ? String(inference.prediction) : undefined
-    } catch {
-      // Inference is optional; the resolution API classifies on its own.
-    }
-  }
-
-  try {
-    // Transition to generating phase when starting assisted resolution
-    startPhase('generating')
-    const data = await assisted.mutateAsync({
-      title: ticketTitle.value,
-      description: ticketDescription.value,
-      top_k: topK.value,
-      predicted_team: predictedTeam,
-    })
-    
-    // Transition to retrieving phase when loading similar replies stats
-    startPhase('retrieving')
-    
-    result.value = data
-    editedResponse.value = data.response
-    savedToKb.value = false
-    votes.value = {}
-    stats.value = {}
-    queryId.value = crypto.randomUUID()
-    generatedAtMs.value = Date.now()
-    firstEditMs.value = null
-    effortRecorded.value = false
-    toast.success('Resolution generated', {
-      description: `${data.classification} · ${data.predicted_team}`,
-    })
-    telemetry.recordLab('run_prediction', 'Ticket', {
-      page: 'resolution',
-      classification: data.classification,
-      predicted_team: data.predicted_team,
-    })
-    await loadStats(data.similar_replies)
-    
-    // Reset phase tracking after completion
-    resetPhase()
-  } catch (error) {
-    // Reset phase tracking on error
-    resetPhase()
-    toast.error('Resolution failed', {
-      description: error instanceof Error ? error.message : 'Unable to reach the resolution service',
-    })
-  }
+  intakeError.value = message
+  stage.value = 'intake'
 }
 
-async function vote(reply: ResolutionSimilarReply, label: 0 | 1): Promise<void> {
-  if (!result.value || votingId.value) return
-  votingId.value = reply.retrieved_id
+async function vote(reply: ResolutionSimilarReply, label: VoteLabel): Promise<void> {
+  const id = reply.retrieved_id
+  const current = result.value
+  if (!current || id in pendingVotes.value) return
+  const qid = queryId.value
+  pendingVotes.value[id] = label
   try {
     await feedbackMutation.mutateAsync({
-      query_id: queryId.value || crypto.randomUUID(),
-      retrieved_id: reply.retrieved_id,
+      query_id: qid,
+      retrieved_id: id,
       label,
-      predicted_class: result.value.predicted_class,
-      predicted_team: result.value.predicted_team,
-      user_id: authStore.user?.user_id,
+      predicted_class: current.predicted_class,
+      predicted_team: current.predicted_team,
+      user_id: authStore.user?.user_id
     })
-    votes.value[reply.retrieved_id] = label
-    stats.value[reply.retrieved_id] = await statsMutation.mutateAsync({
-      retrievedId: reply.retrieved_id,
-    })
-    toast.success(label === 1 ? 'Marked as helpful' : 'Marked as not helpful')
+    if (queryId.value !== qid) return
+    votes.value[id] = label
+    await refreshStats(id)
   } catch (error) {
-    toast.error('Could not save feedback', {
-      description: error instanceof Error ? error.message : undefined,
-    })
+    toast.error('Could not save feedback', { description: errorMessage(error) })
   } finally {
-    votingId.value = null
+    delete pendingVotes.value[id]
   }
 }
 
-function useReply(reply: ResolutionSimilarReply): void {
-  if (reply.first_reply) {
-    editedResponse.value = reply.first_reply
-    toast.info('Reply applied', { description: 'You can edit it before saving' })
+// Keep replaced text so "Use in draft" and regenerate are never destructive.
+function snapshotDraft(reason: string, nextText: string): void {
+  const current = editedResponse.value
+  undoSnapshot.value = current.trim() && current !== nextText ? { text: current, reason } : null
+}
+
+function applyReply(reply: ResolutionSimilarReply): void {
+  if (!reply.first_reply) return
+  snapshotDraft('Draft replaced with a past reply.', reply.first_reply)
+  editedResponse.value = reply.first_reply
+  appliedReplyId.value = reply.retrieved_id
+}
+
+function undoReplace(): void {
+  if (!undoSnapshot.value) return
+  editedResponse.value = undoSnapshot.value.text
+  undoSnapshot.value = null
+  appliedReplyId.value = null
+}
+
+function onDraftEdited(): void {
+  undoSnapshot.value = null
+  appliedReplyId.value = null
+}
+
+function reassignTeam(team: string): void {
+  manualTeam.value = team
+  if (result.value) result.value.predicted_team = team
+}
+
+// The review stage is locked while saving; the queue ref is still captured so
+// the ticket that was actually sent is the one removed from the queue.
+async function sendToTeam(): Promise<void> {
+  const current = result.value
+  if (!current || isBusy.value) return
+  const ticketRef = selectedLabeledRef.value
+  try {
+    await saveMutation.mutateAsync({
+      title: ticketTitle.value,
+      description: ticketDescription.value,
+      response: editedResponse.value,
+      predicted_team: current.predicted_team,
+      predicted_classification: current.classification,
+      service_name: selectedCategory.value || undefined,
+      service_subcategory: selectedSubcategory.value || undefined
+    })
+    effort.record('saved')
+    if (ticketRef) labeledStore.remove(ticketRef)
+    stage.value = 'sent'
+  } catch (error) {
+    toast.error('Could not send to the team', { description: errorMessage(error) })
   }
 }
 
-// Load a labeled ticket from the queue into the form.
-function useLabeledTicket(ticket: LabeledTicket): void {
+function resetResult(): void {
+  result.value = null
+  editedResponse.value = ''
+  manualTeam.value = ''
+  undoSnapshot.value = null
+  appliedReplyId.value = null
+  votes.value = {}
+  stats.value = {}
+  queryId.value = ''
+  intakeError.value = null
+  draftError.value = null
+  effort.reset()
+  resetPhase()
+}
+
+// Load a labeled ticket from the queue for review (no auto-generate).
+function loadTicket(ticket: LabeledTicket): void {
   ticketTitle.value = ticket.title
   ticketDescription.value = ticket.description
   selectedCategory.value = ticket.category ?? ''
   selectedSubcategory.value = ticket.subcategory ?? ''
   presetTeam.value = ticket.label
   selectedLabeledRef.value = ticket.ref
-  result.value = null
-  editedResponse.value = ''
-  savedToKb.value = false
-  votes.value = {}
-  stats.value = {}
-  generatedAtMs.value = null
-  firstEditMs.value = null
-  effortRecorded.value = false
-  resetPhase()
-  labeledCollapsed.value = true
-  toast.info('Ticket loaded', { description: `${ticket.ref} · ${ticket.label}` })
+  resetResult()
 }
 
 // Detach the queue association but keep the typed text for manual resolving.
-function clearLoadedTicket(): void {
+function unlinkTicket(): void {
   presetTeam.value = ''
   selectedLabeledRef.value = ''
-}
-
-function formatTime(iso: string): string {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
-}
-
-// Character-level edit distance (bounded) between the generated reply and the
-// operator's final text — the basis of the "effort saved" estimate.
-function editDistance(a: string, b: string): number {
-  if (a === b) return 0
-  if (a.length > 4000 || b.length > 4000) return Math.abs(a.length - b.length)
-  const m = a.length
-  const n = b.length
-  if (m === 0) return n
-  if (n === 0) return m
-  const prev = Array.from({ length: n + 1 }, (_, i) => i)
-  const curr = new Array<number>(n + 1)
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i
-    for (let j = 1; j <= n; j++) {
-      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1
-      curr[j] = Math.min(prev[j]! + 1, curr[j - 1]! + 1, prev[j - 1]! + cost)
-    }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j]!
-  }
-  return prev[n]!
-}
-
-// Emit a one-time manual-effort telemetry event when the operator accepts a
-// suggested resolution (copies or saves it): how much they changed it and how
-// long they reviewed it before using it.
-function recordEffort(outcome: 'saved' | 'copied'): void {
-  if (!result.value || effortRecorded.value) return
-  effortRecorded.value = true
-  const generated = result.value.response ?? ''
-  const final = editedResponse.value ?? ''
-  const changed = editDistance(generated, final)
-  const editRatio = Math.min(1, changed / Math.max(generated.length, final.length, 1))
-  const now = Date.now()
-  const reviewMs = generatedAtMs.value != null ? now - generatedAtMs.value : 0
-  const editMs = firstEditMs.value != null ? now - firstEditMs.value : 0
-  telemetry.recordLab(
-    'validate_resolution',
-    'Ticket',
-    {
-      page: 'resolution',
-      outcome,
-      edited: final !== generated,
-      edit_ratio: Number(editRatio.toFixed(3)),
-      chars_generated: generated.length,
-      chars_final: final.length,
-      chars_changed: changed,
-      edit_duration_ms: editMs,
-      predicted_team: result.value.predicted_team,
-      classification: result.value.classification,
-    },
-    { latency_ms: reviewMs },
-  )
-}
-
-async function saveToKb(): Promise<void> {
-  if (!result.value) return
-  try {
-    await saveMutation.mutateAsync({
-      title: ticketTitle.value,
-      description: ticketDescription.value,
-      response: editedResponse.value,
-      predicted_team: result.value.predicted_team,
-      predicted_classification: result.value.classification,
-      service_name: selectedCategory.value || undefined,
-      service_subcategory: selectedSubcategory.value || undefined,
-    })
-    savedToKb.value = true
-    toast.success('Sent to Team')
-    recordEffort('saved')
-  } catch (error) {
-    toast.error('Could not save to knowledge base', {
-      description: error instanceof Error ? error.message : undefined,
-    })
-  }
-}
-
-// Demo-only: reassign the ticket to a different team.
-function reassignTicket(): void {
-  if (!reassignTeam.value || !result.value) return
-  result.value.predicted_team = reassignTeam.value
-  reassignOpen.value = false
-  toast.success(`Ticket reassigned to ${reassignTeam.value}`)
-}
-
-async function copyResponse(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(editedResponse.value)
-    copiedToClipboard.value = true
-    setTimeout(() => (copiedToClipboard.value = false), 2000)
-    toast.success('Copied to clipboard')
-    recordEffort('copied')
-  } catch {
-    toast.error('Failed to copy')
-  }
 }
 
 function clearForm(): void {
@@ -462,17 +329,27 @@ function clearForm(): void {
   selectedCategory.value = ''
   selectedSubcategory.value = ''
   topK.value = DEFAULT_RESOLUTION_TOP_K
-  presetTeam.value = ''
-  selectedLabeledRef.value = ''
-  result.value = null
-  editedResponse.value = ''
-  savedToKb.value = false
-  votes.value = {}
-  stats.value = {}
-  generatedAtMs.value = null
-  firstEditMs.value = null
-  effortRecorded.value = false
-  resetPhase()
+  unlinkTicket()
+  resetResult()
+}
+
+function resolveNextTicket(): void {
+  if (nextQueuedTicket.value) loadTicket(nextQueuedTicket.value)
+  stage.value = 'intake'
+}
+
+function startNewTicket(): void {
+  clearForm()
+  stage.value = 'intake'
+}
+
+// Move focus to the new step's heading, and bring the page top into view.
+function onStageEntered(el: Element): void {
+  el.querySelector<HTMLElement>('[data-stage-heading]')?.focus({ preventScroll: true })
+  const page = pageRef.value
+  if (!page || page.getBoundingClientRect().top >= 0) return
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  page.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' })
 }
 
 onMounted(() => {
@@ -481,401 +358,119 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="resolution">
+  <div ref="pageRef" class="resolution">
     <header class="resolution__header">
-      <div class="resolution__header-content">
+      <div class="resolution__intro">
         <h1 class="resolution__title">Specialist Resolution Workspace</h1>
         <p class="resolution__subtitle">
-          After a ticket is routed to a team, Tier 2 Support gets a suggested first reply based on similar past tickets.
+          After a ticket is routed to a team, Tier 2 Support gets a suggested first reply based on
+          similar past tickets.
         </p>
       </div>
+      <ResolutionSteps :current="stage" />
     </header>
 
-    <div class="resolution__content">
-      <div class="resolution__body" :class="{ 'resolution__body--open': !labeledCollapsed }">
-        <!-- Pick-a-ticket side drawer -->
-        <aside
-          class="res-drawer"
-          :class="{ 'res-drawer--open': !labeledCollapsed }"
-          aria-label="Labeled tickets from the queue"
-        >
-          <div class="res-drawer__inner">
-            <div class="res-drawer__head">
-              <span class="res-drawer__title">
-                <Inbox :size="16" />
-                Pick a ticket
-                <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
-              </span>
-              <div class="labeled-actions">
-                <Button variant="ghost" size="sm" title="Refresh list" @click="labeledStore.reload()">
-                  <RefreshCw :size="14" />
-                </Button>
-                <Button
-                  v-if="labeledTickets.length"
-                  variant="ghost"
-                  size="sm"
-                  title="Clear list"
-                  @click="labeledStore.clear()"
-                >
-                  <Trash2 :size="14" />
-                </Button>
-                <Button variant="ghost" size="sm" title="Collapse" @click="labeledCollapsed = true">
-                  <ChevronLeft :size="16" />
-                </Button>
-              </div>
-            </div>
+    <Transition name="stage" mode="out-in" @after-enter="onStageEntered">
+      <div v-if="stage === 'intake'" key="intake" class="stage stage--intake">
+        <ResolutionIntake
+          v-model:title="ticketTitle"
+          v-model:description="ticketDescription"
+          v-model:instance-id="selectedInstanceId"
+          v-model:top-k="topK"
+          v-model:category="selectedCategory"
+          v-model:subcategory="selectedSubcategory"
+          :disabled="isResolving"
+          :has-draft="!!result"
+          :error="intakeError"
+          :queue-ref="selectedLabeledRef"
+          :queue-team="presetTeam"
+          @generate="generate"
+          @clear="clearForm"
+          @pick-ticket="loadTicket"
+          @unlink-ticket="unlinkTicket"
+          @back-to-draft="stage = 'review'"
+        />
 
-            <p v-if="!labeledTickets.length" class="labeled-empty">
-              No labeled tickets yet. Label tickets in the Smart Assign queue and they will appear here.
-            </p>
-
-            <template v-else>
-              <div class="labeled-filters">
-                <Input
-                  v-model="labeledSearch"
-                  placeholder="Search ref, title, description..."
-                  class="labeled-filters__search"
-                />
-                <select v-model="labeledTeamFilter" class="form-select labeled-filters__team">
-                  <option value="">All teams</option>
-                  <option v-for="team in labeledTeams" :key="team" :value="team">{{ team }}</option>
-                </select>
-              </div>
-
-              <p v-if="!filteredLabeledTickets.length" class="labeled-empty">
-                No tickets match your filter.
-              </p>
-
-              <div v-else class="labeled-list">
-                <div
-                  v-for="ticket in filteredLabeledTickets"
-                  :key="ticket.ref"
-                  class="labeled-item"
-                  :class="{ 'labeled-item--active': selectedLabeledRef === ticket.ref }"
-                >
-                  <div class="labeled-item__main" @click="useLabeledTicket(ticket)">
-                    <div class="labeled-item__header">
-                      <Badge variant="outline">{{ ticket.ref }}</Badge>
-                      <Badge variant="secondary">
-                        <Users :size="12" />
-                        {{ ticket.label }}
-                      </Badge>
-                      <Badge v-if="ticket.mock" variant="outline">demo</Badge>
-                      <span class="labeled-item__time">{{ formatTime(ticket.timestamp) }}</span>
-                    </div>
-                    <h4 class="labeled-item__title">{{ ticket.title }}</h4>
-                    <p v-if="ticket.description" class="labeled-item__desc">{{ ticket.description }}</p>
-                  </div>
-                  <div class="labeled-item__actions">
-                    <Button variant="outline" size="sm" @click="useLabeledTicket(ticket)">
-                      <Sparkles :size="14" />
-                      Use
-                    </Button>
-                    <Button variant="ghost" size="sm" title="Remove" @click="labeledStore.remove(ticket.ref)">
-                      <X :size="14" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
+        <aside class="guide" aria-labelledby="resolution-guide-title">
+          <h2 id="resolution-guide-title" class="guide__title">How it works</h2>
+          <ol class="guide__list">
+            <li>
+              <strong>Choose a ticket.</strong>
+              Pick a labeled one from the queue, or describe a new one.
+            </li>
+            <li>
+              <strong>Review the draft.</strong>
+              Edit the suggested reply and compare it with similar past replies.
+            </li>
+            <li>
+              <strong>Send it to the team.</strong>
+              The final reply is saved to the knowledge base to improve future suggestions.
+            </li>
+          </ol>
         </aside>
-
-        <!-- Main column: input + results -->
-        <div class="resolution__main">
-          <div v-if="labeledCollapsed" class="resolution__maintools">
-            <Button variant="outline" size="sm" @click="labeledCollapsed = false">
-              <Inbox :size="16" />
-              Pick a ticket
-              <Badge v-if="labeledTickets.length" variant="secondary">{{ labeledTickets.length }}</Badge>
-            </Button>
-          </div>
-
-          <!-- Input Form -->
-      <Card class="resolution__form">
-        <template #title>
-          <FileText :size="18" />
-          Ticket Details
-        </template>
-        <template #description>Enter the ticket and generate an assisted resolution</template>
-
-        <div v-if="selectedLabeledRef" class="labeled-banner">
-          <span>
-            Using queue ticket <strong>{{ selectedLabeledRef }}</strong> · team
-            <strong>{{ presetTeam }}</strong>
-          </span>
-          <Button variant="ghost" size="sm" @click="clearLoadedTicket">
-            <X :size="14" />
-            Detach
-          </Button>
-        </div>
-
-        <div class="form-grid">
-          <div class="form-field form-field--full">
-            <label class="form-label">Title</label>
-            <Input v-model="ticketTitle" placeholder="Enter ticket title..." :disabled="isResolving" />
-          </div>
-
-          <div class="form-field form-field--full">
-            <label class="form-label">Description</label>
-            <Textarea
-              v-model="ticketDescription"
-              placeholder="Enter ticket description..."
-              :rows="4"
-              :disabled="isResolving"
-            />
-          </div>
-
-          <div class="form-field">
-            <label class="form-label">
-              <Brain :size="13" />
-              AI model (optional)
-            </label>
-            <InstanceSelector
-              v-model="instanceModel"
-              placeholder="No team prediction"
-              :disabled="isResolving"
-              size="sm"
-            />
-            <span class="form-hint">Suggests the team with a trained AI before resolving.</span>
-          </div>
-
-          <div class="form-field">
-            <label class="form-label">Suggestions to retrieve</label>
-            <Input v-model.number="topK" type="number" min="1" max="20" :disabled="isResolving" />
-          </div>
-
-          <div class="form-field">
-            <label class="form-label">Service category (optional)</label>
-            <select v-model="selectedCategory" class="form-select" :disabled="isResolving">
-              <option value="">Select category...</option>
-              <option v-for="(cat, index) in categories" :key="index" :value="cat">{{ cat }}</option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label class="form-label">Service subcategory (optional)</label>
-            <select
-              v-model="selectedSubcategory"
-              class="form-select"
-              :disabled="isResolving || !selectedCategory"
-            >
-              <option value="">Select subcategory...</option>
-              <option v-for="(sub, index) in subcategories" :key="index" :value="sub">{{ sub }}</option>
-            </select>
-          </div>
-        </div>
-
-        <template #footer>
-          <div class="form-actions">
-            <Button variant="ghost" size="sm" @click="clearForm" :disabled="isResolving">Clear</Button>
-            <Button @click="generate" :loading="isResolving" :disabled="!hasInput">
-              <Sparkles :size="16" />
-              Generate solution
-            </Button>
-          </div>
-        </template>
-      </Card>
-
-      <!-- Results Section -->
-      <template v-if="result || isLoading">
-        <!-- Loading phase indicator -->
-        <Transition name="fade-transition">
-          <div v-if="isLoading" class="resolution__loading-phase">
-            <LoadingPhase :current-phase="(currentPhase as 'analyzing' | 'classifying' | 'generating' | 'retrieving')" />
-          </div>
-        </Transition>
-
-        <!-- Classification & Team -->
-        <Card class="resolution__card resolution__classification" style="--reveal-delay: 0ms">
-          <template #title>
-            <Target :size="18" />
-            Category
-          </template>
-
-          <Transition name="fade-transition" mode="out-in">
-            <SkeletonCard v-if="isLoading && (currentPhase === 'analyzing' || currentPhase === 'classifying')" key="skeleton-classification" title description :lines="3" />
-
-            <div v-else-if="result" :key="`result-classification-${result.classification}`" class="classification-grid">
-              <div class="classification-item">
-                <span class="classification-label">Category</span>
-                <Badge variant="default" size="lg">{{ result.classification }}</Badge>
-              </div>
-              <div class="classification-item">
-                <span class="classification-label">Suggested Team</span>
-                <Badge variant="secondary" size="lg">
-                  <Users :size="14" />
-                  {{ result.predicted_team }}
-                </Badge>
-                <div class="reassign">
-                  <Button
-                    v-if="!reassignOpen"
-                    variant="outline"
-                    size="sm"
-                    @click="reassignOpen = true"
-                  >
-                    <Users :size="14" />
-                    Reassign
-                  </Button>
-                  <div v-else class="reassign__controls">
-                    <select v-model="reassignTeam" class="form-select reassign__select">
-                      <option value="" disabled>Select a team…</option>
-                      <option v-for="team in AVAILABLE_TEAMS" :key="team" :value="team">
-                        {{ team }}
-                      </option>
-                    </select>
-                    <Button variant="default" size="sm" :disabled="!reassignTeam" @click="reassignTicket">
-                      <Check :size="14" />
-                      Confirm
-                    </Button>
-                    <Button variant="ghost" size="sm" @click="reassignOpen = false">
-                      <X :size="14" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div class="classification-item">
-                <span class="classification-label">Certainty</span>
-                <div class="confidence-display">
-                  <Progress :value="confidencePct" :max="100" />
-                  <span>{{ confidencePct.toFixed(1) }}%</span>
-                </div>
-              </div>
-              <div class="classification-item">
-                <span class="classification-label">Quality check</span>
-                <Badge :variant="result.votes_applied > 0 ? 'default' : 'outline'">
-                  <Gavel :size="14" />
-                  {{ result.votes_applied > 0 ? `${result.votes_applied} feedback vote(s) applied` : 'No prior feedback' }}
-                </Badge>
-              </div>
-            </div>
-          </Transition>
-        </Card>
-
-        <!-- Generated Response -->
-        <Card class="resolution__card resolution__response" style="--reveal-delay: 150ms">
-          <template #title>
-            <MessageSquare :size="18" />
-            Suggested Response
-          </template>
-          <template #action>
-            <div class="response-actions">
-              <ExportButton :data="exportData" filename="resolution_result" :disabled="!result" />
-            </div>
-          </template>
-
-          <Transition name="fade-transition" mode="out-in">
-            <SkeletonCard v-if="isLoading && currentPhase === 'generating'" key="skeleton-response" description :lines="6" />
-
-            <template v-else-if="result" :key="`result-response-${result.response}`">
-              <Textarea
-                v-model="editedResponse"
-                :rows="6"
-                placeholder="Edit the response here..."
-                class="response-textarea"
-              />
-
-              <div class="response-toolbar">
-                <Button variant="outline" size="sm" @click="copyResponse">
-                  <Check v-if="copiedToClipboard" :size="14" />
-                  <Copy v-else :size="14" />
-                  {{ copiedToClipboard ? 'Copied!' : 'Copy' }}
-                </Button>
-                <Button variant="outline" size="sm" :loading="isResolving" :disabled="!hasInput" @click="generate">
-                  <RefreshCw :size="14" />
-                  Regen
-                </Button>
-                <div class="response-toolbar__spacer" />
-                <Button
-                  variant="default"
-                  size="sm"
-                  @click="saveToKb"
-                  :loading="isSaving"
-                  :disabled="savedToKb || !editedResponse"
-                >
-                  {{ savedToKb ? 'Sent' : 'Send to Team' }}
-                </Button>
-              </div>
-            </template>
-          </Transition>
-        </Card>
-
-        <!-- Similar Replies -->
-        <Card v-if="result || isLoading" class="resolution__card resolution__similar" style="--reveal-delay: 300ms">
-          <template #title>
-            <FileText :size="18" />
-            {{ result ? `Similar Past Replies (${result.similar_replies.length})` : 'Similar Past Replies' }}
-          </template>
-          <template #description>Rate a reply (👍 / 👎) or reuse it as your response</template>
-
-          <Transition name="fade-transition" mode="out-in">
-            <div v-if="isLoading && currentPhase === 'retrieving'" key="skeleton-similar" class="similar-replies">
-              <div v-for="i in 3" :key="i" class="similar-reply">
-                <SkeletonCard description :lines="4" />
-              </div>
-            </div>
-
-            <div v-else-if="result && result.similar_replies.length > 0" :key="`result-similar-${result.similar_replies.length}`" class="similar-replies">
-              <div
-                v-for="(reply, index) in result.similar_replies"
-                :key="reply.retrieved_id"
-                class="similar-reply"
-                :style="{ '--item-delay': `${index * 50}ms` }"
-              >
-                <div class="similar-reply__header">
-                  <Badge variant="outline">{{ reply.retrieved_id }}</Badge>
-                  <Badge variant="secondary">{{ matchPct(reply) }}% match</Badge>
-                  <span v-if="statsFor(reply.retrieved_id)" class="similar-reply__stats">
-                    <ThumbsUp :size="12" /> {{ statsFor(reply.retrieved_id)!.up }}
-                    <ThumbsDown :size="12" /> {{ statsFor(reply.retrieved_id)!.down }}
-                  </span>
-                </div>
-
-                <h4 class="similar-reply__title">{{ reply.Title_anon || 'No title' }}</h4>
-
-                <p v-if="reply.Description_anon" class="similar-reply__description">
-                  {{ reply.Description_anon }}
-                </p>
-
-                <div v-if="reply.first_reply" class="similar-reply__response">
-                  <span class="similar-reply__response-label">Past Reply:</span>
-                  <p>{{ reply.first_reply }}</p>
-                </div>
-
-                <div class="similar-reply__actions">
-                  <Button variant="ghost" size="sm" @click="useReply(reply)">
-                    <Copy :size="14" />
-                    Use this reply
-                  </Button>
-                  <div class="similar-reply__vote">
-                    <Button
-                      :variant="votes[reply.retrieved_id] === 1 ? 'default' : 'outline'"
-                      size="sm"
-                      :loading="isVoting(reply.retrieved_id)"
-                      aria-label="Mark as helpful"
-                      @click="vote(reply, 1)"
-                    >
-                      <ThumbsUp :size="14" />
-                    </Button>
-                    <Button
-                      :variant="votes[reply.retrieved_id] === 0 ? 'default' : 'outline'"
-                      size="sm"
-                      :loading="isVoting(reply.retrieved_id)"
-                      aria-label="Mark as not helpful"
-                      @click="vote(reply, 0)"
-                    >
-                      <ThumbsDown :size="14" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Transition>
-        </Card>
-      </template>
-        </div>
       </div>
-    </div>
+
+      <div v-else-if="stage === 'review'" key="review" class="stage stage--review">
+        <ResolutionTicketSummary
+          class="stage__summary"
+          :title="ticketTitle"
+          :description="ticketDescription"
+          :ticket-ref="selectedLabeledRef"
+          :category="selectedCategory"
+          :subcategory="selectedSubcategory"
+          :disabled="isBusy"
+          @edit="stage = 'intake'"
+        />
+
+        <ResolutionDraft
+          v-model:response="editedResponse"
+          class="stage__draft"
+          :result="result"
+          :drafting="isResolving"
+          :show-progress="isLoading"
+          :phase="currentPhase"
+          :phases="phaseSteps"
+          :saving="isSaving"
+          :undo-reason="undoSnapshot?.reason ?? null"
+          :error="draftError"
+          :export-data="exportData"
+          @edit="onDraftEdited"
+          @copied="effort.record('copied')"
+          @regenerate="generate"
+          @undo="undoReplace"
+          @dismiss-undo="undoSnapshot = null"
+          @dismiss-error="draftError = null"
+          @send="sendToTeam"
+          @reassign="reassignTeam"
+        />
+
+        <ResolutionSimilarReplies
+          class="stage__evidence"
+          :replies="result?.similar_replies ?? []"
+          :loading="!result"
+          :disabled="isBusy"
+          :votes="votes"
+          :pending-votes="pendingVotes"
+          :stats="stats"
+          :applied-id="appliedReplyId"
+          @use-reply="applyReply"
+          @vote="vote"
+        />
+      </div>
+
+      <div v-else key="sent" class="stage stage--sent">
+        <ResolutionSent
+          :team="result?.predicted_team ?? 'the team'"
+          :title="ticketTitle"
+          :ticket-ref="selectedLabeledRef"
+          :response="editedResponse"
+          :next-ticket="nextQueuedTicket"
+          :remaining="labeledStore.tickets.length"
+          @next="resolveNextTicket"
+          @new-ticket="startNewTicket"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -884,619 +479,197 @@ onMounted(() => {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
-
-  &__header {
-    margin-bottom: 2rem;
-  }
-
-  &__header-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  &__title {
-    font-size: 1.875rem;
-    font-weight: 700;
-    margin: 0;
-  }
-
-  &__subtitle {
-    color: var(--muted-foreground);
-    margin: 0;
-  }
-
-  &__content {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  &__form,
-  &__labeled,
-  &__classification,
-  &__response,
-  &__similar {
-    :deep(.card__title) {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-  }
 }
 
-// Card reveal animations with staggered timing
-.resolution__card {
-  animation: card-reveal 0.3s ease-out forwards;
-  animation-delay: var(--reveal-delay, 0ms);
-  opacity: 0;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    opacity: 1;
-  }
+.resolution__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
 }
 
-@keyframes card-reveal {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.resolution__intro {
+  flex: 1 1 26rem;
+  min-width: 0;
 }
 
-// Fade transition for skeleton → result transitions
-.fade-transition-enter-active,
-.fade-transition-leave-active {
-  transition: opacity 0.2s ease-in-out;
+.resolution__title {
+  margin: 0;
+  font-size: 1.875rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-.fade-transition-enter-from,
-.fade-transition-leave-to {
-  opacity: 0;
-}
-
-.resolution__loading-phase {
-  padding: 1rem;
-  background: var(--muted);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  animation: fade-in 0.2s ease-out;
+.resolution__subtitle {
+  max-width: 40rem;
+  margin: 0.375rem 0 0;
   color: var(--muted-foreground);
-  font-size: 0.875rem;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
 }
 
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.form-grid {
+.stage--intake {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-top: 1rem;
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  align-items: start;
+  gap: 1.5rem;
 }
 
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-
-  &--full {
-    grid-column: 1 / -1;
-  }
+.guide {
+  padding: 0.25rem 0 0;
 }
 
-.form-label {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.875rem;
+.guide__title {
+  margin: 0 0 0.875rem;
+  font-size: 0.6875rem;
   font-weight: 500;
-}
-
-.form-hint {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.form-select {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  font-size: 0.875rem;
-  color: inherit;
-
-  &:focus {
-    outline: none;
-    border-color: var(--ring);
-    box-shadow: 0 0 0 2px var(--ring);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: flex-end;
-}
-
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem 0;
-  font-size: 0.875rem;
-  color: var(--muted-foreground);
-}
-
-.classification-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
-  margin-top: 1rem;
-}
-
-.classification-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.classification-label {
-  font-size: 0.75rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--muted-foreground);
 }
 
-.reassign {
-  margin-top: 0.25rem;
-}
-
-.reassign__controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.reassign__select {
-  min-width: 12rem;
-}
-
-.confidence-display {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-
-  span {
-    font-size: 0.875rem;
-    font-weight: 500;
-    white-space: nowrap;
-  }
-}
-
-.response-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.response-textarea {
-  margin-top: 1rem;
-}
-
-.response-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-
-  &__spacer {
-    flex: 1;
-  }
-}
-
-.similar-replies {
+.guide__list {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  margin-top: 1rem;
-}
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide;
 
-.similar-reply {
-  padding: 1rem;
-  background: var(--muted);
-  border-radius: var(--radius);
-  transition: background 0.15s ease;
-  animation: item-reveal 0.25s ease-out forwards;
-  animation-delay: var(--item-delay, 0ms);
-  opacity: 0;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    opacity: 1;
-  }
-
-  &:hover {
-    background: var(--accent);
-  }
-
-  &__header {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    align-items: center;
-    margin-bottom: 0.5rem;
-  }
-
-  &__title {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 500;
-  }
-
-  &__description {
-    margin: 0.5rem 0 0;
-    font-size: 0.875rem;
+  li {
+    position: relative;
+    padding-left: 2rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
     color: var(--muted-foreground);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
+    counter-increment: guide;
 
-  &__response {
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: var(--background);
-    border-radius: calc(var(--radius) - 2px);
-    font-size: 0.875rem;
-
-    p {
-      margin: 0.25rem 0 0;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+    &::before {
+      content: counter(guide);
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.375rem;
+      height: 1.375rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--foreground);
     }
   }
 
-  &__response-label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--muted-foreground);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  &__use-btn {
-    margin-top: 0.75rem;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-
-  &__stats {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-left: auto;
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
-  &__vote {
-    display: flex;
-    gap: 0.375rem;
+  strong {
+    display: block;
+    color: var(--foreground);
+    font-weight: 600;
   }
 }
 
-@keyframes item-reveal {
-  from {
-    opacity: 0;
+.stage--review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'draft summary'
+    'draft evidence';
+  align-items: start;
+  gap: 1.25rem 1.5rem;
+}
+
+.stage__summary {
+  grid-area: summary;
+}
+
+.stage__draft {
+  grid-area: draft;
+}
+
+.stage__evidence {
+  grid-area: evidence;
+}
+
+// Keep the draft in view while scanning evidence, only where it fits the screen.
+@media (min-width: 1100px) and (min-height: 820px) {
+  .stage__draft {
+    position: sticky;
+    top: 1rem;
+    --draft-editor-max: calc(100vh - 34rem);
   }
-  to {
-    opacity: 1;
-  }
 }
 
-.resolution__body {
-  display: flex;
-  align-items: stretch;
-  gap: 1.5rem;
-  min-height: 0;
-}
-
-.resolution__main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.resolution__maintools {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.res-drawer {
-  flex: 0 0 auto;
-  width: 0;
-  margin-right: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+.stage-enter-active {
   transition:
-    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    margin-right 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
 
-  &--open {
-    width: 360px;
-    margin-right: 0;
+.stage-leave-active {
+  transition: opacity 0.12s ease-in;
+}
+
+.stage-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.stage-leave-to {
+  opacity: 0;
+}
+
+@media (max-width: 1023px) {
+  .stage--review {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      'summary'
+      'draft'
+      'evidence';
   }
 }
 
-.res-drawer__inner {
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: var(--card, #fff);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
-}
-
-.res-drawer__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.res-drawer__title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  min-width: 0;
-}
-
-@media (max-width: 880px) {
-  .resolution__body {
-    flex-direction: column;
+@media (max-width: 900px) {
+  .stage--intake {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .res-drawer--open {
-    width: 100%;
-    margin-right: 0;
-    margin-bottom: 1.5rem;
-  }
-
-  .res-drawer__inner {
-    width: 100%;
-  }
-}
-
-.labeled-actions {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.labeled-empty {
-  margin: 0.5rem 0 0;
-  font-size: 0.875rem;
-  color: var(--muted-foreground);
-  flex-shrink: 0;
-}
-
-.labeled-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-right: 0.25rem;
-
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-
-    &:hover {
-      background: var(--muted-foreground);
-    }
-  }
-}
-
-.labeled-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background: var(--muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  transition: background 0.15s ease, border-color 0.15s ease;
-  flex-shrink: 0;
-
-  &:hover {
-    background: var(--accent);
-  }
-
-  &--active {
-    border-color: var(--ring);
-    background: var(--accent);
-  }
-
-  &__main {
-    flex: 1;
-    min-width: 0;
-    cursor: pointer;
-  }
-
-  &__header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.375rem;
-  }
-
-  &__time {
-    margin-left: auto;
-    font-size: 0.75rem;
-    color: var(--muted-foreground);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  &__title {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 500;
-    word-break: break-word;
-  }
-
-  &__desc {
-    margin: 0.25rem 0 0;
-    font-size: 0.875rem;
-    color: var(--muted-foreground);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
-  }
-}
-
-.labeled-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  background: var(--muted);
-  border-radius: var(--radius);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.labeled-filters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex-shrink: 0;
-
-  &__search {
-    width: 100%;
-    min-width: 0;
-  }
-
-  &__team {
-    width: 100%;
-    min-width: 0;
-  }
-}
-
-@media (max-width: 1024px) {
-  .res-drawer--open {
-    width: 320px;
-  }
-
-  .res-drawer__inner {
-    width: 320px;
-  }
-}
-
-@media (max-width: 880px) {
-  .resolution__body {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .res-drawer--open {
-    width: 100%;
-    margin-right: 0;
-    margin-bottom: 1.5rem;
-    max-height: 50vh;
-  }
-
-  .res-drawer__inner {
-    width: 100%;
-    max-height: 50vh;
+  .guide {
+    padding: 0 0.25rem;
   }
 }
 
 @media (max-width: 640px) {
-  .form-grid {
-    grid-template-columns: 1fr;
+  .resolution {
+    padding: 0.5rem 0 1.5rem;
   }
 
-  .classification-grid {
-    grid-template-columns: 1fr;
+  .resolution__header {
+    margin-bottom: 1.25rem;
   }
 
-  .labeled-filters {
-    flex-direction: column;
+  .resolution__title {
+    font-size: 1.5rem;
   }
 
-  .res-drawer--open {
-    max-height: 40vh;
+  .resolution__subtitle {
+    font-size: 0.875rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-enter-active,
+  .stage-leave-active {
+    transition: none;
   }
 
-  .res-drawer__inner {
-    max-height: 40vh;
+  .stage-enter-from {
+    transform: none;
   }
 }
 </style>

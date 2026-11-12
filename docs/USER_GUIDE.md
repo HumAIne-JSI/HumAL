@@ -177,48 +177,37 @@ The system uses **Retrieval-Augmented Generation**:
 
 #### Using the Resolution Workspace
 
-**Step 1: Enter Ticket Information**
+The page guides you through three steps, shown as a progress indicator in the header: **Ticket → Review draft → Send to team**.
 
-1. **Ticket Title**: Enter the customer's issue title
-2. **Ticket Description**: Enter the full issue description
-3. **Service Category** (optional): Classify the type of issue
-4. **Service Subcategory** (optional): Further specify the issue type
+**Step 1: Choose a ticket**
 
-**Step 2: Generate Resolution**
+Pick where the ticket comes from with the two tabs:
 
-Click "Generate solution" button. The system will:
-- Optionally predict the team assignment using a trained AI model
-- Retrieve similar past tickets
-- Generate a suggested response
+- **From queue**: Lists tickets you labeled on the Smart Assign page. Search by ref, title, or team, or filter by team. Selecting a ticket loads it into **Ticket details**, linked to the queue. Its human team label then guides the suggestions; use **Unlink** to resolve it as a standalone ticket.
+- **Ticket details**: Enter the **Title** and **Description** yourself.
 
-**Step 3: Review Generated Response**
+**Advanced options** (collapsed by default) holds the optional settings: an **AI model** to predict the team first, the number of **Similar replies to retrieve** (1-20, default 5), and the **Service category** and **Service subcategory**. When collapsed, any non-default values are summarized next to the toggle.
 
-The system displays:
+Click **Generate solution** (or press **Ctrl+Enter** / **⌘+Enter** in the form). The button is enabled once the ticket has a title or description.
 
-1. **Predicted Team Assignment**
-   - Suggested team for this ticket
-   - Confidence percentage
+**Step 2: Review the draft**
 
-2. **Suggested First Reply**
-   - AI-generated response based on similar tickets
-   - Editable textarea for refinements
+While the reply is drafted, a progress indicator shows the current phase (predicting team, drafting the reply, loading feedback). The review screen then shows:
 
-3. **Similar Historical Tickets**
-   - Top matching past tickets and their resolutions
-   - Similarity scores with each ticket
-   - Vote on whether suggestions are helpful
+1. **Draft summary**: Suggested team (with an inline **Reassign** control), category, certainty, and how many past votes shaped the ranking.
+2. **Suggested reply**: An editable draft. **Copy** it, **Regenerate** it, or **Export** it.
+3. **Ticket**: A compact summary of the ticket. **Edit ticket** returns to step 1 without losing the draft (**Back to draft** returns to it).
+4. **Similar past replies**: The past tickets the draft builds on, with match scores. **Use in draft** replaces the draft with that reply, and **Undo** restores your previous text. Rate each reply as **Helpful** or **Not helpful** to improve future suggestions.
 
-**Step 4: Evaluate and Refine**
+A manual team reassignment is kept if you regenerate the draft.
 
-1. Edit the suggested response as needed
-2. Review similar tickets for context
-3. Verify the predicted team assignment
+**Step 3: Send to the team**
 
-**Step 5: Use the Response**
+Click **Send to {team}** to save the ticket and final reply to the knowledge base. A confirmation screen follows:
 
-1. **Copy to Clipboard**: Copy the refined response for pasting
-2. **Save to Knowledge Base**: Save the ticket and response for future reference
-3. **Reassign Team**: Change the team assignment if needed
+- Tickets that came from the queue are removed from it.
+- **Resolve next queued ticket** loads the next labeled ticket for review (it does not generate automatically).
+- **New ticket** starts over with an empty form.
 
 ---
 
