@@ -107,6 +107,7 @@ const {
   hasBulkSelection,
   bulkSelectedTickets,
 } = useTicketQueue({
+  initialCount: 20,
   instanceId: selectedInstanceId,
   autoFetch: true,
 })
@@ -473,7 +474,7 @@ const groupedShortcuts = computed(() => {
       <div class="ticket-queue__header-left">
         <h1 class="ticket-queue__title">
           <Inbox :size="24" />
-          Ticket Queue
+          Smart Assign
         </h1>
       </div>
 

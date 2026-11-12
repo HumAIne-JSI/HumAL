@@ -59,8 +59,8 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
       popover: {
         title: 'The two queues',
         description:
-          'The sidebar opens both labeling flows: the Manual Queue labels WITHOUT AI help ' +
-          'and the Ticket Queue labels WITH AI help: ranked suggestions, explanations and similar tickets. We start with the Manual Queue.',
+          'The sidebar opens both labeling flows: Assign Manually labels WITHOUT AI help ' +
+          'and Smart Assign labels WITH AI help: ranked suggestions, explanations and similar tickets. We start with Assign Manually.',
         side: 'right',
       },
     },
@@ -70,7 +70,7 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
     {
       element: '.ticket-queue__list-panel',
       popover: {
-        title: 'Manual Queue',
+        title: 'Assign Manually',
         description:
           'The AI help is not present here: you label tickets purely from your own expertise. These labels form the human baseline that the assisted ' +
           'session is compared against.',
@@ -151,7 +151,7 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
     {
       element: '.ticket-queue__list-panel',
       popover: {
-        title: 'Ticket Queue',
+        title: 'Smart Assign',
         description:
           'The AI-assisted queue: the model ranks tickets by how much your label is expected to improve it, so you spend effort where it ' +
           'teaches the most.',

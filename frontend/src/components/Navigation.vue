@@ -29,31 +29,78 @@
         />
       </div>
 
-      <nav class="sidebar__nav">
-        <template v-for="item in navItems" :key="item.path">
-          <a
-            v-if="item.newTab"
-            :href="resolveHref(item.path)"
-            target="_blank"
-            rel="noopener"
-            class="sidebar__link"
-            :title="isCollapsed ? `${item.label} (opens in a new tab)` : undefined"
-          >
-            <component :is="item.icon" class="sidebar__icon" />
-            <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
-            <ExternalLink v-if="!isCollapsed" class="sidebar__link-external" />
-          </a>
-          <RouterLink
-            v-else
-            :to="item.path"
-            class="sidebar__link"
-            :class="{ 'sidebar__link--active': isActive(item.path) }"
-            :title="isCollapsed ? item.label : undefined"
-          >
-            <component :is="item.icon" class="sidebar__icon" />
-            <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
-          </RouterLink>
-        </template>
+      <nav class="sidebar__nav" aria-label="Main navigation">
+        <div class="sidebar__nav-tier" role="group" aria-label="Level 1: Triage and routing">
+          <div v-if="!isCollapsed" class="sidebar__tier-label">
+            <span class="sidebar__tier-number" aria-hidden="true">01</span>
+            <div class="sidebar__tier-text">
+              <h2 class="sidebar__tier-level">Level 1: Triage &amp; routing</h2>
+              <p class="sidebar__tier-description">HumAIne Core · TRL 5</p>
+            </div>
+          </div>
+          <template v-for="item in tier1Items" :key="item.path">
+            <a
+              v-if="item.newTab"
+              :href="resolveHref(item.path)"
+              target="_blank"
+              rel="noopener"
+              class="sidebar__link"
+              :title="isCollapsed ? `${item.label} (opens in a new tab)` : undefined"
+              :aria-label="`${item.label} (opens in a new tab)`"
+            >
+              <component :is="item.icon" class="sidebar__icon" />
+              <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+              <ExternalLink v-if="!isCollapsed" class="sidebar__link-external" />
+            </a>
+            <RouterLink
+              v-else
+              :to="item.path"
+              class="sidebar__link"
+              :class="{ 'sidebar__link--active': isActive(item.path) }"
+              :title="isCollapsed ? item.label : undefined"
+              :aria-label="isCollapsed ? item.label : undefined"
+            >
+              <component :is="item.icon" class="sidebar__icon" />
+              <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+            </RouterLink>
+          </template>
+        </div>
+
+        <div class="sidebar__nav-tier" role="group" aria-label="Level 2: Resolution support">
+          <div v-if="!isCollapsed" class="sidebar__tier-label">
+            <span class="sidebar__tier-number" aria-hidden="true">02</span>
+            <div class="sidebar__tier-text">
+              <h2 class="sidebar__tier-level">Level 2: Resolution support</h2>
+              <p class="sidebar__tier-description">Exploratory preview</p>
+            </div>
+          </div>
+          <template v-for="item in tier2Items" :key="item.path">
+            <a
+              v-if="item.newTab"
+              :href="resolveHref(item.path)"
+              target="_blank"
+              rel="noopener"
+              class="sidebar__link"
+              :title="isCollapsed ? `${item.label} (opens in a new tab)` : undefined"
+              :aria-label="`${item.label} (opens in a new tab)`"
+            >
+              <component :is="item.icon" class="sidebar__icon" />
+              <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+              <ExternalLink v-if="!isCollapsed" class="sidebar__link-external" />
+            </a>
+            <RouterLink
+              v-else
+              :to="item.path"
+              class="sidebar__link"
+              :class="{ 'sidebar__link--active': isActive(item.path) }"
+              :title="isCollapsed ? item.label : undefined"
+              :aria-label="isCollapsed ? item.label : undefined"
+            >
+              <component :is="item.icon" class="sidebar__icon" />
+              <span v-if="!isCollapsed" class="sidebar__label">{{ item.label }}</span>
+            </RouterLink>
+          </template>
+        </div>
       </nav>
 
       <div v-if="!isCollapsed" class="sidebar__footer">
@@ -135,13 +182,28 @@ const isActive = (path: string): boolean => {
 
 // Absolute href (respecting the router base) for entries that open in a new tab.
 const resolveHref = (path: string): string => router.resolve(path).href
+
+// Split nav items into two tiers
+// Tier 1: Home, New Project, Ticket Queue, Manual Queue (core triage and routing)
+// Tier 2: Ticket Evolution, Performance (exploratory/resolution support)
+const tier1Items = computed(() =>
+  navItems.filter(item =>
+    ['/', '/training', '/queue', '/manual'].includes(item.path)
+  )
+)
+
+const tier2Items = computed(() =>
+  navItems.filter(item =>
+    ['/ticket-resolution', '/analytics'].includes(item.path)
+  )
+)
 </script>
 
 <style lang="scss" scoped>
 .sidebar-wrapper {
   position: relative;
   display: flex;
-  width: 16rem;
+  width: 22rem;
   flex-shrink: 0;
   transition: width 0.2s ease;
 
@@ -157,7 +219,8 @@ const resolveHref = (path: string): string => router.resolve(path).href
   min-width: 0;
   background-color: var(--sidebar);
   border-right: 1px solid var(--sidebar-border);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 
   &__header {
     display: flex;
@@ -234,14 +297,76 @@ const resolveHref = (path: string): string => router.resolve(path).href
 
   &__nav {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     padding: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0;
 
     .sidebar-wrapper--collapsed & {
       padding: 1rem 0.5rem;
     }
+  }
+
+  &__nav-tier {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+
+    &:not(:last-child) {
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--sidebar-border);
+    }
+  }
+
+  &__tier-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.5rem 0.5rem 0.75rem;
+  }
+
+  &__tier-number {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--sidebar-border);
+    border-radius: 0.5rem;
+    background: var(--sidebar-accent);
+    color: var(--sidebar-foreground);
+    font-size: 0.7rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__tier-text {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  &__tier-level {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--sidebar-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__tier-description {
+    margin: 0.2rem 0 0;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__link {
@@ -254,9 +379,16 @@ const resolveHref = (path: string): string => router.resolve(path).href
     color: var(--sidebar-foreground);
     transition: background-color 0.15s, color 0.15s;
     white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
 
     &:hover {
       background-color: var(--sidebar-accent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--sidebar-ring);
+      outline-offset: -2px;
     }
 
     &--active {
@@ -267,6 +399,7 @@ const resolveHref = (path: string): string => router.resolve(path).href
     .sidebar-wrapper--collapsed & {
       justify-content: center;
       padding: 0.75rem;
+      overflow: visible;
     }
   }
 
@@ -279,6 +412,10 @@ const resolveHref = (path: string): string => router.resolve(path).href
   &__label {
     font-size: 0.875rem;
     font-weight: var(--font-weight-medium);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   &__link-external {

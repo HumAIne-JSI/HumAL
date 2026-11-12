@@ -63,7 +63,7 @@ const ringStyle = computed(() => ({
 .spinner {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem;
   color: var(--muted-foreground);
 
   &--block {
@@ -71,10 +71,11 @@ const ringStyle = computed(() => ({
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 0.625rem;
+    gap: 1rem;
     width: 100%;
-    padding: 1.5rem;
-    font-size: 0.875rem;
+    padding: 2rem 1.5rem;
+    font-size: 0.9375rem;
+    color: var(--muted-foreground);
   }
 
   &--inline {
@@ -88,13 +89,14 @@ const ringStyle = computed(() => ({
     border-color: currentColor;
     border-right-color: transparent;
     border-radius: 50%;
-    animation: spinner-rotate 0.6s linear infinite;
+    animation: spinner-rotate 0.8s linear infinite;
     flex-shrink: 0;
   }
 
   &__label {
     color: var(--muted-foreground);
-    line-height: 1.2;
+    line-height: 1.5;
+    text-align: center;
   }
 
   // Visually hidden text for screen readers when no visible label is set.
@@ -139,7 +141,9 @@ const ringStyle = computed(() => ({
 
 @media (prefers-reduced-motion: reduce) {
   .spinner__ring {
-    animation-duration: 1.5s;
+    animation: none;
+    opacity: 0.6;
+    border-color: transparent;
   }
 }
 </style>

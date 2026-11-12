@@ -108,7 +108,9 @@ export function useTicketQueue(options: UseTicketQueueOptions = {}) {
   // Load mock tickets
   function loadMockTickets() {
     if (!mockLoaded.value) {
-      mockTickets.value = generateMockTickets(initialCount)
+      // In demo/mock mode, generate a full queue regardless of the API batch
+      // size so there are plenty of tickets to show during a demo.
+      mockTickets.value = generateMockTickets(Math.max(initialCount, 40))
       mockLoaded.value = true
     }
     store.setTickets(mockTickets.value)

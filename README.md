@@ -9,7 +9,7 @@ HumAIne Active Learning Platform - An integrated system for human-in-the-loop ma
 ## Features
 
 - **Ticket Classification**: Automated team routing
-- **Resolution Generation**: LLM-powered Ticket Evolution suggestions using RAG
+- **Resolution Generation**: LLM-powered Specialist Resolution Workspace suggestions using RAG
 - **Active Learning**: Interactive model training with human feedback
 - **Explainable AI**: LIME-based model explanations
 - **Modern UI**: React + TypeScript frontend with real-time updates
@@ -134,10 +134,11 @@ The services will be available at:
 ## Available Pages
 
 - **Home** (`/`) - Landing page
-- **Training** (`/training`) - Model training interface
-- **Dispatch Labeling** (`/dispatch-labeling`) - Label dispatch data
-- **Ticket Evolution** (`/ticket-resolution`) - Generate automated responses
-- **Inference** (`/inference`) - Run model inference
+- **New Project** (`/training`) - Model training interface
+- **Assign Manually** (`/manual`) - Label tickets without AI assistance
+- **Smart Assign** (`/queue`) - Label tickets with AI-powered suggestions
+- **Specialist Resolution Workspace** (`/ticket-resolution`) - Generate automated responses
+- **Performance** (`/analytics`) - Analytics and model performance
 
 ## Documentation
 

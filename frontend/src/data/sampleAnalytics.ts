@@ -50,7 +50,7 @@ export const sampleBenchmarkSession: BenchmarkSession = {
   script: [
     { t: 0.0, agent: 'ORCH', action: 'process_start', object: 'Pool', effect: { instance_id: 1 } },
     { t: 0.45, agent: 'ORCH', action: 'create_al_instance', object: 'Pool', effect: { instance_id: 1, pool_size: 5000, embedding_model: 'all-MiniLM-L6-v2' }, latency_ms: 450 },
-    { t: 1.0, agent: 'ORCH', action: 'request_batch', object: 'Pool', effect: { batch_size: 5 } },
+    { t: 1.0, agent: 'ORCH', action: 'request_batch', object: 'Pool', effect: { batch_size: 20 } },
     { t: 1.2, agent: 'AL', action: 'select_batch', object: 'Sel', effect: { batch_id: 'BATCH_001', ids: ['T001', 'T002', 'T003', 'T004', 'T005'], uncertainties: [0.92, 0.89, 0.87, 0.86, 0.85] }, latency_ms: 120 },
     { t: 2.0, agent: 'MOD', action: 'predict', object: 'Ticket', effect: { predictions: ['billing', 'tech', 'tech', 'other', 'billing'] }, latency_ms: 340 },
     { t: 2.5, agent: 'XAI', action: 'lime', object: 'Sel', effect: { batch_id: 'BATCH_001', n_tickets: 5 }, latency_ms: 820 },

@@ -89,13 +89,18 @@ const handleBlur = (event: FocusEvent) => {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background-color: var(--input-background);
-  padding: 0.25rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   line-height: 1.25rem;
   color: var(--foreground);
   outline: none;
-  transition: color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.15s ease;
   box-sizing: border-box;
+  font-family: inherit;
 }
 
 .input::placeholder {
@@ -122,20 +127,25 @@ const handleBlur = (event: FocusEvent) => {
 /* Focus state */
 .input:focus-visible {
   border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(var(--ring), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--ring), 0.08);
+}
+
+/* Hover state */
+.input:hover:not(:disabled) {
+  border-color: var(--ring);
 }
 
 /* Invalid state */
 .input--invalid,
 .input[aria-invalid="true"] {
   border-color: var(--destructive);
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.2);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.1);
 }
 
 .input--invalid:focus-visible,
 .input[aria-invalid="true"]:focus-visible {
   border-color: var(--destructive);
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.3);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.15);
 }
 
 /* Disabled state */
@@ -153,6 +163,6 @@ const handleBlur = (event: FocusEvent) => {
 
 .dark .input--invalid,
 .dark .input[aria-invalid="true"] {
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.4);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.2);
 }
 </style>

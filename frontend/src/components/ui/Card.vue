@@ -82,17 +82,25 @@ const props = withDefaults(defineProps<CardProps>(), {
   }
 
   &-p-default .card__content {
-    padding: 0 1.5rem;
+    padding: 1.5rem;
 
-    &:last-child {
+    &:first-of-type {
+      padding-top: 1.5rem;
+    }
+
+    &:last-of-type {
       padding-bottom: 1.5rem;
     }
   }
 
   &-p-lg .card__content {
-    padding: 0 2rem;
+    padding: 2rem;
 
-    &:last-child {
+    &:first-of-type {
+      padding-top: 2rem;
+    }
+
+    &:last-of-type {
       padding-bottom: 2rem;
     }
   }
@@ -102,8 +110,9 @@ const props = withDefaults(defineProps<CardProps>(), {
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: start;
-    gap: 0.375rem;
-    padding: 1.5rem 1.5rem 0;
+    gap: 1rem;
+    padding: 1.5rem 1.5rem 1.25rem;
+    border-bottom: 1px solid var(--border);
 
     &-content {
       display: flex;
@@ -115,12 +124,17 @@ const props = withDefaults(defineProps<CardProps>(), {
 
   &__title {
     margin: 0;
-    line-height: 1;
+    line-height: 1.2;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--foreground);
   }
 
   &__description {
     margin: 0;
+    font-size: 0.875rem;
     color: var(--muted-foreground);
+    line-height: 1.4;
   }
 
   &__action {
@@ -141,7 +155,8 @@ const props = withDefaults(defineProps<CardProps>(), {
   &__footer {
     display: flex;
     align-items: center;
-    padding: 1.5rem 1.5rem;
+    padding: 1.25rem 1.5rem 1.5rem;
+    border-top: 1px solid var(--border);
   }
 }
 </style>

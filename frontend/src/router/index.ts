@@ -36,19 +36,19 @@ const routes = [
     path: '/queue',
     name: 'ticket-queue',
     component: () => import('../pages/TicketQueue.vue'),
-    meta: { label: 'Ticket Queue', icon: Inbox, showInNav: true }
+      meta: { label: 'Smart Assign', icon: Inbox, showInNav: true }
   },
   {
     path: '/manual',
     name: 'manual-queue',
     component: () => import('../pages/ManualQueue.vue'),
-    meta: { label: 'Manual Queue', icon: Pencil, showInNav: true }
+      meta: { label: 'Assign Manually', icon: Pencil, showInNav: true }
   },
    {
     path: '/ticket-resolution',
     name: 'ticket-resolution',
     component: () => import('../pages/TicketResolution.vue'),
-    meta: { label: 'Ticket Evolution', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
+      meta: { label: 'Specialist Resolution Workspace', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
   },
   {
     path: '/analytics',
@@ -72,7 +72,7 @@ const routes = [
     path: '/login',
     name: 'login',
     component: () => import('../pages/Login.vue'),
-    meta: { label: 'Login', showInNav: false, public: true }
+    meta: { label: 'Login', showInNav: false, public: true, hideSidebar: true }
   },
   {
     path: '/:pathMatch(.*)*',

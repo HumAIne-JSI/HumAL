@@ -1,29 +1,27 @@
 <template>
   <div class="app-layout" :class="{ 'app-layout--standalone': isStandalone }">
-    <Navigation v-if="!isStandalone" />
-    <header v-else class="app-standalone-bar">
+    <Navigation v-if="showSidebar" />
+    <header v-else-if="isStandalone" class="app-standalone-bar">
       <HumaineLogo :height="30" :width="100" class="app-standalone-bar__logo" />
       <span class="app-standalone-bar__title">{{ standaloneTitle }}</span>
     </header>
     <main class="app-layout__main">
       <router-view />
     </main>
-<ExperimentTimer class="app-layout__timer" />
     <Toaster position="bottom-right" :duration="3000" rich-colors close-button />
     <TutorialHost />
   </div>
 </template>
 
 <script setup lang="ts">
+import HumaineLogo from '@/components/HumaineLogo.vue'
+import Navigation from '@/components/Navigation.vue'
+import TutorialHost from '@/components/TutorialHost.vue'
+import { useMockModeStore } from '@/stores/useMockModeStore'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import Navigation from '@/components/Navigation.vue'
-import HumaineLogo from '@/components/HumaineLogo.vue'
-import ExperimentTimer from '@/components/ExperimentTimer.vue'
-import TutorialHost from '@/components/TutorialHost.vue'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
-import { useMockModeStore } from '@/stores/useMockModeStore'
 
 // Initialize mock mode store early to sync all mock flags
 useMockModeStore()
@@ -33,13 +31,20 @@ useMockModeStore()
 const route = useRoute()
 const isStandalone = computed(() => Boolean(route.meta?.standalone))
 const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspace')
+
+// Routes flagged `hideSidebar` (e.g. login) keep the regular shell minus the sidebar. `matched`
+// is empty until the first navigation resolves; waiting for it stops the sidebar from flashing
+// on routes that hide it.
+const showSidebar = computed(
+  () => route.matched.length > 0 && !isStandalone.value && !route.meta?.hideSidebar,
+)
 </script>
 
 <style lang="scss">
 .app-layout {
   display: flex;
   height: 100vh;
-  background-color: #f9fafb;
+  background-color: var(--background);
 
   &--standalone {
     flex-direction: column;
@@ -48,10 +53,16 @@ const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspa
   &__main {
     flex: 1;
     overflow: auto;
-    padding: 1rem;
+    padding: 0;
+    background-color: var(--background);
   }
 
-  &__timer { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; }
+  &__timer {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 20;
+  }
 }
 
 .app-standalone-bar {
@@ -59,7 +70,7 @@ const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspa
   align-items: center;
   gap: 0.875rem;
   flex-shrink: 0;
-  padding: 0.625rem 1.5rem;
+  padding: 0.875rem 1.5rem;
   background-color: var(--sidebar, #ffffff);
   border-bottom: 1px solid var(--sidebar-border, #e5e7eb);
 

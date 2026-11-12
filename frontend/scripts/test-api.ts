@@ -202,7 +202,7 @@ async function main() {
     const id = instanceId
 
     const nextRes = record('next instance', 'GET', `/activelearning/${id}/next`,
-      await req(`/activelearning/${id}/next`, { token, query: { batch_size: 1 } }))
+      await req(`/activelearning/${id}/next`, { token, query: { batch_size: 20 } }))
     const idxs = pickString(nextRes.data, ['query_idx'])
     queryIdx = idxs[0] ?? null
 
