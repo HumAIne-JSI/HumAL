@@ -44,7 +44,7 @@ const showSidebar = computed(
 .app-layout {
   display: flex;
   height: 100vh;
-  background-color: var(--background);
+  background-color: #f9fafb;
 
   &--standalone {
     flex-direction: column;
@@ -53,16 +53,10 @@ const showSidebar = computed(
   &__main {
     flex: 1;
     overflow: auto;
-    padding: 0;
-    background-color: var(--background);
+    padding: 1rem;
   }
 
-  &__timer {
-    position: fixed;
-    right: 1.5rem;
-    bottom: 1.5rem;
-    z-index: 20;
-  }
+  &__timer { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; }
 }
 
 .app-standalone-bar {
@@ -70,7 +64,7 @@ const showSidebar = computed(
   align-items: center;
   gap: 0.875rem;
   flex-shrink: 0;
-  padding: 0.875rem 1.5rem;
+  padding: 0.625rem 1.5rem;
   background-color: var(--sidebar, #ffffff);
   border-bottom: 1px solid var(--sidebar-border, #e5e7eb);
 

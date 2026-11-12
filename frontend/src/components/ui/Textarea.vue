@@ -78,7 +78,8 @@ const handleBlur = (event: FocusEvent) => {
   display: flex;
   width: 100%;
   min-height: 4rem;
-  resize: vertical;
+  resize: none;
+  field-sizing: content;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background-color: var(--input-background);
@@ -87,13 +88,8 @@ const handleBlur = (event: FocusEvent) => {
   line-height: 1.5;
   color: var(--foreground);
   outline: none;
-  transition:
-    color 0.15s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.15s ease;
+  transition: color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   box-sizing: border-box;
-  font-family: inherit;
 }
 
 .textarea::placeholder {
@@ -103,25 +99,20 @@ const handleBlur = (event: FocusEvent) => {
 /* Focus state */
 .textarea:focus-visible {
   border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(var(--ring), 0.08);
-}
-
-/* Hover state */
-.textarea:hover:not(:disabled) {
-  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(var(--ring), 0.5);
 }
 
 /* Invalid state */
 .textarea--invalid,
 .textarea[aria-invalid="true"] {
   border-color: var(--destructive);
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.2);
 }
 
 .textarea--invalid:focus-visible,
 .textarea[aria-invalid="true"]:focus-visible {
   border-color: var(--destructive);
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.15);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.3);
 }
 
 /* Disabled state */
@@ -129,7 +120,6 @@ const handleBlur = (event: FocusEvent) => {
 .textarea:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-  pointer-events: none;
 }
 
 /* Dark mode adjustments */
@@ -139,6 +129,6 @@ const handleBlur = (event: FocusEvent) => {
 
 .dark .textarea--invalid,
 .dark .textarea[aria-invalid="true"] {
-  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.2);
+  box-shadow: 0 0 0 3px rgba(var(--destructive), 0.4);
 }
 </style>

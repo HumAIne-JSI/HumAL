@@ -203,7 +203,7 @@ const tier2Items = computed(() =>
 .sidebar-wrapper {
   position: relative;
   display: flex;
-  width: 22rem;
+  width: 20rem;
   flex-shrink: 0;
   transition: width 0.2s ease;
 
@@ -219,8 +219,7 @@ const tier2Items = computed(() =>
   min-width: 0;
   background-color: var(--sidebar);
   border-right: 1px solid var(--sidebar-border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 
   &__header {
     display: flex;
@@ -345,7 +344,6 @@ const tier2Items = computed(() =>
 
   &__tier-text {
     min-width: 0;
-    overflow: hidden;
   }
 
   &__tier-level {
@@ -354,9 +352,6 @@ const tier2Items = computed(() =>
     font-weight: 600;
     line-height: 1.35;
     color: var(--sidebar-foreground);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   &__tier-description {
@@ -364,9 +359,6 @@ const tier2Items = computed(() =>
     font-size: 0.7rem;
     line-height: 1.4;
     color: var(--muted-foreground);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   &__link {
@@ -379,8 +371,6 @@ const tier2Items = computed(() =>
     color: var(--sidebar-foreground);
     transition: background-color 0.15s, color 0.15s;
     white-space: nowrap;
-    min-width: 0;
-    overflow: hidden;
 
     &:hover {
       background-color: var(--sidebar-accent);
@@ -399,7 +389,6 @@ const tier2Items = computed(() =>
     .sidebar-wrapper--collapsed & {
       justify-content: center;
       padding: 0.75rem;
-      overflow: visible;
     }
   }
 
@@ -412,10 +401,6 @@ const tier2Items = computed(() =>
   &__label {
     font-size: 0.875rem;
     font-weight: var(--font-weight-medium);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
   }
 
   &__link-external {

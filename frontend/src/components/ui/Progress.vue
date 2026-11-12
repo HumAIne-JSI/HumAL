@@ -40,12 +40,11 @@ const percentage = computed(() => {
 <style scoped>
 .progress {
   position: relative;
-  height: 0.625rem;
+  height: 0.5rem;
   width: 100%;
   overflow: hidden;
   border-radius: 9999px;
-  background-color: var(--muted);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .progress-indicator {
@@ -53,43 +52,35 @@ const percentage = computed(() => {
   width: 100%;
   flex: 1;
   background-color: var(--primary);
-  background: linear-gradient(90deg, var(--primary), color-mix(in oklch, var(--primary) 90%, #fff));
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border-radius: 9999px;
+  transition: all 0.2s ease-out;
 }
 
 /* Color variants using semantic colors */
 .progress--success {
-  background-color: color-mix(in srgb, var(--success) 15%, transparent);
+  background-color: color-mix(in srgb, var(--success) 20%, transparent);
 }
 .progress--success .progress-indicator {
-  background: linear-gradient(90deg, var(--success), color-mix(in oklch, var(--success) 90%, #fff));
+  background-color: var(--success);
 }
 
 .progress--warning {
-  background-color: color-mix(in srgb, var(--warning) 15%, transparent);
+  background-color: color-mix(in srgb, var(--warning) 20%, transparent);
 }
 .progress--warning .progress-indicator {
-  background: linear-gradient(90deg, var(--warning), color-mix(in oklch, var(--warning) 90%, #fff));
+  background-color: var(--warning);
 }
 
 .progress--danger {
-  background-color: color-mix(in srgb, var(--destructive) 15%, transparent);
+  background-color: color-mix(in srgb, var(--destructive) 20%, transparent);
 }
 .progress--danger .progress-indicator {
-  background: linear-gradient(90deg, var(--destructive), color-mix(in oklch, var(--destructive) 90%, #fff));
+  background-color: var(--destructive);
 }
 
 .progress--info {
-  background-color: color-mix(in srgb, var(--info) 15%, transparent);
+  background-color: color-mix(in srgb, var(--info) 20%, transparent);
 }
 .progress--info .progress-indicator {
-  background: linear-gradient(90deg, var(--info), color-mix(in oklch, var(--info) 90%, #fff));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .progress-indicator {
-    transition: none;
-  }
+  background-color: var(--info);
 }
 </style>

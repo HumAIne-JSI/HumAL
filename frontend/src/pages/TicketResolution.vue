@@ -10,6 +10,10 @@ import Progress from '@/components/ui/Progress.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import ExportButton from '@/components/ExportButton.vue'
 import InstanceSelector from '@/components/InstanceSelector.vue'
+import SkeletonCard from '@/components/ui/SkeletonCard.vue'
+import SkeletonText from '@/components/ui/SkeletonText.vue'
+import LoadingPhase from '@/components/ui/LoadingPhase.vue'
+import { useLoadingPhase } from '@/composables/useLoadingPhase'
 import { useInstances } from '@/composables/api/useActiveLearning'
 import { useCategories, useSubcategories } from '@/composables/api/useData'
 import { useInfer } from '@/composables/api/useInference'
@@ -102,6 +106,9 @@ const instanceModel = computed<string>({
 const result = ref<AssistedResolution | null>(null)
 const editedResponse = ref('')
 const savedToKb = ref(false)
+
+// Progressive loading phase tracking
+const { currentPhase, isLoading, startPhase, reset: resetPhase } = useLoadingPhase()
 
 // Demo-only: reassign the ticket to a different team.
 const AVAILABLE_TEAMS = [
@@ -225,11 +232,16 @@ async function generate(): Promise<void> {
     return
   }
 
+  // Start the analyzing phase
+  startPhase('analyzing')
+
   // Prefer the human label from the queue; otherwise best-effort AL inference to
   // predict the team/class and sharpen retrieval + judging.
   let predictedTeam: string | undefined = presetTeam.value || undefined
   if (!predictedTeam && selectedInstanceId.value > 0) {
     try {
+      // Transition to classifying phase when inference starts
+      startPhase('classifying')
       const inference = await inferMutation.mutateAsync({
         title_anon: ticketTitle.value,
         description_anon: ticketDescription.value,
@@ -241,12 +253,18 @@ async function generate(): Promise<void> {
   }
 
   try {
+    // Transition to generating phase when starting assisted resolution
+    startPhase('generating')
     const data = await assisted.mutateAsync({
       title: ticketTitle.value,
       description: ticketDescription.value,
       top_k: topK.value,
       predicted_team: predictedTeam,
     })
+    
+    // Transition to retrieving phase when loading similar replies stats
+    startPhase('retrieving')
+    
     result.value = data
     editedResponse.value = data.response
     savedToKb.value = false
@@ -265,7 +283,12 @@ async function generate(): Promise<void> {
       predicted_team: data.predicted_team,
     })
     await loadStats(data.similar_replies)
+    
+    // Reset phase tracking after completion
+    resetPhase()
   } catch (error) {
+    // Reset phase tracking on error
+    resetPhase()
     toast.error('Resolution failed', {
       description: error instanceof Error ? error.message : 'Unable to reach the resolution service',
     })
@@ -321,6 +344,7 @@ function useLabeledTicket(ticket: LabeledTicket): void {
   generatedAtMs.value = null
   firstEditMs.value = null
   effortRecorded.value = false
+  resetPhase()
   labeledCollapsed.value = true
   toast.info('Ticket loaded', { description: `${ticket.ref} · ${ticket.label}` })
 }
@@ -448,6 +472,7 @@ function clearForm(): void {
   generatedAtMs.value = null
   firstEditMs.value = null
   effortRecorded.value = false
+  resetPhase()
 }
 
 onMounted(() => {
@@ -575,14 +600,13 @@ onMounted(() => {
         <template #description>Enter the ticket and generate an assisted resolution</template>
 
         <div v-if="selectedLabeledRef" class="labeled-banner">
-        <div class="labeled-banner__content">
           <span>
-            <strong>Queue ticket</strong><br />
-            <code>{{ selectedLabeledRef }}</code> · <strong>{{ presetTeam }}</strong>
+            Using queue ticket <strong>{{ selectedLabeledRef }}</strong> · team
+            <strong>{{ presetTeam }}</strong>
           </span>
-        </div>
-        <Button variant="ghost" size="sm" @click="clearLoadedTicket" title="Detach from queue">
+          <Button variant="ghost" size="sm" @click="clearLoadedTicket">
             <X :size="14" />
+            Detach
           </Button>
         </div>
 
@@ -644,7 +668,7 @@ onMounted(() => {
 
         <template #footer>
           <div class="form-actions">
-          <Button variant="outline" size="sm" @click="clearForm" :disabled="isResolving">Clear</Button>
+            <Button variant="ghost" size="sm" @click="clearForm" :disabled="isResolving">Clear</Button>
             <Button @click="generate" :loading="isResolving" :disabled="!hasInput">
               <Sparkles :size="16" />
               Generate solution
@@ -654,20 +678,25 @@ onMounted(() => {
       </Card>
 
       <!-- Results Section -->
-      <template v-if="result || isResolving">
+      <template v-if="result || isLoading">
+        <!-- Loading phase indicator -->
+        <Transition name="fade-transition">
+          <div v-if="isLoading" class="resolution__loading-phase">
+            <LoadingPhase :current-phase="(currentPhase as 'analyzing' | 'classifying' | 'generating' | 'retrieving')" />
+          </div>
+        </Transition>
+
         <!-- Classification & Team -->
-        <Card class="resolution__classification">
+        <Card class="resolution__card resolution__classification" style="--reveal-delay: 0ms">
           <template #title>
             <Target :size="18" />
             Category
           </template>
 
-          <div v-if="isResolving" class="loading-state">
-            <Spinner label="Reading the ticket and writing a suggested reply..." />
-          </div>
+          <Transition name="fade-transition" mode="out-in">
+            <SkeletonCard v-if="isLoading && (currentPhase === 'analyzing' || currentPhase === 'classifying')" key="skeleton-classification" title description :lines="3" />
 
-          <template v-else-if="result">
-            <div class="classification-grid">
+            <div v-else-if="result" :key="`result-classification-${result.classification}`" class="classification-grid">
               <div class="classification-item">
                 <span class="classification-label">Category</span>
                 <Badge variant="default" size="lg">{{ result.classification }}</Badge>
@@ -720,11 +749,11 @@ onMounted(() => {
                 </Badge>
               </div>
             </div>
-          </template>
+          </Transition>
         </Card>
 
         <!-- Generated Response -->
-        <Card class="resolution__response">
+        <Card class="resolution__card resolution__response" style="--reveal-delay: 150ms">
           <template #title>
             <MessageSquare :size="18" />
             Suggested Response
@@ -735,104 +764,113 @@ onMounted(() => {
             </div>
           </template>
 
-          <div v-if="isResolving" class="loading-state">
-            <Spinner label="Generating response..." />
-          </div>
+          <Transition name="fade-transition" mode="out-in">
+            <SkeletonCard v-if="isLoading && currentPhase === 'generating'" key="skeleton-response" description :lines="6" />
 
-          <template v-else-if="result">
-            <Textarea
-              v-model="editedResponse"
-              :rows="6"
-              placeholder="Edit the response here..."
-              class="response-textarea"
-            />
+            <template v-else-if="result" :key="`result-response-${result.response}`">
+              <Textarea
+                v-model="editedResponse"
+                :rows="6"
+                placeholder="Edit the response here..."
+                class="response-textarea"
+              />
 
-            <div class="response-toolbar">
-              <Button variant="outline" size="sm" @click="copyResponse">
-                <Check v-if="copiedToClipboard" :size="14" />
-                <Copy v-else :size="14" />
-                {{ copiedToClipboard ? 'Copied!' : 'Copy' }}
-              </Button>
-              <Button variant="outline" size="sm" :loading="isResolving" :disabled="!hasInput" @click="generate">
-                <RefreshCw :size="14" />
-                Regen
-              </Button>
-              <div class="response-toolbar__spacer" />
-              <Button
-                variant="default"
-                size="sm"
-                @click="saveToKb"
-                :loading="isSaving"
-                :disabled="savedToKb || !editedResponse"
-              >
-                {{ savedToKb ? 'Sent' : 'Send to  Team' }}
-              </Button>
-            </div>
-          </template>
+              <div class="response-toolbar">
+                <Button variant="outline" size="sm" @click="copyResponse">
+                  <Check v-if="copiedToClipboard" :size="14" />
+                  <Copy v-else :size="14" />
+                  {{ copiedToClipboard ? 'Copied!' : 'Copy' }}
+                </Button>
+                <Button variant="outline" size="sm" :loading="isResolving" :disabled="!hasInput" @click="generate">
+                  <RefreshCw :size="14" />
+                  Regen
+                </Button>
+                <div class="response-toolbar__spacer" />
+                <Button
+                  variant="default"
+                  size="sm"
+                  @click="saveToKb"
+                  :loading="isSaving"
+                  :disabled="savedToKb || !editedResponse"
+                >
+                  {{ savedToKb ? 'Sent' : 'Send to Team' }}
+                </Button>
+              </div>
+            </template>
+          </Transition>
         </Card>
 
         <!-- Similar Replies -->
-        <Card v-if="result && result.similar_replies.length > 0" class="resolution__similar">
+        <Card v-if="result || isLoading" class="resolution__card resolution__similar" style="--reveal-delay: 300ms">
           <template #title>
             <FileText :size="18" />
-            Similar Past Replies ({{ result.similar_replies.length }})
+            {{ result ? `Similar Past Replies (${result.similar_replies.length})` : 'Similar Past Replies' }}
           </template>
           <template #description>Rate a reply (👍 / 👎) or reuse it as your response</template>
 
-          <div class="similar-replies">
-            <div
-              v-for="reply in result.similar_replies"
-              :key="reply.retrieved_id"
-              class="similar-reply"
-            >
-              <div class="similar-reply__header">
-                <Badge variant="outline">{{ reply.retrieved_id }}</Badge>
-                <Badge variant="secondary">{{ matchPct(reply) }}% match</Badge>
-                <span v-if="statsFor(reply.retrieved_id)" class="similar-reply__stats">
-                  <ThumbsUp :size="12" /> {{ statsFor(reply.retrieved_id)!.up }}
-                  <ThumbsDown :size="12" /> {{ statsFor(reply.retrieved_id)!.down }}
-                </span>
+          <Transition name="fade-transition" mode="out-in">
+            <div v-if="isLoading && currentPhase === 'retrieving'" key="skeleton-similar" class="similar-replies">
+              <div v-for="i in 3" :key="i" class="similar-reply">
+                <SkeletonCard description :lines="4" />
               </div>
+            </div>
 
-              <h4 class="similar-reply__title">{{ reply.Title_anon || 'No title' }}</h4>
+            <div v-else-if="result && result.similar_replies.length > 0" :key="`result-similar-${result.similar_replies.length}`" class="similar-replies">
+              <div
+                v-for="(reply, index) in result.similar_replies"
+                :key="reply.retrieved_id"
+                class="similar-reply"
+                :style="{ '--item-delay': `${index * 50}ms` }"
+              >
+                <div class="similar-reply__header">
+                  <Badge variant="outline">{{ reply.retrieved_id }}</Badge>
+                  <Badge variant="secondary">{{ matchPct(reply) }}% match</Badge>
+                  <span v-if="statsFor(reply.retrieved_id)" class="similar-reply__stats">
+                    <ThumbsUp :size="12" /> {{ statsFor(reply.retrieved_id)!.up }}
+                    <ThumbsDown :size="12" /> {{ statsFor(reply.retrieved_id)!.down }}
+                  </span>
+                </div>
 
-              <p v-if="reply.Description_anon" class="similar-reply__description">
-                {{ reply.Description_anon }}
-              </p>
+                <h4 class="similar-reply__title">{{ reply.Title_anon || 'No title' }}</h4>
 
-              <div v-if="reply.first_reply" class="similar-reply__response">
-                <span class="similar-reply__response-label">Past Reply:</span>
-                <p>{{ reply.first_reply }}</p>
-              </div>
+                <p v-if="reply.Description_anon" class="similar-reply__description">
+                  {{ reply.Description_anon }}
+                </p>
 
-              <div class="similar-reply__actions">
-                <Button variant="ghost" size="sm" @click="useReply(reply)">
-                  <Copy :size="14" />
-                  Use this reply
-                </Button>
-                <div class="similar-reply__vote">
-                  <Button
-                    :variant="votes[reply.retrieved_id] === 1 ? 'default' : 'outline'"
-                    size="sm"
-                    :loading="isVoting(reply.retrieved_id)"
-                    aria-label="Mark as helpful"
-                    @click="vote(reply, 1)"
-                  >
-                    <ThumbsUp :size="14" />
+                <div v-if="reply.first_reply" class="similar-reply__response">
+                  <span class="similar-reply__response-label">Past Reply:</span>
+                  <p>{{ reply.first_reply }}</p>
+                </div>
+
+                <div class="similar-reply__actions">
+                  <Button variant="ghost" size="sm" @click="useReply(reply)">
+                    <Copy :size="14" />
+                    Use this reply
                   </Button>
-                  <Button
-                    :variant="votes[reply.retrieved_id] === 0 ? 'default' : 'outline'"
-                    size="sm"
-                    :loading="isVoting(reply.retrieved_id)"
-                    aria-label="Mark as not helpful"
-                    @click="vote(reply, 0)"
-                  >
-                    <ThumbsDown :size="14" />
-                  </Button>
+                  <div class="similar-reply__vote">
+                    <Button
+                      :variant="votes[reply.retrieved_id] === 1 ? 'default' : 'outline'"
+                      size="sm"
+                      :loading="isVoting(reply.retrieved_id)"
+                      aria-label="Mark as helpful"
+                      @click="vote(reply, 1)"
+                    >
+                      <ThumbsUp :size="14" />
+                    </Button>
+                    <Button
+                      :variant="votes[reply.retrieved_id] === 0 ? 'default' : 'outline'"
+                      size="sm"
+                      :loading="isVoting(reply.retrieved_id)"
+                      aria-label="Mark as not helpful"
+                      @click="vote(reply, 0)"
+                    >
+                      <ThumbsDown :size="14" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </Transition>
         </Card>
       </template>
         </div>
@@ -848,35 +886,30 @@ onMounted(() => {
   padding: 2rem;
 
   &__header {
-    margin-bottom: 2.5rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
   }
 
   &__header-content {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.25rem;
   }
 
   &__title {
-    font-size: 2rem;
+    font-size: 1.875rem;
     font-weight: 700;
     margin: 0;
-    letter-spacing: -0.02em;
   }
 
   &__subtitle {
     color: var(--muted-foreground);
     margin: 0;
-    font-size: 0.9375rem;
-    line-height: 1.5;
   }
 
   &__content {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1.5rem;
   }
 
   &__form,
@@ -887,30 +920,77 @@ onMounted(() => {
     :deep(.card__title) {
       display: flex;
       align-items: center;
-      gap: 0.625rem;
-      font-weight: 600;
-      color: var(--foreground);
+      gap: 0.5rem;
     }
+  }
+}
 
-    :deep(.card__description) {
-      font-size: 0.875rem;
-      color: var(--muted-foreground);
-    }
+// Card reveal animations with staggered timing
+.resolution__card {
+  animation: card-reveal 0.3s ease-out forwards;
+  animation-delay: var(--reveal-delay, 0ms);
+  opacity: 0;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@keyframes card-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+// Fade transition for skeleton → result transitions
+.fade-transition-enter-active,
+.fade-transition-leave-active {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.fade-transition-enter-from,
+.fade-transition-leave-to {
+  opacity: 0;
+}
+
+.resolution__loading-phase {
+  padding: 1rem;
+  background: var(--muted);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  animation: fade-in 0.2s ease-out;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
-  margin-top: 1.5rem;
-  padding: 0;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
 
   &--full {
     grid-column: 1 / -1;
@@ -923,40 +1003,26 @@ onMounted(() => {
   gap: 0.375rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--foreground);
-  letter-spacing: 0.01em;
 }
 
 .form-hint {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--muted-foreground);
-  line-height: 1.4;
 }
 
 .form-select {
   width: 100%;
-  padding: 0.625rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--background);
   font-size: 0.875rem;
-  color: var(--foreground);
-  transition: border-color 0.15s, box-shadow 0.15s;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23666' d='M5 6l3 3 3-3'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.5rem center;
-  background-size: 1rem;
-  padding-right: 2rem;
-
-  &:hover {
-    border-color: var(--ring);
-  }
+  color: inherit;
 
   &:focus {
     outline: none;
     border-color: var(--ring);
-    box-shadow: 0 0 0 3px rgba(var(--ring), 0.1);
+    box-shadow: 0 0 0 2px var(--ring);
   }
 
   &:disabled {
@@ -969,60 +1035,45 @@ onMounted(() => {
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
 }
 
 .loading-state {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  padding: 2rem 1rem;
-  font-size: 0.9375rem;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  font-size: 0.875rem;
   color: var(--muted-foreground);
-  border-radius: var(--radius);
 }
 
 .classification-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1.5rem;
-  margin-top: 1.5rem;
+  margin-top: 1rem;
 }
 
 .classification-item {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  padding: 1rem;
-  background: var(--muted);
-  border-radius: calc(var(--radius) - 2px);
-  transition: background-color 0.15s ease;
-
-  &:hover {
-    background: var(--accent);
-  }
+  gap: 0.5rem;
 }
 
 .classification-label {
   font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   color: var(--muted-foreground);
-  font-weight: 500;
 }
 
 .reassign {
-  margin-top: 0.375rem;
+  margin-top: 0.25rem;
 }
 
 .reassign__controls {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
@@ -1033,37 +1084,29 @@ onMounted(() => {
 .confidence-display {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 
   span {
-    font-size: 0.9375rem;
-    font-weight: 600;
+    font-size: 0.875rem;
+    font-weight: 500;
     white-space: nowrap;
-    color: var(--foreground);
-  }
-
-  :deep(.progress) {
-    flex: 1;
   }
 }
 
 .response-actions {
   display: flex;
-  gap: 0.625rem;
+  gap: 0.5rem;
 }
 
 .response-textarea {
   margin-top: 1rem;
-  min-height: 150px;
 }
 
 .response-toolbar {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 
   &__spacer {
     flex: 1;
@@ -1074,36 +1117,39 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 1rem;
 }
 
 .similar-reply {
-  padding: 1.25rem;
+  padding: 1rem;
   background: var(--muted);
-  border: 1px solid transparent;
   border-radius: var(--radius);
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.15s ease;
+  animation: item-reveal 0.25s ease-out forwards;
+  animation-delay: var(--item-delay, 0ms);
+  opacity: 0;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 1;
+  }
 
   &:hover {
     background: var(--accent);
-    border-color: var(--border);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 
   &__header {
     display: flex;
-    gap: 0.625rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
     align-items: center;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   &__title {
     margin: 0;
-    font-size: 0.9625rem;
-    font-weight: 600;
-    color: var(--foreground);
-    line-height: 1.4;
+    font-size: 0.9375rem;
+    font-weight: 500;
   }
 
   &__description {
@@ -1114,34 +1160,30 @@ onMounted(() => {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    line-height: 1.4;
   }
 
   &__response {
-    margin-top: 1rem;
-    padding: 0.875rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
     background: var(--background);
-    border-left: 3px solid var(--ring);
     border-radius: calc(var(--radius) - 2px);
     font-size: 0.875rem;
 
     p {
-      margin: 0;
+      margin: 0.25rem 0 0;
       display: -webkit-box;
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
-      line-height: 1.5;
     }
   }
 
   &__response-label {
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--muted-foreground);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.375rem;
+    letter-spacing: 0.05em;
   }
 
   &__use-btn {
@@ -1153,21 +1195,18 @@ onMounted(() => {
   &__stats {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.25rem;
     margin-left: auto;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
-    font-weight: 500;
   }
 
   &__actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.625rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
+    gap: 0.5rem;
+    margin-top: 0.75rem;
   }
 
   &__vote {
@@ -1176,11 +1215,20 @@ onMounted(() => {
   }
 }
 
+@keyframes item-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .resolution__body {
   display: flex;
-  align-items: flex-start;
-  gap: 0;
-  min-width: 0;
+  align-items: stretch;
+  gap: 1.5rem;
+  min-height: 0;
 }
 
 .resolution__main {
@@ -1188,14 +1236,14 @@ onMounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
 .resolution__maintools {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .res-drawer {
@@ -1203,39 +1251,38 @@ onMounted(() => {
   width: 0;
   margin-right: 0;
   overflow: hidden;
-  align-self: stretch;
+  display: flex;
+  flex-direction: column;
   transition:
     width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
     margin-right 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 
   &--open {
-    width: 420px;
-    margin-right: 2rem;
+    width: 360px;
+    margin-right: 0;
   }
 }
 
 .res-drawer__inner {
-  width: 420px;
+  width: 360px;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 1.25rem;
+  padding: 1rem;
   background: var(--card, #fff);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  height: 100%;
-  max-height: calc(100vh - 12rem);
-  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .res-drawer__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.625rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0.5rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .res-drawer__title {
@@ -1244,7 +1291,7 @@ onMounted(() => {
   gap: 0.5rem;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--foreground);
+  min-width: 0;
 }
 
 @media (max-width: 880px) {
@@ -1255,71 +1302,79 @@ onMounted(() => {
   .res-drawer--open {
     width: 100%;
     margin-right: 0;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
   }
 
   .res-drawer__inner {
     width: 100%;
-    max-height: none;
-  }
-
-  .res-drawer__head {
-    padding-bottom: 0.75rem;
-    margin-bottom: 0.75rem;
   }
 }
 
 .labeled-actions {
   display: flex;
   gap: 0.25rem;
-  flex-shrink: 0;
 }
 
 .labeled-empty {
-  margin: 0;
+  margin: 0.5rem 0 0;
   font-size: 0.875rem;
   color: var(--muted-foreground);
-  padding: 1rem 0;
-  text-align: center;
+  flex-shrink: 0;
 }
 
 .labeled-list {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  margin-top: 0.5rem;
-  max-height: calc(100vh - 20rem);
+  gap: 0.5rem;
+  margin-top: 1rem;
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+
+    &:hover {
+      background: var(--muted-foreground);
+    }
+  }
 }
 
 .labeled-item {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  padding: 0.875rem;
+  padding: 0.75rem;
   background: var(--muted);
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  min-width: 0;
-  overflow: hidden;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
 
   &:hover {
     background: var(--accent);
-    border-color: var(--border);
   }
 
   &--active {
     border-color: var(--ring);
     background: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--ring);
   }
 
   &__main {
     flex: 1;
     min-width: 0;
     cursor: pointer;
-    overflow: hidden;
   }
 
   &__header {
@@ -1327,8 +1382,7 @@ onMounted(() => {
     align-items: center;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    min-width: 0;
+    margin-bottom: 0.375rem;
   }
 
   &__time {
@@ -1342,22 +1396,18 @@ onMounted(() => {
   &__title {
     margin: 0;
     font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--foreground);
-    line-height: 1.3;
+    font-weight: 500;
     word-break: break-word;
-    overflow-wrap: break-word;
   }
 
   &__desc {
-    margin: 0.375rem 0 0;
-    font-size: 0.8125rem;
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
     color: var(--muted-foreground);
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    line-height: 1.4;
   }
 
   &__actions {
@@ -1365,7 +1415,6 @@ onMounted(() => {
     align-items: center;
     gap: 0.25rem;
     flex-shrink: 0;
-    margin-left: auto;
   }
 }
 
@@ -1373,53 +1422,59 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  margin: 1.5rem 0 1.5rem;
-  padding: 0.875rem 1rem;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
-  background: var(--info-muted);
-  border-left: 4px solid var(--info);
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--info-muted-foreground);
-
-  &__content {
-    flex: 1;
-
-    strong {
-      color: var(--info-foreground);
-      font-weight: 600;
-      display: block;
-      font-size: 0.8125rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.25rem;
-    }
-
-    code {
-      background: rgba(0, 0, 0, 0.06);
-      padding: 0.2rem 0.4rem;
-      border-radius: 3px;
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 0.8em;
-    }
-  }
+  background: var(--muted);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .labeled-filters {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  gap: 0.5rem;
+  flex-shrink: 0;
 
   &__search {
     width: 100%;
+    min-width: 0;
   }
 
   &__team {
     width: 100%;
     min-width: 0;
+  }
+}
+
+@media (max-width: 1024px) {
+  .res-drawer--open {
+    width: 320px;
+  }
+
+  .res-drawer__inner {
+    width: 320px;
+  }
+}
+
+@media (max-width: 880px) {
+  .resolution__body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .res-drawer--open {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 1.5rem;
+    max-height: 50vh;
+  }
+
+  .res-drawer__inner {
+    width: 100%;
+    max-height: 50vh;
   }
 }
 
@@ -1436,12 +1491,12 @@ onMounted(() => {
     flex-direction: column;
   }
 
-  .resolution {
-    padding: 1.5rem 1rem;
+  .res-drawer--open {
+    max-height: 40vh;
   }
 
-  .resolution__title {
-    font-size: 1.75rem;
+  .res-drawer__inner {
+    max-height: 40vh;
   }
 }
 </style>

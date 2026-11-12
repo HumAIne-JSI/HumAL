@@ -60,17 +60,13 @@ const classes = computed(() => [
   font-size: 0.875rem;
   font-weight: var(--font-weight-medium);
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
+    background-color 0.15s ease,
     opacity 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.2s ease,
-    transform 0.15s ease;
+    color 0.15s ease;
   outline: none;
   flex-shrink: 0;
   cursor: pointer;
   border: none;
-  position: relative;
 
   // Disabled state
   &:disabled {
@@ -103,14 +99,7 @@ const classes = computed(() => [
     color: var(--primary-foreground);
 
     &:hover:not(:disabled) {
-      background-color: color-mix(in oklch, var(--primary) 90%, black);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      filter: brightness(1.1);
     }
   }
 
@@ -119,30 +108,18 @@ const classes = computed(() => [
     color: var(--destructive-foreground);
 
     &:hover:not(:disabled) {
-      background-color: color-mix(in oklch, var(--destructive) 90%, black);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(212, 24, 61, 0.2);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(212, 24, 61, 0.1);
+      filter: brightness(1.1);
     }
   }
 
   &-v-outline {
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     background-color: transparent;
     color: var(--foreground);
 
     &:hover:not(:disabled) {
       background-color: var(--accent);
-      border-color: var(--border);
       color: var(--accent-foreground);
-    }
-
-    &:active:not(:disabled) {
-      background-color: var(--accent);
     }
   }
 
@@ -181,14 +158,7 @@ const classes = computed(() => [
     color: var(--success-foreground);
 
     &:hover:not(:disabled) {
-      background-color: color-mix(in oklch, var(--success) 90%, black);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(22, 163, 74, 0.1);
+      filter: brightness(1.1);
     }
   }
 
@@ -197,14 +167,7 @@ const classes = computed(() => [
     color: var(--warning-foreground);
 
     &:hover:not(:disabled) {
-      background-color: color-mix(in oklch, var(--warning) 90%, black);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(202, 138, 4, 0.2);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(202, 138, 4, 0.1);
+      filter: brightness(1.1);
     }
   }
 
@@ -213,14 +176,7 @@ const classes = computed(() => [
     color: var(--info-foreground);
 
     &:hover:not(:disabled) {
-      background-color: color-mix(in oklch, var(--info) 90%, black);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 4px rgba(37, 99, 235, 0.1);
+      filter: brightness(1.1);
     }
   }
 
@@ -282,26 +238,6 @@ const classes = computed(() => [
 @keyframes btn-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn {
-    transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
-
-    &-v-default:hover:not(:disabled),
-    &-v-destructive:hover:not(:disabled),
-    &-v-success:hover:not(:disabled),
-    &-v-warning:hover:not(:disabled),
-    &-v-info:hover:not(:disabled) {
-      transform: none;
-    }
-
-    &-spinner {
-      animation: none;
-      border: 2px solid currentColor;
-      opacity: 0.6;
-    }
   }
 }
 </style>
