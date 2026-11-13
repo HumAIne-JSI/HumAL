@@ -21,7 +21,7 @@ const navLinks = [
         <!-- Brand Section -->
         <div class="footer__brand">
           <div class="footer__logo">
-            <HumaineLogo :width="150" :height="45" />
+            <HumaineLogo variant="secondary" :width="150" :height="45" />
           </div>
           <p class="footer__description">
             A smart ticket platform that sorts and routes tickets to the right team, and learns from your feedback.

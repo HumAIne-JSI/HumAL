@@ -3,8 +3,9 @@
     <aside class="sidebar">
       <div class="sidebar__header">
         <div v-if="!isCollapsed" class="sidebar__header-text">
-          <h1 class="sidebar__title">IT Ticket Manager</h1>
-          <p class="sidebar__subtitle">AI-Powered Ticket System</p>
+          <HumaineLogo class="sidebar__logo" :width="854" :height="304" />
+          <h1 class="sidebar__title">{{ brand.title }}</h1>
+          <p class="sidebar__subtitle">{{ brand.subtitle }}</p>
         </div>
         <button
           class="sidebar__toggle"
@@ -19,7 +20,7 @@
         </button>
       </div>
 
-      <div v-if="!isCollapsed" class="sidebar__instance">
+      <div v-if="!isCollapsed && !isSpecialist" class="sidebar__instance">
         <label class="sidebar__instance-label">Active Project</label>
         <InstanceSelector
           :model-value="String(instanceStore.selectedInstanceId || '')"
@@ -30,7 +31,12 @@
       </div>
 
       <nav class="sidebar__nav" aria-label="Main navigation">
-        <div class="sidebar__nav-tier" role="group" aria-label="Level 1: Triage and routing">
+        <div
+          v-if="!isSpecialist"
+          class="sidebar__nav-tier"
+          role="group"
+          aria-label="Level 1: Triage and routing"
+        >
           <div v-if="!isCollapsed" class="sidebar__tier-label">
             <span class="sidebar__tier-number" aria-hidden="true">01</span>
             <div class="sidebar__tier-text">
@@ -104,7 +110,12 @@
       </nav>
 
       <div v-if="!isCollapsed" class="sidebar__footer">
-        <button type="button" class="sidebar__tour" @click="tutorialStore.runChain()">
+        <button
+          v-if="!isSpecialist"
+          type="button"
+          class="sidebar__tour"
+          @click="tutorialStore.runChain()"
+        >
           <Play class="sidebar__tour-icon" />
           <span>Tour guide</span>
         </button>
@@ -116,6 +127,7 @@
             <span>Sign out</span>
           </button>
         </div>
+        <HumaineLogo class="sidebar__secondary-logo" variant="secondary" :width="128" />
       </div>
     </aside>
   </div>
@@ -125,25 +137,49 @@
 import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PanelLeftClose, PanelLeftOpen, LogOut, ExternalLink, Play } from 'lucide-vue-next'
-import { navItems } from '../router'
+import { navItems, specialistNavItems } from '../router'
 import InstanceSelector from './InstanceSelector.vue'
 import MockToggle from './MockToggle.vue'
+import HumaineLogo from './HumaineLogo.vue'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useSpecialistAuthStore } from '@/stores/useSpecialistAuthStore'
 import { useTutorialStore } from '@/stores/useTutorialStore'
 
 const STORAGE_KEY = 'humal-sidebar-collapsed'
 const EXPAND_EVENT = 'humal:tutorial-expand-sidebar'
 
+// `specialist` renders the Tier 2 workspace as its own app: Tier 2 entries only, and its own
+// mock session instead of the main sign-in.
+const props = withDefaults(defineProps<{ scope?: 'main' | 'specialist' }>(), { scope: 'main' })
+
 const route = useRoute()
 const router = useRouter()
 const instanceStore = useInstanceStore()
 const authStore = useAuthStore()
+const specialistAuth = useSpecialistAuthStore()
 const tutorialStore = useTutorialStore()
 
-const accountLabel = computed(() => authStore.user?.username || 'System user')
+const isSpecialist = computed(() => props.scope === 'specialist')
+
+const brand = computed(() =>
+  isSpecialist.value
+    ? { title: 'Specialist Workspace', subtitle: 'Tier 2 Support' }
+    : { title: 'IT Ticket Manager', subtitle: 'AI-Powered Ticket System' }
+)
+
+const accountLabel = computed(() =>
+  isSpecialist.value
+    ? specialistAuth.username || 'Specialist'
+    : authStore.user?.username || 'System user'
+)
 
 const handleLogout = () => {
+  if (isSpecialist.value) {
+    specialistAuth.logout()
+    router.push({ name: 'specialist-login' })
+    return
+  }
   authStore.logout()
   router.push({ name: 'login' })
 }
@@ -193,9 +229,11 @@ const tier1Items = computed(() =>
 )
 
 const tier2Items = computed(() =>
-  navItems.filter(item =>
-    ['/ticket-resolution', '/analytics'].includes(item.path)
-  )
+  isSpecialist.value
+    ? specialistNavItems
+    : navItems.filter(item =>
+        ['/ticket-resolution', '/analytics'].includes(item.path)
+      )
 )
 </script>
 
@@ -239,8 +277,14 @@ const tier2Items = computed(() =>
     min-width: 0;
   }
 
+  &__logo {
+    width: 100%;
+    height: auto;
+    margin-bottom: 0.75rem;
+  }
+
   &__title {
-    font-size: 1.25rem;
+    font-size: 1rem;
     font-weight: var(--font-weight-medium);
     color: var(--sidebar-foreground);
     margin: 0;
@@ -248,7 +292,7 @@ const tier2Items = computed(() =>
   }
 
   &__subtitle {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     color: var(--muted-foreground);
     margin: 0.25rem 0 0;
     white-space: nowrap;
@@ -414,6 +458,10 @@ const tier2Items = computed(() =>
   &__footer {
     padding: 1rem;
     border-top: 1px solid var(--sidebar-border);
+  }
+
+  &__secondary-logo {
+    margin: 1rem auto 0;
   }
 
   &__tour {

@@ -155,6 +155,8 @@ async function ensureHiddenPredictions(ticket: { id: string; ref: string }) {
 const { isTired, isDifficult, toggle: togglePendingFeedback, reset: resetPendingFeedback } =
   usePendingLabelerFeedback()
 
+const detailPanelRef = ref<InstanceType<typeof ManualTicketDetailPanel> | null>(null)
+
 const {
   shortcuts,
   isHelpOpen,
@@ -167,22 +169,18 @@ registerNavigationShortcuts({
   onNext: () => { selectNext() },
   onPrev: () => { selectPrevious() },
   onClose: () => {
+    // Undo a staged team first; a second Esc closes as before.
+    if (detailPanelRef.value?.resetDecision()) return
     if (hasBulkSelection.value) clearBulkSelection()
     else if (selectedTicket.value) selectTicket(null)
-  },
-  onConfirm: () => {
-    // handled inside the detail panel's button
   },
   onToggleBulk: () => {
     if (selectedTicket.value) toggleBulkSelect(selectedTicket.value.id)
   },
   onSelectAll: () => { selectAllVisible() },
   onHelp: () => { openHelp() },
-  onTeamAssign: (index: number) => {
-    if (teams.value[index] && selectedTicket.value) {
-      handleConfirm(teams.value[index])
-    }
-  },
+  onFocusTeamSearch: () => { detailPanelRef.value?.focusTeamSearch() },
+  onCommit: () => { detailPanelRef.value?.commitDecision() },
 })
 
 async function advanceToNextTicket() {
@@ -224,6 +222,7 @@ async function handleConfirm(team: string) {
     },
     {
       onSuccess: () => {
+        detailPanelRef.value?.markAssigned(ticket.id, team)
         resetPendingFeedback()
         void advanceToNextTicket()
       },
@@ -523,6 +522,7 @@ const groupedShortcuts = computed(() => {
 
       <div class="ticket-queue__detail-panel">
         <ManualTicketDetailPanel
+          ref="detailPanelRef"
           :ticket="selectedTicket"
           :teams="teams"
           :feedback-pending="isLabeling"

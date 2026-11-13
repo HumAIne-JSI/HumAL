@@ -14,7 +14,7 @@ async function mountApp(path?: string) {
     routes: [
       { path: '/', component: page },
       { path: '/login', component: page, meta: { hideSidebar: true } },
-      { path: '/standalone', component: page, meta: { standalone: true, label: 'Standalone' } },
+      { path: '/specialist', component: page, meta: { app: 'specialist' } },
     ],
   })
   if (path) {
@@ -27,15 +27,15 @@ async function mountApp(path?: string) {
       plugins: [createPinia(), router],
       stubs: {
         Navigation: true,
-        HumaineLogo: true,
         Toaster: true,
         // Queries the API, which needs VueQueryPlugin and the network.
         TutorialHost: true,
       },
     },
   })
-  const hasSidebar = () => wrapper.findComponent({ name: 'Navigation' }).exists()
-  return { router, wrapper, hasSidebar }
+  const sidebar = () => wrapper.findComponent({ name: 'Navigation' })
+  const hasSidebar = () => sidebar().exists()
+  return { router, wrapper, sidebar, hasSidebar }
 }
 
 describe('App', () => {
@@ -46,21 +46,23 @@ describe('App', () => {
   })
 
   it('hides the sidebar on routes flagged hideSidebar', async () => {
-    const { router, wrapper, hasSidebar } = await mountApp('/')
+    const { router, hasSidebar } = await mountApp('/')
     expect(hasSidebar()).toBe(true)
 
     await router.push('/login')
     await nextTick()
 
     expect(hasSidebar()).toBe(false)
-    expect(wrapper.find('.app-standalone-bar').exists()).toBe(false)
   })
 
-  it('shows the standalone header instead of the sidebar on standalone routes', async () => {
-    const { wrapper, hasSidebar } = await mountApp('/standalone')
+  it('scopes the sidebar to the Tier 2 entries on specialist routes', async () => {
+    const { router, sidebar } = await mountApp('/')
+    expect(sidebar().props('scope')).toBe('main')
 
-    expect(hasSidebar()).toBe(false)
-    expect(wrapper.find('.app-standalone-bar').exists()).toBe(true)
+    await router.push('/specialist')
+    await nextTick()
+
+    expect(sidebar().props('scope')).toBe('specialist')
   })
 
   it('keeps the sidebar hidden until the first navigation resolves', async () => {

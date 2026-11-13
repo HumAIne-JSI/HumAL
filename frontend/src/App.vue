@@ -1,10 +1,6 @@
 <template>
-  <div class="app-layout" :class="{ 'app-layout--standalone': isStandalone }">
-    <Navigation v-if="showSidebar" />
-    <header v-else-if="isStandalone" class="app-standalone-bar">
-      <HumaineLogo :height="30" :width="100" class="app-standalone-bar__logo" />
-      <span class="app-standalone-bar__title">{{ standaloneTitle }}</span>
-    </header>
+  <div class="app-layout">
+    <Navigation v-if="showSidebar" :scope="navScope" />
     <main class="app-layout__main">
       <router-view />
     </main>
@@ -14,7 +10,6 @@
 </template>
 
 <script setup lang="ts">
-import HumaineLogo from '@/components/HumaineLogo.vue'
 import Navigation from '@/components/Navigation.vue'
 import TutorialHost from '@/components/TutorialHost.vue'
 import { useMockModeStore } from '@/stores/useMockModeStore'
@@ -26,18 +21,15 @@ import 'vue-sonner/style.css'
 // Initialize mock mode store early to sync all mock flags
 useMockModeStore()
 
-// Routes flagged `standalone` render detached from the app shell (no sidebar) —
-// used for features that open in their own browser tab, like Ticket Evolution.
+// Routes flagged `app: 'specialist'` belong to the Tier 2 workspace, which has its own
+// sidebar (Tier 2 entries only) and its own sign-in, like a separate app.
 const route = useRoute()
-const isStandalone = computed(() => Boolean(route.meta?.standalone))
-const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspace')
+const navScope = computed(() => (route.meta?.app === 'specialist' ? 'specialist' : 'main'))
 
 // Routes flagged `hideSidebar` (e.g. login) keep the regular shell minus the sidebar. `matched`
 // is empty until the first navigation resolves; waiting for it stops the sidebar from flashing
 // on routes that hide it.
-const showSidebar = computed(
-  () => route.matched.length > 0 && !isStandalone.value && !route.meta?.hideSidebar,
-)
+const showSidebar = computed(() => route.matched.length > 0 && !route.meta?.hideSidebar)
 </script>
 
 <style lang="scss">
@@ -46,10 +38,6 @@ const showSidebar = computed(
   height: 100vh;
   background-color: #f9fafb;
 
-  &--standalone {
-    flex-direction: column;
-  }
-
   &__main {
     flex: 1;
     overflow: auto;
@@ -57,28 +45,5 @@ const showSidebar = computed(
   }
 
   &__timer { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; }
-}
-
-.app-standalone-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  flex-shrink: 0;
-  padding: 0.625rem 1.5rem;
-  background-color: var(--sidebar, #ffffff);
-  border-bottom: 1px solid var(--sidebar-border, #e5e7eb);
-
-  &__logo {
-    color: var(--sidebar-foreground, #1f2937);
-    flex-shrink: 0;
-  }
-
-  &__title {
-    padding-left: 0.875rem;
-    border-left: 1px solid var(--sidebar-border, #e5e7eb);
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--foreground, #111827);
-  }
 }
 </style>

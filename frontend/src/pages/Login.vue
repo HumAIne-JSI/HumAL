@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import Input from "@/components/ui/Input.vue";
 import Button from "@/components/ui/Button.vue";
-import humaineLogo from "@/assets/images/humaine-logo.png";
+import HumaineLogo from "@/components/HumaineLogo.vue";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { ApiError } from "@/types/api";
 
@@ -85,12 +85,10 @@ const handleSubmit = async () => {
     <section class="login__access" aria-label="Account access">
       <div class="login__access-content">
         <div class="login__brand">
-          <img
+          <HumaineLogo
             class="login__logo"
-            :src="humaineLogo"
-            width="1906"
-            height="446"
-            alt="humAIne"
+            :width="854"
+            :height="304"
           />
           <p class="login__subtitle">AI-Assisted Ticket Labeling</p>
         </div>

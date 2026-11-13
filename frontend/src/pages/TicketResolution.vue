@@ -83,6 +83,12 @@ const saveMutation = useSaveResolvedTicket({ meta: { silent: true } })
 const isResolving = computed(() => assisted.isPending.value || inferMutation.isPending.value)
 const isSaving = computed(() => saveMutation.isPending.value)
 const isBusy = computed(() => isResolving.value || isSaving.value)
+// Steps the stepper may jump to; locked while a request runs, like "Edit ticket".
+const reachableStages = computed<ResolutionStage[]>(() => {
+  if (isBusy.value) return []
+  if (stage.value === 'sent') return ['intake']
+  return result.value ? ['intake', 'review'] : ['intake']
+})
 const nextQueuedTicket = computed<LabeledTicket | null>(() => labeledStore.tickets[0] ?? null)
 const willPredictTeam = computed(
   () => !manualTeam.value && !presetTeam.value && selectedInstanceId.value > 0
@@ -343,6 +349,13 @@ function startNewTicket(): void {
   stage.value = 'intake'
 }
 
+// A sent draft is already saved, so going back to step 1 afterwards starts a fresh ticket.
+function goToStage(target: ResolutionStage): void {
+  if (!reachableStages.value.includes(target)) return
+  if (stage.value === 'sent') startNewTicket()
+  else stage.value = target
+}
+
 // Move focus to the new step's heading, and bring the page top into view.
 function onStageEntered(el: Element): void {
   el.querySelector<HTMLElement>('[data-stage-heading]')?.focus({ preventScroll: true })
@@ -367,7 +380,7 @@ onMounted(() => {
           similar past tickets.
         </p>
       </div>
-      <ResolutionSteps :current="stage" />
+      <ResolutionSteps :current="stage" :reachable="reachableStages" @select="goToStage" />
     </header>
 
     <Transition name="stage" mode="out-in" @after-enter="onStageEntered">

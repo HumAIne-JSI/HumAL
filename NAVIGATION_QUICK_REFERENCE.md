@@ -35,6 +35,13 @@ Navigation sidebar split into **two tiers** with **hierarchical labels**:
 | **On Collapse** | Labels hidden, icons only, border invisible |
 | **Tooltips** | Show tier level + description on hover (collapsed mode) |
 
+## Branding
+
+- The sidebar header and both sign-in screens use [logo.png](frontend/src/assets/images/logo.png) as the primary logo, including its tagline.
+- Secondary branding in the sidebar footer and the footer component uses [humaine-logo.png](frontend/src/assets/images/humaine-logo.png).
+- [HumaineLogo.vue](frontend/src/components/HumaineLogo.vue) renders the supplied artwork: the default variant is `primary`; use `variant="secondary"` for the compact logo. Both variants preserve the image proportions.
+- Collapsing the sidebar hides both logos along with the existing header text and footer controls.
+
 ## Visual Hierarchy
 
 The two-size approach creates **dual hierarchy**:
@@ -125,6 +132,17 @@ const tier2Items = computed(() =>
 ```
 
 Done! Navigation automatically updates.
+
+### Tier 2 workspace sidebar
+
+The Specialist Resolution Workspace (`/ticket-resolution`) is a separate Tier 2 app with its own mock sign-in and a sidebar that lists only Tier 2 pages. To add a page to it, give the route these meta flags in `frontend/src/router/index.ts`:
+
+```typescript
+meta: { label: 'My Page', icon: MyIcon, specialistNav: true, app: 'specialist' }
+```
+
+- `app: 'specialist'` puts the route behind the specialist sign-in (`/ticket-resolution/login`, session kept in `sessionStorage`) and makes `App.vue` render the sidebar with `scope="specialist"`.
+- `specialistNav: true` lists the route in that sidebar (`specialistNavItems`).
 
 ## Responsive Behavior
 

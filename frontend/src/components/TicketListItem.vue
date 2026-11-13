@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Checkbox from '@/components/ui/Checkbox.vue'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
@@ -25,6 +25,26 @@ const emit = defineEmits<{
   (e: 'select'): void
   (e: 'toggle-bulk'): void
 }>()
+
+const rootRef = ref<HTMLElement | null>(null)
+
+// When selection moves by shortcut or auto-advance while a row has focus,
+// move focus with it so Enter never lands on a stale row.
+watch(
+  () => props.selected,
+  (isSelected) => {
+    const active = document.activeElement
+    if (!isSelected || !rootRef.value || active === rootRef.value) return
+    if (active?.classList.contains('ticket-item')) rootRef.value.focus()
+  },
+)
+
+function handleEnter(event: KeyboardEvent) {
+  // The open ticket passes Enter on, so the page can assign its staged team.
+  if (props.selected) return
+  event.preventDefault()
+  emit('select')
+}
 
 // Status badge variant mapping
 const statusVariant = computed((): 'secondary' | 'warning' | 'info' | 'success' => {
@@ -80,6 +100,7 @@ function truncate(text: string, maxLength: number): string {
 
 <template>
   <div
+    ref="rootRef"
     :class="[
       'ticket-item',
       {
@@ -92,8 +113,9 @@ function truncate(text: string, maxLength: number): string {
     data-track-region="ticket_list_item"
     role="button"
     tabindex="0"
+    :aria-current="selected ? 'true' : undefined"
     @click="$emit('select')"
-    @keydown.enter="$emit('select')"
+    @keydown.enter="handleEnter"
     @keydown.space.prevent="$emit('toggle-bulk')"
   >
     <!-- Compact mode: just status dot + ref, fits in a narrow collapsed list -->

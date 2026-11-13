@@ -5,8 +5,17 @@ import { Check } from 'lucide-vue-next'
 export type ResolutionStage = 'intake' | 'review' | 'sent'
 type StepState = 'done' | 'current' | 'upcoming'
 
-const props = defineProps<{
-  current: ResolutionStage
+const props = withDefaults(
+  defineProps<{
+    current: ResolutionStage
+    /** Steps the user may jump to; the current step is never interactive. */
+    reachable?: ResolutionStage[]
+  }>(),
+  { reachable: () => [] }
+)
+
+const emit = defineEmits<{
+  select: [stage: ResolutionStage]
 }>()
 
 const STEPS: { id: ResolutionStage; label: string }[] = [
@@ -21,6 +30,24 @@ function stepState(index: number): StepState {
   if (index < currentIndex.value || props.current === 'sent') return 'done'
   return index === currentIndex.value ? 'current' : 'upcoming'
 }
+
+function isReachable(id: ResolutionStage): boolean {
+  return id !== props.current && props.reachable.includes(id)
+}
+
+// Reachable steps become buttons; the rest stay plain text.
+function controlAttrs(step: (typeof STEPS)[number], index: number) {
+  if (!isReachable(step.id)) return {}
+  return {
+    type: 'button',
+    class: 'steps__control--action',
+    'aria-label': `Go to step ${index + 1}: ${step.label}`
+  }
+}
+
+function select(id: ResolutionStage): void {
+  if (isReachable(id)) emit('select', id)
+}
 </script>
 
 <template>
@@ -32,11 +59,18 @@ function stepState(index: number): StepState {
       :class="`steps__item--${stepState(index)}`"
       :aria-current="index === currentIndex ? 'step' : undefined"
     >
-      <span class="steps__marker" aria-hidden="true">
-        <Check v-if="stepState(index) === 'done'" :size="12" :stroke-width="3" />
-        <template v-else>{{ index + 1 }}</template>
-      </span>
-      <span class="steps__label">{{ step.label }}</span>
+      <component
+        :is="isReachable(step.id) ? 'button' : 'span'"
+        class="steps__control"
+        v-bind="controlAttrs(step, index)"
+        @click="select(step.id)"
+      >
+        <span class="steps__marker" aria-hidden="true">
+          <Check v-if="stepState(index) === 'done'" :size="12" :stroke-width="3" />
+          <template v-else>{{ index + 1 }}</template>
+        </span>
+        <span class="steps__label">{{ step.label }}</span>
+      </component>
     </li>
   </ol>
 </template>
@@ -77,6 +111,33 @@ function stepState(index: number): StepState {
 
     &::after {
       background: var(--foreground);
+    }
+  }
+}
+
+.steps__control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: inherit;
+  font: inherit;
+
+  // A larger hit area that leaves the layout untouched.
+  &--action {
+    margin: -0.25rem -0.375rem;
+    padding: 0.25rem 0.375rem;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--accent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 1px;
     }
   }
 }

@@ -1,21 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
-import Select from '@/components/ui/Select.vue'
-import TeamGuide from '@/components/TeamGuide.vue'
+import TeamDecision, { type TeamDecisionSubmit } from '@/components/TeamDecision.vue'
 import type { QueueTicket } from '@/stores/useTicketQueueStore'
 import type { LabelerFeedbackType } from '@/types/api'
-import {
-  X,
-  FileText,
-  Check,
-  CheckCircle,
-  ChevronRight,
-  Coffee,
-  AlertTriangle,
-  HelpCircle,
-} from 'lucide-vue-next'
+import { X, FileText, CheckCircle, ChevronRight } from 'lucide-vue-next'
 
 export interface ManualTicketDetailPanelProps {
   ticket: QueueTicket | null
@@ -38,22 +28,18 @@ const emit = defineEmits<{
   (e: 'feedback', type: LabelerFeedbackType): void
 }>()
 
-const selectedTeam = ref<string>('')
+const decisionRef = ref<InstanceType<typeof TeamDecision> | null>(null)
 const showLabeledFlash = ref(false)
 const labeledTeamName = ref('')
 
-const teamOptions = computed(() => {
-  if (!props.teams?.length) return []
-  return props.teams.map((t) => ({ value: t, label: t }))
-})
-
-function handleConfirm() {
-  if (!selectedTeam.value) return
-  const team = selectedTeam.value
+function markAssigned(ticketId: string, team: string) {
+  if (props.ticket?.id !== ticketId) return
   labeledTeamName.value = team
   showLabeledFlash.value = true
+}
+
+function handleDecision({ team }: TeamDecisionSubmit) {
   emit('confirm', team)
-  selectedTeam.value = ''
 }
 
 function formatDate(date: Date): string {
@@ -70,12 +56,19 @@ watch(
   () => props.ticket?.id,
   (newId, oldId) => {
     if (newId !== oldId) {
-      selectedTeam.value = ''
       showLabeledFlash.value = false
       labeledTeamName.value = ''
     }
   },
 )
+
+// Expose the decision to page-level keyboard shortcuts.
+defineExpose({
+  markAssigned,
+  focusTeamSearch: () => decisionRef.value?.focusTeamSearch(),
+  commitDecision: () => decisionRef.value?.commit(),
+  resetDecision: () => decisionRef.value?.reset() ?? false,
+})
 </script>
 
 <template>
@@ -116,62 +109,16 @@ watch(
         <p class="manual-detail__description">{{ ticket.description }}</p>
 
         <section class="manual-detail__label" data-track-region="label_picker">
-          <label class="manual-detail__label-heading">Assign team</label>
-          <div class="manual-detail__label-row">
-            <Select
-              v-model="selectedTeam"
-              :options="teamOptions"
-              placeholder="Select team..."
-              size="sm"
-            />
-            <TeamGuide :teams="props.teams" @select="selectedTeam = $event" />
-            <Button
-              variant="default"
-              size="sm"
-              :disabled="!selectedTeam"
-              data-track-region="confirm_button"
-              @click="handleConfirm"
-            >
-              <Check :size="14" />
-              Confirm
-            </Button>
-          </div>
-        </section>
-
-        <!-- Tired/Difficult are attached to the next label; I Don't Know retires. -->
-        <section class="manual-detail__feedback" data-track-region="labeler_feedback">
-          <span class="manual-detail__feedback-label">Tired/Difficult feedback (label required):</span>
-          <div class="manual-detail__feedback-row">
-            <Button
-              :variant="props.isTired ? 'secondary' : 'ghost'"
-              size="sm"
-              :disabled="feedbackPending"
-              :aria-pressed="props.isTired"
-              @click="$emit('feedback', 'I_AM_TIRED')"
-            >
-              <Coffee :size="14" />
-              Tired
-            </Button>
-            <Button
-              :variant="props.isDifficult ? 'secondary' : 'ghost'"
-              size="sm"
-              :disabled="feedbackPending"
-              :aria-pressed="props.isDifficult"
-              @click="$emit('feedback', 'DIFFICULT_TICKET')"
-            >
-              <AlertTriangle :size="14" />
-              Difficult
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              :disabled="feedbackPending"
-              @click="$emit('feedback', 'I_DONT_KNOW')"
-            >
-              <HelpCircle :size="14" />
-              I Don't Know
-            </Button>
-          </div>
+          <TeamDecision
+            ref="decisionRef"
+            :teams="props.teams"
+            :pending="feedbackPending"
+            :disabled="showLabeledFlash"
+            :is-tired="props.isTired"
+            :is-difficult="props.isDifficult"
+            @submit="handleDecision"
+            @feedback="$emit('feedback', $event)"
+          />
         </section>
       </div>
     </div>
@@ -276,44 +223,6 @@ watch(
   &__label {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  &__label-heading {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--muted-foreground);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-  }
-
-  &__label-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  &__feedback {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.4rem;
-    padding-top: 0.75rem;
-    border-top: 1px dashed var(--border);
-  }
-
-  &__feedback-label {
-    font-size: 0.8125rem;
-    color: var(--muted-foreground);
-  }
-
-  &__feedback-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-    justify-content: center;
   }
 
   &__labeled-flash {

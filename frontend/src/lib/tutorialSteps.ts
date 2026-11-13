@@ -106,8 +106,8 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
       popover: {
         title: 'Pick a team',
         description:
-          'Choose a team from the dropdown, then press Confirm. The team you assign is your label for this ticket; ' +
-          'confirming moves you to thenext ticket.',
+          'Search for the team that should handle this ticket and select it. Nothing is saved until you press Assign (or Enter). ' +
+          'The team you assign is your label for this ticket, and assigning moves you to the next ticket.',
         side: 'left',
       },
       waitForElement: ELEMENT_TIMEOUT,
@@ -119,19 +119,19 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
         title: 'Team guide',
         description:
           'A searchable reference of every team and what it handles. If you are unsure what a team covers, you can open it to read the ' +
-          'descriptions before confirming a label.',
+          'descriptions. Choosing a team there selects it here; you still press Assign to label.',
         side: 'bottom',
       },
       waitForElement: ELEMENT_TIMEOUT,
       skipMissingElement: true,
     },
     {
-      element: '.manual-detail__feedback',
+      element: '.team-decision__extras',
       popover: {
         title: 'Tired / Difficult / I Don\u2019t Know',
         description:
-          'Three signals the study records. "Tired" and "Difficult" arm a flag that is attached to your next confirmed label. ' +
-          'Press one (or both), then confirm a label to submit it; press again to clear it. "I Don\u2019t Know" skips the ticket immediately with no label ' +
+          'Three signals the study records. "Tired" and "Difficult" arm a flag that is sent with the label you assign next. ' +
+          'Press one (or both), then assign a label to submit it; press again to clear it. "Skip \u2014 I don\u2019t know" skips the ticket immediately with no label ' +
           'recorded. Use them honestly: fatigue and ticket difficulty are experimental signals, and skipping is a valid answer.',
         side: 'left',
       },
@@ -177,8 +177,8 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
       popover: {
         title: 'The aided detail panel',
         description:
-          'Three parts: the ticket text on the top left, the model explanation in the top right, and the decision area below them. That is where you accept ' +
-          'or override the model\u2019s suggestion. We go through each part.',
+          'Three parts: the ticket text on the top left, the model explanation in the top right, and the decision area below them. That is where you choose ' +
+          'a team and assign it. We go through each part.',
         side: 'left',
       },
       waitForElement: ELEMENT_TIMEOUT,
@@ -201,33 +201,45 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
       popover: {
         title: 'The decision area',
         description:
-          'This section appears once the model has a suggestion for the open ticket and holds everything you need to act: the top ' +
-          'predictions, manual reassignment, feedback buttons and the Team guide.',
+          'This section appears once the model has a suggestion for the open ticket and holds everything you need to decide: the ranked ' +
+          'suggestions, a search for any other team, the Assign button, feedback buttons and the Team guide.',
         side: 'bottom',
       },
       waitForElement: ELEMENT_TIMEOUT,
       skipMissingElement: true,
     },
     {
-      element: '.detail-panel__model-predictions',
+      element: '.team-decision__choices',
       popover: {
         title: 'Top predictions',
         description:
-          'The model\u2019s ranked suggestions with their confidence as a percentage. Press Confirm next to the one you agree with to accept ' +
-          'it as the label.',
+          'The model\u2019s ranked suggestions with their confidence. The top one is selected for you; click another or press 1 or 2 ' +
+          'to select it instead. Selecting never saves anything on its own.',
         side: 'left',
       },
       waitForElement: ELEMENT_TIMEOUT,
       skipMissingElement: true,
     },
     {
-      element: '.detail-panel__reassign',
+      element: '.team-decision__other',
       popover: {
-        title: 'Manual reassignment',
+        title: 'Another team',
         description:
-          'Disagree with the model? Pick the correct team and press Reassign. This overrides the suggestion. While a reassignment is armed, ' +
-          'the model\u2019s Confirm buttons are disabled. Reassigning records where the AI went wrong so the model can learn from your correction.',
+          'Disagree with the model? Search all teams (press /) and pick the correct one. The summary marks it "Overrides model", and ' +
+          'assigning it records where the AI went wrong so the model can learn from your correction.',
         side: 'left',
+      },
+      waitForElement: ELEMENT_TIMEOUT,
+      skipMissingElement: true,
+    },
+    {
+      element: '.team-decision__commit',
+      popover: {
+        title: 'Assign',
+        description:
+          'The summary always shows the team you are about to assign. Press Assign (or Enter) to save it as the label and move to the ' +
+          'next ticket. Changed your mind? Esc returns to the model\u2019s top suggestion.',
+        side: 'top',
       },
       waitForElement: ELEMENT_TIMEOUT,
       skipMissingElement: true,
@@ -238,19 +250,19 @@ export const TOUR_STEPS: Record<TourSegment, DriveStep[]> = {
         title: 'Team guide',
         description:
           'A searchable reference of every team and what it handles. If you are unsure what a team covers, you can open it to read the ' +
-          'descriptions before confirming or reassigning a label.',
+          'descriptions. Choosing a team there selects it here; you still press Assign to label.',
         side: 'bottom',
       },
       waitForElement: ELEMENT_TIMEOUT,
       skipMissingElement: true,
     },
     {
-      element: '.detail-panel__feedback',
+      element: '.team-decision__extras',
       popover: {
         title: 'Tired / Difficult / I Don\u2019t Know',
         description:
-          'The same honest signals as the manual queue: "Tired" and "Difficult" arm a flag recorded with your NEXT confirmed label (press ' +
-          'again to clear); "I Don\u2019t Know" skips the ticket immediately. These tell the study when fatigue or hard tickets affect labeling.',
+          'The same honest signals as the manual queue: "Tired" and "Difficult" arm a flag sent with the label you assign next (press ' +
+          'again to clear); "Skip \u2014 I don\u2019t know" skips the ticket immediately. These tell the study when fatigue or hard tickets affect labeling.',
         side: 'left',
       },
       waitForElement: ELEMENT_TIMEOUT,

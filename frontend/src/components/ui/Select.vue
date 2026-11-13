@@ -266,6 +266,8 @@ const handleClickOutside = (event: MouseEvent) => {
 // Keyboard handler
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape' && open.value) {
+    // Claim the key so page-level Escape shortcuts don't also fire.
+    event.preventDefault()
     closeSelect()
   }
 }
@@ -314,6 +316,12 @@ const contentStyle = computed(() => ({
   left: `${contentPosition.value.left}px`,
   minWidth: `${contentPosition.value.width}px`
 }))
+
+defineExpose({
+  open: () => {
+    if (!props.disabled) open.value = true
+  },
+})
 </script>
 
 <template>

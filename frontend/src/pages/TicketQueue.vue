@@ -34,8 +34,7 @@ const router = useRouter()
 const instanceStore = useInstanceStore()
 const telemetry = useBenchmarkTelemetry()
 
-// Ref to the detail panel so parent-level shortcuts (e.g. "c") can trigger
-// its confirm action imperatively.
+// The panel owns the staged team; page-level shortcuts delegate to it.
 const detailPanelRef = ref<InstanceType<typeof TicketDetailPanel> | null>(null)
 
 // Track when the user selected the current ticket so we can compute the
@@ -136,14 +135,13 @@ registerNavigationShortcuts({
     }
   },
   onClose: () => {
+    // Undo a staged team change first; a second Esc closes as before.
+    if (detailPanelRef.value?.resetDecision()) return
     if (hasBulkSelection.value) {
       clearBulkSelection()
     } else if (selectedTicket.value) {
       selectTicket(null)
     }
-  },
-  onConfirm: () => {
-    detailPanelRef.value?.confirmPrediction()
   },
   onToggleBulk: () => {
     if (selectedTicket.value) {
@@ -156,10 +154,14 @@ registerNavigationShortcuts({
   onHelp: () => {
     openHelp()
   },
-  onTeamAssign: (index: number) => {
-    if (teams.value[index] && selectedTicket.value) {
-      handleReassign(teams.value[index])
-    }
+  onSelectChoice: (rank: number) => {
+    detailPanelRef.value?.selectChoice(rank)
+  },
+  onFocusTeamSearch: () => {
+    detailPanelRef.value?.focusTeamSearch()
+  },
+  onCommit: () => {
+    detailPanelRef.value?.commitDecision()
   },
 })
 
@@ -222,6 +224,7 @@ function handleConfirm(
     },
     {
       onSuccess: () => {
+        detailPanelRef.value?.markAssigned(ticket.id, team)
         resetPendingFeedback()
         void advanceToNextTicket()
       },
@@ -263,6 +266,7 @@ function handleReassign(
     },
     {
       onSuccess: () => {
+        detailPanelRef.value?.markAssigned(ticket.id, team)
         resetPendingFeedback()
         void advanceToNextTicket()
       },

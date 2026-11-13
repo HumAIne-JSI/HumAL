@@ -106,7 +106,7 @@ PRESENTER SCRIPT — Opening (30s)
 **Before you start (setup checklist):**
 - Start the frontend dev server, open **http://localhost:5173** and sign in.
 - Toggle the sidebar switch to **Demo** (orange dot) → the whole app runs on seeded data, **no backend needed**.
-- Have two tabs ready: the main app, and **Ticket Evolution** (it opens in a new tab).
+- Have two tabs ready: the main app, and **Ticket Evolution** (it opens in a new tab; sign in there with any username and password).
 - Zoom the browser to ~110–125% so the room can read the UI.
 
 > This deck doubles as your script — **speaker notes on every slide** contain what to say and what to click.
@@ -115,7 +115,7 @@ PRESENTER SCRIPT — Opening (30s)
 PRESENTER SCRIPT — Setup (45s)
 - Emphasize Demo mode: "Everything you'll see runs on realistic seeded data, so the demo never depends on a live model or network."
 - The green/orange dot in the sidebar is the Live/Demo toggle. Orange = Demo.
-- Ticket Evolution opens in its own tab by design (it's the Tier-2 tool) — pre-open it to avoid fumbling.
+- Ticket Evolution opens in its own tab by design (it's the Tier-2 tool, with its own demo sign-in and a Tier-2-only sidebar) — pre-open it and sign in to avoid fumbling.
 - Tell the audience these are real screens from the product, not mockups.
 - If presenting slides only (no live app), the screenshots carry the full story.
 -->
@@ -375,9 +375,9 @@ PRESENTER SCRIPT — Ticket Queue (1.5 min)
 What to say: "This is where a labeler spends their day — and where the AI earns its trust."
 What to click:
 - Select the first ticket in the list. The right panel shows the ticket, then the AI's suggestion.
-- Point at the big prediction: 'Application Support · 84%' and the top-3 bars. "The AI is 84% confident, and here are its next two guesses."
-- 'Get AI Suggestion' re-runs the model if needed; 'Confirm' accepts it (keyboard: c); 'Reassign to…' lets you override.
-- Confidence colour-codes: green ≥80%, amber ≥50%, red below — the labeler instantly sees when to look closer.
+- Point at the ranked suggestions and their confidence percentages. "The top team is selected, and the runner-up is available if it fits better."
+- 'Get AI Suggestion' re-runs the model if needed. The top suggestion is pre-selected; pick another (keys 1–2) or search any team (/), then 'Assign' (↵) commits it.
+- The selected row has a distinct border and radio indicator; the summary repeats the team that Assign will save.
 Transition: "But would you trust 84% without knowing why? That's the next screen."
 -->
 
@@ -393,16 +393,16 @@ Transition: "But would you trust 84% without knowing why? That's the next screen
 |---|---|
 | **Search / Filters / Sort** | Find tickets; sort by *Newest* or *Certainty (High→Low)* |
 | **Get AI Suggestion** | Runs the model on the selected ticket |
-| **Confirm** (<kbd>c</kbd>) | Accept the AI's team as the label |
-| **Reassign to… → Reassign** (<kbd>1</kbd>–<kbd>9</kbd>) | Override with the correct team |
-| **Skip:** *I'm Tired · Difficult Ticket · I Don't Know* | Labeled feedback instead of a guess |
+| **Suggestions** (<kbd>1</kbd>–<kbd>2</kbd>) · **Another team** (<kbd>/</kbd>) | Select the AI's pick, its runner-up, or any team — nothing saves yet |
+| **Assign** (<kbd>↵</kbd>) · <kbd>Esc</kbd> to undo | Commit the selected team as the label, then move on |
+| **Tired · Difficult** flags · **Skip — I don't know** | Flag the label you assign, or skip instead of guessing |
 | **Bulk select** (<kbd>x</kbd>) · **Select all** (<kbd>Shift</kbd>+<kbd>a</kbd>) | Label many tickets at once |
 | **Break modal** | Nudges a pause — *"quality matters more than speed"* |
 
 <!--
 PRESENTER SCRIPT — Queue controls (45s)
-- The 'Skip with a reason' buttons are a highlight: instead of a bad guess, the labeler tells us *why* they skipped (tired / too hard / unsure) — that's honest signal for the model and for wellbeing analytics.
-- Bulk actions + number keys make high-volume labeling fast — show 'x' then a number if time allows.
+- Tired and Difficult are flags sent with the next assigned label. 'Skip — I don't know' moves on without guessing a team.
+- Bulk actions + keyboard selection make high-volume labeling fast — show 'x' for bulk, or '2' then Enter to assign the runner-up, if time allows.
 - The Break modal shows we care about labeler wellbeing and label quality, not just throughput.
 -->
 
@@ -451,22 +451,23 @@ Key line: "When the AI is wrong, the explanation makes it obvious — the labele
 
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| <kbd>j</kbd> / <kbd>↓</kbd> | Next ticket | | <kbd>c</kbd> | Confirm prediction |
-| <kbd>k</kbd> / <kbd>↑</kbd> | Previous ticket | | <kbd>1</kbd>–<kbd>9</kbd> | Assign to team 1–9 |
-| <kbd>x</kbd> | Toggle bulk select | | <kbd>Shift</kbd>+<kbd>a</kbd> | Select all visible |
-| <kbd>Esc</kbd> | Close / clear | | <kbd>?</kbd> | Show shortcuts |
+| <kbd>j</kbd> / <kbd>↓</kbd> | Next ticket | | <kbd>1</kbd> / <kbd>2</kbd> | Select suggestion 1 / 2 |
+| <kbd>k</kbd> / <kbd>↑</kbd> | Previous ticket | | <kbd>/</kbd> | Search all teams |
+| <kbd>x</kbd> | Toggle bulk select | | <kbd>↵</kbd> | Assign the selected team |
+| <kbd>Shift</kbd>+<kbd>a</kbd> | Select all visible | | <kbd>?</kbd> | Show shortcuts |
+| <kbd>Esc</kbd> | Undo a changed team, then close / clear | | | |
 
 *A trained labeler never leaves the keyboard — read, decide, next.*
 
 <!--
 PRESENTER SCRIPT — Shortcuts (20s)
 - Optional slide; great for an operations audience worried about speed.
-- "Confirm-and-next is a single keystroke; the whole queue can be cleared without touching the mouse."
+- "Switching teams never saves by itself. Enter commits the current selection; 2 then Enter takes the runner-up."
 -->
 
 ---
 
-<span class="step">Step 4 · Confirm or correct</span>
+<span class="step">Step 4 · Assign or correct</span>
 
 ## The learning loop — *Human feedback*
 
@@ -509,7 +510,7 @@ PRESENTER SCRIPT — Learning loop (45s)
 </div>
 <div>
 
-**Flow:** The same queue **without AI** — pick the team from a dropdown and **Confirm**. Used to gather the first labels before the model is trained, or to check the model against unaided human judgment.
+**Flow:** The same queue **without AI** — search for the team and **Assign** it. Used to gather the first labels before the model is trained, or to check the model against unaided human judgment.
 
 </div>
 </div>
@@ -517,9 +518,9 @@ PRESENTER SCRIPT — Learning loop (45s)
 <!--
 PRESENTER SCRIPT — Manual Queue (40s)
 What to say: "Before the AI knows anything, we need a few honest human labels — that's the Manual Queue."
-- No predictions, no explanations — just the ticket, a 'Select team…' dropdown, and 'Confirm'.
+- No predictions, no explanations — just the ticket, a team search, and 'Assign'.
 - Two uses: (1) bootstrap the very first training data, (2) audit — hide the AI to measure unaided human accuracy as a baseline.
-- Same keyboard shortcuts as the AI queue.
+- Same keyboard shortcuts as the AI queue, minus the suggestion keys: / to search, Enter to assign.
 -->
 
 ---
@@ -725,7 +726,7 @@ PRESENTER SCRIPT — Targets (30s)
 
 1. **Login** → **Home**: point at System Status (API, projects, models).
 2. **New Project**: pick *AI Model* + *Labeling Strategy* → *Load from Data* → **Create Project**.
-3. **Ticket Queue**: select a ticket → read **84%** suggestion → open **Why this suggestion?** → **Confirm** (<kbd>c</kbd>) one, **Reassign** another.
+3. **Ticket Queue**: select a ticket → read **84%** suggestion → open **Why this suggestion?** → **Assign** (<kbd>↵</kbd>) the AI's pick on one; search another team (<kbd>/</kbd>) and **Assign** on the next.
 4. **Ticket Evolution** *(new tab)*: pick or enter a ticket → **Generate solution** → review the draft + precedents → **Send to {team}** → **Resolve next queued ticket**.
 5. **Performance**: walk the scorecards → **Export** a snapshot.
 

@@ -8,6 +8,8 @@ export type KeyboardShortcut = {
   ctrl?: boolean
   shift?: boolean
   alt?: boolean
+  // Optional guard; when it returns false the key is left to the browser
+  when?: (event: KeyboardEvent) => boolean
   // Category for grouping in help modal
   category?: 'navigation' | 'actions' | 'bulk' | 'general'
 }
@@ -19,6 +21,28 @@ export interface UseKeyboardNavigationOptions {
   onNavigate?: (direction: 'next' | 'prev') => void
   /** Callback for action keys */
   onAction?: (action: string) => void
+}
+
+// Number keys 1..N stage the matching ranked model suggestion.
+export const SUGGESTION_SHORTCUT_COUNT = 2
+
+// Inputs that don't take typed text, so shortcuts stay live while they're focused.
+const NON_TEXT_INPUT_TYPES = new Set(['radio', 'checkbox', 'button', 'submit', 'reset'])
+
+// True when no control claims a bare key like Enter: nothing is focused, or
+// focus rests on the current item of a list (e.g. the open ticket row).
+function canCommitFromKeyboard(event: KeyboardEvent) {
+  if (event.repeat) return false
+  const activeElement = document.activeElement
+  if (!activeElement || activeElement === document.body) return true
+  return activeElement.getAttribute('aria-current') === 'true'
+}
+
+// Digits and symbols need Shift on many keyboard layouts (e.g. "/" and "?" on
+// German QWERTZ), so only letters are matched against the Shift modifier.
+function matchesShift(shortcut: KeyboardShortcut, event: KeyboardEvent) {
+  const isLetter = /^[a-z]$/i.test(shortcut.key)
+  return !isLetter && shortcut.key.length === 1 ? true : !!shortcut.shift === event.shiftKey
 }
 
 // Global enabled state that can be toggled from settings
@@ -52,8 +76,10 @@ export function useKeyboardNavigation(options: UseKeyboardNavigationOptions = {}
     const activeElement = document.activeElement
     if (!activeElement) return false
     const tagName = activeElement.tagName.toLowerCase()
+    if (tagName === 'input') {
+      return !NON_TEXT_INPUT_TYPES.has((activeElement as HTMLInputElement).type)
+    }
     return (
-      tagName === 'input' ||
       tagName === 'textarea' ||
       tagName === 'select' ||
       activeElement.getAttribute('contenteditable') === 'true'
@@ -61,17 +87,18 @@ export function useKeyboardNavigation(options: UseKeyboardNavigationOptions = {}
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    // Skip if disabled or in input
-    if (!isEnabled.value || isInInput()) return
+    // Skip if disabled, in input, or a focused control already handled the key
+    if (!isEnabled.value || isInInput() || event.defaultPrevented) return
 
     // Find matching shortcut
     for (const shortcut of shortcuts.value) {
       const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase()
       const ctrlMatch = !!shortcut.ctrl === (event.ctrlKey || event.metaKey)
-      const shiftMatch = !!shortcut.shift === event.shiftKey
+      const shiftMatch = matchesShift(shortcut, event)
       const altMatch = !!shortcut.alt === event.altKey
 
       if (keyMatch && ctrlMatch && shiftMatch && altMatch) {
+        if (shortcut.when && !shortcut.when(event)) return
         event.preventDefault()
         shortcut.action()
         return
@@ -115,11 +142,12 @@ export function useKeyboardNavigation(options: UseKeyboardNavigationOptions = {}
     onPrev?: () => void
     onOpen?: () => void
     onClose?: () => void
-    onConfirm?: () => void
     onToggleBulk?: () => void
     onSelectAll?: () => void
     onHelp?: () => void
-    onTeamAssign?: (teamIndex: number) => void
+    onSelectChoice?: (rank: number) => void
+    onFocusTeamSearch?: () => void
+    onCommit?: () => void
   }) {
     if (handlers.onNext) {
       registerShortcut({
@@ -175,15 +203,6 @@ export function useKeyboardNavigation(options: UseKeyboardNavigationOptions = {}
       })
     }
 
-    if (handlers.onConfirm) {
-      registerShortcut({
-        key: 'c',
-        description: 'Confirm prediction',
-        category: 'actions',
-        action: handlers.onConfirm,
-      })
-    }
-
     if (handlers.onToggleBulk) {
       registerShortcut({
         key: 'x',
@@ -212,16 +231,36 @@ export function useKeyboardNavigation(options: UseKeyboardNavigationOptions = {}
       })
     }
 
-    // Team assignment shortcuts (1-9)
-    if (handlers.onTeamAssign) {
-      for (let i = 1; i <= 9; i++) {
+    // Team decision: stage a choice first, then commit it explicitly.
+    const { onSelectChoice, onFocusTeamSearch, onCommit } = handlers
+    if (onSelectChoice) {
+      for (let rank = 1; rank <= SUGGESTION_SHORTCUT_COUNT; rank++) {
         registerShortcut({
-          key: String(i),
-          description: `Assign to team ${i}`,
+          key: String(rank),
+          description: `Select suggestion ${rank}`,
           category: 'actions',
-          action: () => handlers.onTeamAssign!(i - 1),
+          action: () => onSelectChoice(rank),
         })
       }
+    }
+
+    if (onFocusTeamSearch) {
+      registerShortcut({
+        key: '/',
+        description: 'Search all teams',
+        category: 'actions',
+        action: onFocusTeamSearch,
+      })
+    }
+
+    if (onCommit) {
+      registerShortcut({
+        key: 'Enter',
+        description: 'Assign the selected team',
+        category: 'actions',
+        action: onCommit,
+        when: canCommitFromKeyboard,
+      })
     }
   }
 

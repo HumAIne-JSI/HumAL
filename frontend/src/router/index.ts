@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import type { Component } from 'vue'
 import {
   Home,
@@ -48,7 +48,19 @@ const routes = [
     path: '/ticket-resolution',
     name: 'ticket-resolution',
     component: () => import('../pages/TicketResolution.vue'),
-      meta: { label: 'Specialist Resolution Workspace', icon: MessageSquareText, showInNav: true, newTab: true, standalone: true }
+      meta: { label: 'Specialist Resolution Workspace', icon: MessageSquareText, showInNav: true, newTab: true, specialistNav: true, app: 'specialist' }
+  },
+  {
+    path: '/ticket-resolution/performance',
+    name: 'specialist-performance',
+    component: () => import('../pages/Analytics.vue'),
+    meta: { label: 'Performance', icon: BarChart3, specialistNav: true, app: 'specialist' }
+  },
+  {
+    path: '/ticket-resolution/login',
+    name: 'specialist-login',
+    component: () => import('../pages/SpecialistLogin.vue'),
+    meta: { label: 'Specialist sign in', hideSidebar: true, app: 'specialist' }
   },
   {
     path: '/analytics',
@@ -91,14 +103,37 @@ export const navItems: NavItem[] = routes
     newTab: route.meta.newTab as boolean | undefined
   }))
 
+// Sidebar entries of the Tier 2 workspace, which has its own app shell: its links stay in the tab.
+export const specialistNavItems: NavItem[] = routes
+  .filter(route => route.meta?.specialistNav)
+  .map(route => ({
+    path: route.path,
+    label: route.meta.label as string,
+    icon: route.meta.icon as NavItem['icon']
+  }))
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 
+// The Tier 2 workspace is a separate app with its own mock session: the main app's JWT
+// neither grants nor blocks access to it.
+async function guardSpecialistRoute(to: RouteLocationNormalized) {
+  const { useSpecialistAuthStore } = await import('@/stores/useSpecialistAuthStore')
+  const session = useSpecialistAuthStore()
+  if (to.name === 'specialist-login') {
+    return session.isAuthenticated ? { name: 'ticket-resolution' } : true
+  }
+  return session.isAuthenticated
+    ? true
+    : { name: 'specialist-login', query: { redirect: to.fullPath } }
+}
+
 // Auth guard: redirect unauthenticated users to /login (preserving the target).
 // Public routes (e.g. the login page itself) are always allowed.
 router.beforeEach(async (to) => {
+  if (to.meta?.app === 'specialist') return guardSpecialistRoute(to)
   const { useAuthStore } = await import('@/stores/useAuthStore')
   const authStore = useAuthStore()
   if (to.meta?.public) {

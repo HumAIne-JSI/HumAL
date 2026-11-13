@@ -69,12 +69,14 @@ const context = await browser.newContext({
   deviceScaleFactor: 2,
 })
 
-// Seed auth + mock mode into localStorage before any app code runs.
+// Seed auth + mock mode into storage before any app code runs. The Tier 2 workspace
+// (/ticket-resolution) has its own mock session, kept in sessionStorage.
 await context.addInitScript(
   ([token, user]) => {
     localStorage.setItem('humal-auth-token', token)
     localStorage.setItem('humal-auth-user', user)
     localStorage.setItem('humal-mock-mode', 'true')
+    sessionStorage.setItem('humal-specialist-session', 'specialist')
   },
   [TOKEN, USER],
 )
