@@ -19,7 +19,7 @@
         </button>
       </div>
 
-      <div v-if="!isCollapsed" class="sidebar__instance">
+      <div v-if="!isCollapsed && !hasFocusLimit" class="sidebar__instance">
         <label class="sidebar__instance-label">Active Project</label>
         <InstanceSelector
           :model-value="String(instanceStore.selectedInstanceId || '')"
@@ -30,7 +30,7 @@
       </div>
 
       <nav class="sidebar__nav">
-        <template v-for="item in navItems" :key="item.path">
+        <template v-for="item in visibleNavItems" :key="item.path">
           <a
             v-if="item.newTab"
             :href="resolveHref(item.path)"
@@ -56,7 +56,7 @@
         </template>
       </nav>
 
-      <div v-if="!isCollapsed" class="sidebar__footer">
+      <div v-if="!isCollapsed && !hasFocusLimit" class="sidebar__footer">
         <button type="button" class="sidebar__tour" @click="tutorialStore.runChain()">
           <Play class="sidebar__tour-icon" />
           <span>Tour guide</span>
@@ -95,6 +95,20 @@ const authStore = useAuthStore()
 const tutorialStore = useTutorialStore()
 
 const accountLabel = computed(() => authStore.user?.username || 'System user')
+
+// Synthetic (LLM-agent) sessions pass ?focus=manual|queue. Gate strictly on
+// route.query.focus — any other value or absent = today's behavior.
+const focusLabel = computed(() =>
+  route.query.focus === 'manual'
+    ? 'Manual Queue'
+    : route.query.focus === 'queue'
+      ? 'Ticket Queue'
+      : null,
+)
+const hasFocusLimit = computed(() => focusLabel.value !== null)
+const visibleNavItems = computed(() =>
+  focusLabel.value ? navItems.filter((item) => item.label === focusLabel.value) : navItems,
+)
 
 const handleLogout = () => {
   authStore.logout()

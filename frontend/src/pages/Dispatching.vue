@@ -62,6 +62,8 @@ const selectedInstanceId = computed({
   get: () => instanceStore.selectedInstanceId,
   set: (value: number) => instanceStore.setInstance(value)
 })
+// Synthetic sessions (?focus=manual|queue) hide I'm Tired; humans unchanged.
+const hasFocusLimit = computed(() => route.query.focus === 'manual' || route.query.focus === 'queue')
 
 // Initialize from route query
 onMounted(() => {
@@ -616,6 +618,7 @@ const handleLabelerFeedback = async (type: LabelerFeedbackType) => {
                 <span class="labeling-actions__label">Tired/Difficult feedback (label required):</span>
                 <div class="labeling-actions__feedback-row">
                   <Button
+                    v-if="!hasFocusLimit"
                     :variant="isTired ? 'secondary' : 'ghost'"
                     size="sm"
                     :disabled="labelMutation.isPending.value"

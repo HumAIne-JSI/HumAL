@@ -8,7 +8,7 @@
     <main class="app-layout__main">
       <router-view />
     </main>
-<ExperimentTimer class="app-layout__timer" />
+<ExperimentTimer v-if="!hasFocusLimit" class="app-layout__timer" />
     <Toaster position="bottom-right" :duration="3000" rich-colors close-button />
     <TutorialHost />
   </div>
@@ -33,6 +33,8 @@ useMockModeStore()
 const route = useRoute()
 const isStandalone = computed(() => Boolean(route.meta?.standalone))
 const standaloneTitle = computed(() => (route.meta?.label as string) || 'Workspace')
+// Synthetic sessions (?focus=manual|queue) hide the timer; humans unchanged.
+const hasFocusLimit = computed(() => route.query.focus === 'manual' || route.query.focus === 'queue')
 </script>
 
 <style lang="scss">

@@ -16,6 +16,7 @@ import {
   useNearestTicketsPerClassMutation,
 } from '@/composables/api/useXai'
 import { useCapabilities } from '@/composables/api/useConfig'
+import { useRoute } from 'vue-router'
 import { useMockModeStore } from '@/stores/useMockModeStore'
 import { useBenchmarkTelemetry } from '@/composables/useBenchmarkTelemetry'
 import { apiService } from '@/services/api'
@@ -84,6 +85,9 @@ const emit = defineEmits<{
 
 const mockStore = useMockModeStore()
 const telemetry = useBenchmarkTelemetry()
+const route = useRoute()
+// Synthetic sessions (?focus=manual|queue) hide Tired; humans unchanged.
+const hasFocusLimit = computed(() => route.query.focus === 'manual' || route.query.focus === 'queue')
 
 // Prediction state
 const prediction = ref<InferenceResponse | null>(null)
@@ -993,6 +997,7 @@ defineExpose({
                     <span class="detail-panel__decision-heading">Tired/Difficult feedback</span>
                     <div class="detail-panel__feedback-row">
                       <Button
+                        v-if="!hasFocusLimit"
                         :variant="props.isTired ? 'secondary' : 'ghost'"
                         size="sm"
                         :disabled="feedbackPending"

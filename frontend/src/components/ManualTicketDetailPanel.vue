@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Select from '@/components/ui/Select.vue'
@@ -41,6 +42,9 @@ const emit = defineEmits<{
 const selectedTeam = ref<string>('')
 const showLabeledFlash = ref(false)
 const labeledTeamName = ref('')
+const route = useRoute()
+// Synthetic sessions (?focus=manual|queue) hide Tired; humans unchanged.
+const hasFocusLimit = computed(() => route.query.focus === 'manual' || route.query.focus === 'queue')
 
 const teamOptions = computed(() => {
   if (!props.teams?.length) return []
@@ -143,6 +147,7 @@ watch(
           <span class="manual-detail__feedback-label">Tired/Difficult feedback (label required):</span>
           <div class="manual-detail__feedback-row">
             <Button
+              v-if="!hasFocusLimit"
               :variant="props.isTired ? 'secondary' : 'ghost'"
               size="sm"
               :disabled="feedbackPending"
